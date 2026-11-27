@@ -20,11 +20,12 @@ jobs:
   protocol:
     name: ${{ matrix.targets == 'integration' && 'Rust integration targets' ||
       matrix.targets == 'integration-extra' && 'Rust integration targets (second shard)' ||
-      matrix.targets == 'model-unit' && 'Rust model unit tests' || 'protocol' }}
+      matrix.targets == 'model-unit' && 'Rust model unit tests' ||
+      matrix.targets == 'schema-identity' && 'Rust schema and identity tests' || 'protocol' }}
     strategy:
       fail-fast: false
       matrix:
-        targets: ${{ fromJSON(inputs.split_rust_targets && '["unit","model-unit","integration","integration-extra"]' || '["all"]') }}
+        targets: ${{ fromJSON(inputs.split_rust_targets && '["unit","model-unit","schema-identity","integration","integration-extra"]' || '["all"]') }}
     runs-on: ubuntu-24.04
     # Budget for cold builds, serial real PostgreSQL tests, and the following
     # payment, Go, and RPC checks while keeping the complete job bounded.
@@ -248,11 +249,13 @@ jobs:
               run_tests --all-targets -- ;;
             unit)
               status=0
-              run_tests --lib -- --skip model_http:: || status=$?
+              run_tests --lib -- --skip model_http:: --skip core_schema:: --skip identity:: || status=$?
               run_tests --bins --examples --benches -- || status=$?
               exit "$status" ;;
             model-unit)
               run_tests --lib -- model_http:: ;;
+            schema-identity)
+              run_tests --lib -- core_schema:: identity:: --skip model_http:: ;;
             integration|integration-extra)
               shard=0
               if [[ "$RUST_TARGET_GROUP" == integration-extra ]]; then shard=1; fi

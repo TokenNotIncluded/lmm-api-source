@@ -500,7 +500,7 @@ test('automatic Core checks partition every Rust target across independent runne
   const source = workflow('core-protocol');
   assert.match(workflow('ci'), /uses: \.\/\.github\/workflows\/core-protocol\.yml\n    with:\n      split_rust_targets: true/);
   assert.match(source, /split_rust_targets:[\s\S]*?type: boolean\n        default: false/);
-  assert.match(source, /fail-fast: false\n      matrix:\n        targets: .*inputs\.split_rust_targets && '\["unit","model-unit","integration","integration-extra"\]' \|\| '\["all"\]'/);
+  assert.match(source, /fail-fast: false\n      matrix:\n        targets: .*inputs\.split_rust_targets && '\["unit","model-unit","schema-identity","integration","integration-extra"\]' \|\| '\["all"\]'/);
   assert.ok(source.includes('RUST_TARGET_GROUP: ${{ matrix.targets }}'));
   assert.match(source, /timeout-minutes: 150/);
   assert.doesNotMatch(source, /continue-on-error:/);
@@ -523,8 +523,12 @@ test('automatic Core checks partition every Rust target across independent runne
   }
   const runner = 'test --locked --no-fail-fast ';
   assert.deepEqual(calls('all'), [runner + '--all-targets --']);
-  assert.deepEqual(calls('unit'), [runner + '--lib -- --skip model_http::', runner + '--bins --examples --benches --']);
+  assert.deepEqual(calls('unit'), [
+    runner + '--lib -- --skip model_http:: --skip core_schema:: --skip identity::',
+    runner + '--bins --examples --benches --',
+  ]);
   assert.deepEqual(calls('model-unit'), [runner + '--lib -- model_http::']);
+  assert.deepEqual(calls('schema-identity'), [runner + '--lib -- core_schema:: identity:: --skip model_http::']);
   assert.deepEqual(calls('integration'), [runner + '--test alpha --test delta --test gamma --']);
   assert.deepEqual(calls('integration-extra'), [runner + '--test beta --test epsilon --']);
   assert.throws(() => calls('unknown'), { status: 1 });
