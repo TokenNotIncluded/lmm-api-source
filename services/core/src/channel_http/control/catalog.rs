@@ -660,15 +660,34 @@ pub(in crate::channel_http) async fn save_pending(
     ))
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(in crate::channel_http) struct SynchronizeInput {
+    expected_version: Version,
+    expected_models: Option<BTreeSet<String>>,
+    reason: Option<super::configuration::PublicationReason>,
+}
+
 pub(in crate::channel_http) async fn synchronize_models(
     State(state): State<ChannelState>,
     headers: HeaderMap,
     Path(id): Path<u64>,
-    Json(input): Json<DeleteInput>,
+    Json(input): Json<SynchronizeInput>,
 ) -> Result<Json<Value>, Failure> {
     // No lock/transaction survives the remote request. Reauthenticate and CAS
     // afterward; a changed endpoint cannot publish an old provider's discovery.
     let discovery = super::channel_probe(&state, &headers, id).await?;
+    let observed_models: BTreeSet<_> = discovery.models.iter().cloned().collect();
+    if input.reason.is_some() != input.expected_models.is_some() {
+        return Err(ManagementError::Invalid.into());
+    }
+    if input
+        .expected_models
+        .as_ref()
+        .is_some_and(|expected| expected != &observed_models)
+    {
+        return Err(ManagementError::Conflict.into());
+    }
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
     let _guard = management.publication.lock().await;
     let (mut tx, principal) = management
@@ -685,6 +704,12 @@ pub(in crate::channel_http) async fn synchronize_models(
             .await
             .map_err(ManagementError::from)?;
     let mut bindings = management.current_bindings()?;
+    let previous_models: BTreeSet<_> = bindings
+        .discoveries
+        .get(&id)
+        .into_iter()
+        .flat_map(|row| row.models.iter().cloned())
+        .collect();
     let pending_models = bindings
         .discoveries
         .remove(&id)
@@ -709,7 +734,7 @@ pub(in crate::channel_http) async fn synchronize_models(
             Vec::new(),
             super::PublicationChange::Normal {
                 action: "channel.models.synchronize",
-                target: json!({"id":id,"model_count":count}),
+                target: json!({"id":id,"model_count":count,"reason":input.reason,"added":observed_models.difference(&previous_models).collect::<Vec<_>>(),"removed":previous_models.difference(&observed_models).collect::<Vec<_>>()}),
             },
         )
         .await?;

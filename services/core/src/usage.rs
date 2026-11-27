@@ -99,6 +99,7 @@ struct UsageQuery {
     channel: Option<i64>,
     upstream_request_id: Option<String>,
     status: Option<String>,
+    http_status: Option<u16>,
     request_result: Option<String>,
     settlement_status: Option<String>,
     min_duration_ms: Option<f64>,
@@ -155,6 +156,9 @@ impl UsageQuery {
                 .request_result
                 .as_deref()
                 .is_some_and(|value| !matches!(value, "success" | "error" | "disconnected"))
+            || self
+                .http_status
+                .is_some_and(|code| !(100..=599).contains(&code))
             || self.settlement_status.as_deref().is_some_and(|value| {
                 !matches!(value, "pending" | "settled" | "released" | "refunded")
             })
@@ -206,6 +210,9 @@ impl UsageQuery {
             _ => true,
         };
         status
+            && self
+                .http_status
+                .is_none_or(|code| details.status_code(request) == Some(code))
             && self
                 .request_result
                 .as_deref()
@@ -708,6 +715,7 @@ impl UsageStore {
                 || q.channel.is_some()
                 || q.upstream_request_id.is_some()
                 || q.status.is_some()
+                || q.http_status.is_some()
                 || q.request_result.is_some()
                 || q.settlement_status.is_some()
                 || q.min_duration_ms.is_some()
@@ -927,6 +935,7 @@ impl UsageStore {
                     && q.request_id.as_deref().unwrap_or_default().is_empty()
                     && matches!(q.r#type.unwrap_or(0), 0 | 2)
                     && q.status.as_deref().unwrap_or_default().is_empty()
+                    && q.http_status.is_none()
                     && q.request_result.is_none()
                     && q.settlement_status.is_none()
                     && q.channel.unwrap_or(0) == 0

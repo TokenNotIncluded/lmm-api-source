@@ -42,6 +42,7 @@ import {
   Server,
   ServerCog,
   Settings,
+  Terminal,
   Ticket,
   User,
   Users,
@@ -204,6 +205,12 @@ export function useSidebarData(): SidebarData {
             title: t('Channels'),
             url: '/channels',
             icon: Radio,
+          },
+          {
+            title: t('Management terminal'),
+            url: '/operations/terminal',
+            icon: Terminal,
+            requiredRole: ROLE.ADMIN,
           },
           {
             title: t('Version updates'),

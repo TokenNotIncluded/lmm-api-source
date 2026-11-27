@@ -188,6 +188,15 @@ fn valid_note(note: &str) -> bool {
             .any(|c| c.is_control() && c != '\n' && c != '\t')
 }
 
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(in crate::channel_http) enum PublicationReason {
+    CatalogRefresh,
+    MissingPrice,
+    ProtocolCorrection,
+    OperatorReview,
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(in crate::channel_http) struct ConfigurationInput {
@@ -197,6 +206,7 @@ pub(in crate::channel_http) struct ConfigurationInput {
     bindings: Bindings,
     #[serde(default)]
     confirmation_digest: Option<String>,
+    reason: Option<PublicationReason>,
 }
 impl ConfigurationInput {
     fn prepare(
@@ -300,7 +310,12 @@ impl ConfigurationInput {
             &self.bindings,
         ))
         .map_err(|_| ManagementError::Invalid)?;
-        Ok(crate::hex_codec::encode(Sha256::digest(value)))
+        let mut digest = Sha256::new();
+        digest.update(value);
+        if let Some(reason) = self.reason {
+            digest.update(serde_json::to_vec(&reason).map_err(|_| ManagementError::Invalid)?);
+        }
+        Ok(crate::hex_codec::encode(digest.finalize()))
     }
 }
 pub(in crate::channel_http) async fn read(
@@ -388,6 +403,74 @@ pub(in crate::channel_http) async fn publish(
     if input.confirmation_digest.as_deref() != Some(digest.as_str()) {
         return Err(ManagementError::Invalid.into());
     }
+    let mut audit = json!({"confirmation_digest":digest});
+    if let Some(reason) = input.reason {
+        let before = management
+            .routing
+            .catalog_document()
+            .map_err(|_| ManagementError::Storage)?;
+        let old_protocols: BTreeMap<_, _> = before
+            .routing
+            .upstreams
+            .iter()
+            .map(|u| (u.id, u.protocol))
+            .collect();
+        let old_prices: BTreeMap<_, _> = before.pricing.rules.iter().map(|r| (r.id, r)).collect();
+        let new_prices: BTreeMap<_, _> = document.pricing.rules.iter().map(|r| (r.id, r)).collect();
+        let ids: BTreeSet<_> = old_prices
+            .keys()
+            .chain(new_prices.keys())
+            .copied()
+            .collect();
+        let old_bindings = management.current_bindings()?;
+        let empty = BTreeMap::new();
+        let old_models = old_bindings
+            .official_prices
+            .as_ref()
+            .map_or(&empty, |o| &o.models);
+        let new_models = input
+            .bindings
+            .official_prices
+            .as_ref()
+            .map_or(&empty, |o| &o.models);
+        let models: BTreeSet<_> = old_models.keys().chain(new_models.keys()).collect();
+        let rate_fields = |price: &super::official_prices::OfficialPrice| {
+            let mut value = json!(price);
+            // Free-text source notes do not belong in the audit projection.
+            if let Some(fields) = value.as_object_mut() {
+                fields.remove("source");
+                fields.remove("source_unit");
+            }
+            value
+        };
+        audit["official_price_changes"] = json!(models.into_iter().filter_map(|model| {
+            let old = old_models.get(model);
+            let new = new_models.get(model);
+            (old != new).then(|| json!({"model":model,"before":old.map(rate_fields),"after":new.map(rate_fields)}))
+        }).collect::<Vec<_>>());
+        audit["reason"] = json!(reason);
+        audit["protocol_changes"] = json!(
+            document
+                .routing
+                .upstreams
+                .iter()
+                .filter_map(|u| {
+                    let old = old_protocols.get(&u.id)?;
+                    (*old != u.protocol)
+                        .then(|| json!({"channel":u.id,"before":old,"after":u.protocol}))
+                })
+                .collect::<Vec<_>>()
+        );
+        audit["price_changes"] = json!(
+            ids.into_iter()
+                .filter_map(|id| {
+                    let old = old_prices.get(&id);
+                    let new = new_prices.get(&id);
+                    (old != new).then(|| json!({"id":id,"before":old,"after":new}))
+                })
+                .collect::<Vec<_>>()
+        );
+    }
     let version = management
         .publish_bindings(
             tx,
@@ -398,7 +481,7 @@ pub(in crate::channel_http) async fn publish(
             Vec::new(),
             PublicationChange::Normal {
                 action: "channel.configuration.publish",
-                target: json!({"confirmation_digest":digest}),
+                target: audit,
             },
         )
         .await?;

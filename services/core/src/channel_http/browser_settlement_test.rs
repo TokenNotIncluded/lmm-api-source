@@ -232,6 +232,22 @@ async fn browser_onboarding_wallet(pool: PgPool) {
         String::from_utf8_lossy(&output.stderr)
     );
     let mut proof: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let terminal = &proof["terminal"];
+    let audited: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core_identity.audit WHERE actor_user_id=8 AND action='channel.configuration.publish' AND target->'change'->>'reason'='missing-price' AND target->'change'->>'confirmation_digest'=$1",
+    )
+    .bind(terminal["confirmation_digest"].as_str().unwrap())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(audited, 1);
+    let synced: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core_identity.audit WHERE actor_user_id=8 AND action='channel.models.synchronize' AND target->'change'->>'reason'='catalog-refresh'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(synced, 2);
     let payment = &proof["payment"];
     let id = payment["request_id"].as_str().unwrap();
     let key_id = payment["key_id"].as_i64().unwrap();

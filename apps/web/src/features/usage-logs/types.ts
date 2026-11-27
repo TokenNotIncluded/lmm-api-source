@@ -393,6 +393,7 @@ export interface GetLogsParams {
   end_timestamp?: number
   channel?: number
   group?: string
+  http_status?: number
   request_id?: string
   upstream_request_id?: string
   status?: 'success' | 'error' | 'pending' | 'refunded'

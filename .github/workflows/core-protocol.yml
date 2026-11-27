@@ -560,6 +560,9 @@ jobs:
             cd apps/web
             status=0
             for spec in \
+              src/features/admin-terminal/commands.test.ts \
+              src/features/admin-terminal/operations.test.ts \
+              src/features/dashboard/components/overview/admin-site-statistics.test.tsx \
               src/features/channels/components/native-routing-management.test.tsx \
               src/features/system-settings/billing/official-price-editor.test.tsx \
               src/features/system-settings/billing/official-batch-price-review.test.ts \

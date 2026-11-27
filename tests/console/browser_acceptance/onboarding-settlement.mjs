@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Invoked by the SQLx fixture. Business requests always go to its real Core listener.
 import assert from 'node:assert/strict'
+import { checkTerminalLog, exerciseTerminal } from './terminal-acceptance.mjs'
 import http from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { extname, resolve, sep } from 'node:path'
@@ -198,9 +199,11 @@ await new Promise((ok, fail) => front.once('error', fail).listen(41781, '127.0.0
 let browser
 try {
   browser = await chromium.launch({ headless: true })
+  const terminal = await exerciseTerminal(browser,session,request)
   const publication = await onboard(browser)
   const payment = await settle(browser)
-  process.stdout.write(JSON.stringify({ publication, payment }))
+  terminal.log = await checkTerminalLog(browser,session,payment.request_id)
+  process.stdout.write(JSON.stringify({ publication, payment, terminal }))
 } finally {
   await browser?.close()
   front.closeAllConnections()
