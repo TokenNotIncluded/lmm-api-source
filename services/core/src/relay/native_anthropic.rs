@@ -86,8 +86,8 @@ fn output_effort(config: &Value) -> Result<&'static str, RelayError> {
     keys(config, "output_config", &["effort"])?;
     let invalid = || RelayError::Invalid("invalid Anthropic output effort");
     let value = config["effort"].as_str().ok_or_else(invalid)?;
-    let wire = serde_json::to_vec(&json!({"output_config":{"effort":value}}))
-        .map_err(|_| invalid())?;
+    let wire =
+        serde_json::to_vec(&json!({"output_config":{"effort":value}})).map_err(|_| invalid())?;
     let mut tokens = [zconv::json::Token::EMPTY; 16];
     let controls = zconv::json::parse(&wire, &mut tokens, zconv::json::Limits::default())
         .map_err(|_| invalid())?;

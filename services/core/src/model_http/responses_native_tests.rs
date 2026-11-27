@@ -523,7 +523,11 @@ async fn compact_pg_sse_tools_stream_live_and_terminal_waits_for_real_settlement
     let mut wire = String::from_utf8(first.to_vec()).unwrap();
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         while !wire.contains("live delta") {
-            let chunk = body.next().await.expect("SSE ended before content").unwrap();
+            let chunk = body
+                .next()
+                .await
+                .expect("SSE ended before content")
+                .unwrap();
             wire.push_str(std::str::from_utf8(&chunk).unwrap());
         }
     })
