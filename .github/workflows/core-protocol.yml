@@ -173,14 +173,20 @@ jobs:
             cargo test --locked --no-run "${targets[@]}"
             exit 0
           fi
-          if [[ "$RUST_TARGET_GROUP" == model-unit || "$RUST_TARGET_GROUP" == model-responses ]]; then
+          if [[ "$RUST_TARGET_GROUP" == model-unit || "$RUST_TARGET_GROUP" == model-responses || "$RUST_TARGET_GROUP" == schema-identity ]]; then
             cargo build --locked --bin lmm-core
             cargo test --locked --lib --no-run
             exit 0
           fi
           cargo clippy --locked --all-targets -- -D warnings
-          cargo test --locked --all-targets --no-run --message-format=json > "$RUNNER_TEMP/core-test-artifacts.jsonl"
-          if [[ "$RUST_TARGET_GROUP" != all && "$RUST_TARGET_GROUP" != unit ]]; then exit 0; fi
+          if [[ "$RUST_TARGET_GROUP" == unit ]]; then
+            # The integration shards compile their own tests. The unit lane
+            # additionally needs the commerce driver for the published receipt.
+            cargo test --locked --lib --bins --examples --benches --test commerce_process \
+              --no-run --message-format=json > "$RUNNER_TEMP/core-test-artifacts.jsonl"
+          else
+            cargo test --locked --all-targets --no-run --message-format=json > "$RUNNER_TEMP/core-test-artifacts.jsonl"
+          fi
           python3 - <<'PY'
           import hashlib, json, os, pathlib, shutil, subprocess
           root = pathlib.Path(os.environ["GITHUB_WORKSPACE"]).resolve()
