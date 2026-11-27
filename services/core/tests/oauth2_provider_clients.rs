@@ -24,8 +24,12 @@ mod pi;
 #[path = "common/runtime.rs"]
 mod runtime;
 
+#[path = "oauth2_provider_clients/codewhale.rs"]
+mod codewhale;
 #[path = "oauth2_provider_clients/opencode_v2.rs"]
 mod opencode_v2;
+#[path = "oauth2_provider_clients/provider_host.rs"]
+mod provider_host;
 
 const ISSUER: &str = "https://pi-issuer.example.test";
 
