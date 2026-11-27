@@ -90,6 +90,7 @@ import {
   NativeChannelStatisticsSummary,
 } from './native-channel-statistics'
 import {
+  defaultModelDisplayName,
   newModelTarget,
   publishedGroupMultiplier,
   readNativeModelDraft,
@@ -113,6 +114,7 @@ type Editor = {
   secret?: boolean
   readOnly?: boolean
   channelId?: number
+  fetchCatalogOnOpen?: boolean
   trigger?: HTMLButtonElement
 }
 type EditorDestination =
@@ -567,7 +569,8 @@ function NativeRoutingWorkspace({
   }
   function channelEditor(
     channel?: NativeUpstream,
-    trigger?: HTMLButtonElement
+    trigger?: HTMLButtonElement,
+    fetchCatalogOnOpen = false
   ) {
     if (!configuration) return
     const id =
@@ -595,6 +598,7 @@ function NativeRoutingWorkspace({
       path: `${NATIVE_ROOT}/channels${channel ? `/${id}` : ''}`,
       secret: !channel,
       channelId: id,
+      fetchCatalogOnOpen,
       trigger,
       document: pretty({
         expected_version: configuration.version,
@@ -664,7 +668,7 @@ function NativeRoutingWorkspace({
           },
         },
         metadata: configuration.bindings.models[id] ?? {
-          display_name: '',
+          display_name: defaultModelDisplayName(model),
           description: '',
           vendor_id: null,
         },
@@ -1093,6 +1097,7 @@ function NativeRoutingWorkspace({
             document={editor.document}
             configuration={configuration}
             disabled={busy}
+            fetchCatalogOnOpen={editor.fetchCatalogOnOpen}
             fetchModels={
               editor.method === 'PUT' && accounting.observations
                 ? () =>
@@ -1772,20 +1777,14 @@ function NativeRoutingWorkspace({
                         type='button'
                         variant='ghost'
                         className='min-h-11 px-2'
-                        title={t('Sync Upstream Models')}
-                        disabled={writeDisabled}
-                        onClick={() =>
-                          void run(() =>
-                            nativeRequest(
-                              'POST',
-                              `${NATIVE_ROOT}/channels/${channel.id}/models/synchronize`,
-                              { expected_version: configuration.version }
-                            )
-                          )
+                        title={t('Fetch Models')}
+                        disabled={writeDisabled || !accounting.observations}
+                        onClick={(event) =>
+                          channelEditor(channel, event.currentTarget, true)
                         }
                       >
                         <RefreshCw className='size-4' />
-                        <span>{t('Sync Upstream Models')}</span>
+                        <span>{t('Fetch Models')}</span>
                       </Button>
                       <Button
                         type='button'

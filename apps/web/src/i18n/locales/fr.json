@@ -3721,6 +3721,7 @@
     "Display name for this monitoring group (max 50 characters)": "Nom d'affichage pour ce groupe de surveillance (50 caractères max)",
     "Display name for this payment method.": "Nom d'affichage pour ce mode de paiement.",
     "Display name must be 1 to 20 characters": "Le nom affiché doit contenir de 1 à 20 caractères",
+    "Display name must fit within 128 UTF-8 bytes.": "Le nom affiché doit tenir dans 128 octets en UTF-8.",
     "Display name shown to users.": "Nom d'affichage affiché aux utilisateurs.",
     "Display Options": "Options d'affichage",
     "Display period": "Durée d’affichage",

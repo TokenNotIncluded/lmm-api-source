@@ -1,6 +1,13 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useMutation } from '@tanstack/react-query'
-import { useId, useMemo, useState, type ReactNode } from 'react'
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -70,6 +77,7 @@ const catalogPageSize = 50
 function ChannelModelCatalog({
   disabled,
   fetchModels,
+  fetchCatalogOnOpen,
   savedModels,
   routes,
   draft,
@@ -80,6 +88,7 @@ function ChannelModelCatalog({
 }: {
   disabled: boolean
   fetchModels?: () => Promise<string[]>
+  fetchCatalogOnOpen?: boolean
   savedModels?: readonly string[]
   routes: NativeConfiguration['routing']['routes']
   draft: NativeChannelDraft | null
@@ -98,7 +107,17 @@ function ChannelModelCatalog({
   const [mappingModel, setMappingModel] = useState('')
   const [mappingRouteId, setMappingRouteId] = useState('')
   const mappingId = useId()
+  const [keptMissing, setKeptMissing] = useState<string[]>([])
+  const catalogSection = useRef<HTMLElement>(null)
+  const fetchedOnOpen = useRef(false)
   const catalog = useMutation({ mutationFn: fetchModels })
+  const { mutate } = catalog
+  useEffect(() => {
+    if (!fetchCatalogOnOpen || !fetchModels || fetchedOnOpen.current) return
+    fetchedOnOpen.current = true
+    mutate()
+    catalogSection.current?.scrollIntoView?.({ block: 'start' })
+  }, [fetchCatalogOnOpen, fetchModels, mutate])
   const availableModels = catalog.data ?? savedModels
   const models = useMemo(() => new Set(availableModels), [availableModels])
   const attached = useMemo(
@@ -131,8 +150,17 @@ function ChannelModelCatalog({
           (item) => !models.has(item.upstream_model)
         ) ?? [])
       : []
+  const selectedMissing = missing.filter(
+    (item) => !keptMissing.includes(item.upstream_model)
+  )
+  const missingModels = [...new Set(missing.map((item) => item.upstream_model))]
+  const configuredModels = new Set(attached.values())
+  const existingCount = [...models].filter((model) =>
+    configuredModels.has(model)
+  ).length
   const removingLastModel =
-    draft?.enabled === true && missing.length === draft.attachments.length
+    draft?.enabled === true &&
+    selectedMissing.length === draft.attachments.length
   const selection = new Set(selected)
   const selectedRoutes = routes.filter(
     (route) =>
@@ -152,7 +180,7 @@ function ChannelModelCatalog({
   )
 
   return (
-    <section className='min-w-0 space-y-3'>
+    <section ref={catalogSection} className='min-w-0 space-y-3'>
       {fetchModels && (
         <Button
           type='button'
@@ -161,6 +189,7 @@ function ChannelModelCatalog({
           disabled={disabled || catalog.isPending}
           onClick={() => {
             setSelected([])
+            setKeptMissing([])
             setPage(1)
             setMappingModel('')
             setMappingRouteId('')
@@ -175,19 +204,48 @@ function ChannelModelCatalog({
           {getServerErrorMessage(catalog.error) ?? t('Failed to load data')}
         </p>
       )}
+      {catalog.isSuccess && (
+        <div className='space-y-1'>
+          <h4 className='text-sm font-medium'>{t('Preview changes')}</h4>
+          <p className='text-muted-foreground text-sm'>
+            {t('Changes are saved only with the Save button.')}
+          </p>
+          <div className='text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs tabular-nums'>
+            <span>
+              {t('New Models ({{count}})', {
+                count: models.size - existingCount,
+              })}
+            </span>
+            <span>
+              {t('Existing Models ({{count}})', { count: existingCount })}
+            </span>
+          </div>
+        </div>
+      )}
       {missing.length > 0 && (
         <div className='border-border space-y-2 rounded-md border p-3'>
           <p className='text-sm font-medium'>
             {t('Models missing from the upstream catalog')}
           </p>
           <ul className='max-h-32 space-y-1 overflow-y-auto font-mono text-xs'>
-            {[...new Set(missing.map((item) => item.upstream_model))].map(
-              (model) => (
-                <li key={model} className='break-all'>
+            {missingModels.map((model) => (
+              <li key={model}>
+                <label className='flex min-h-10 items-center gap-2 break-all'>
+                  <Checkbox
+                    checked={!keptMissing.includes(model)}
+                    disabled={disabled}
+                    onCheckedChange={(checked) =>
+                      setKeptMissing((kept) =>
+                        checked
+                          ? kept.filter((name) => name !== model)
+                          : [...kept, model]
+                      )
+                    }
+                  />
                   {model}
-                </li>
-              )
-            )}
+                </label>
+              </li>
+            ))}
           </ul>
           {removingLastModel && (
             <p className='text-muted-foreground text-xs'>
@@ -199,8 +257,10 @@ function ChannelModelCatalog({
           <Button
             type='button'
             variant='outline'
-            disabled={disabled || removingLastModel}
-            onClick={() => onRemove(missing)}
+            disabled={
+              disabled || selectedMissing.length === 0 || removingLastModel
+            }
+            onClick={() => onRemove(selectedMissing)}
           >
             {t('Remove from draft')}
           </Button>
@@ -383,6 +443,7 @@ export function NativeChannelFields({
   configuration,
   disabled,
   credential,
+  fetchCatalogOnOpen,
   fetchModels,
   onCreateModel,
   onChange,
@@ -391,11 +452,19 @@ export function NativeChannelFields({
   configuration: NativeConfiguration
   disabled: boolean
   credential?: ReactNode
+  fetchCatalogOnOpen?: boolean
   fetchModels?: () => Promise<string[]>
   onCreateModel?: (model: string) => void
   onChange: (document: string) => void
 }) {
   const { t } = useTranslation()
+  const modelFields = useRef<HTMLDetailsElement>(null)
+  function editModelBindings() {
+    if (!modelFields.current) return
+    modelFields.current.open = true
+    modelFields.current.scrollIntoView?.({ block: 'start' })
+    modelFields.current.querySelector('summary')?.focus({ preventScroll: true })
+  }
   let draft: Record<string, unknown>
   try {
     draft = parseNativeDocument(document)
@@ -561,6 +630,7 @@ export function NativeChannelFields({
         <ChannelModelCatalog
           disabled={disabled}
           fetchModels={fetchModels}
+          fetchCatalogOnOpen={fetchCatalogOnOpen}
           savedModels={savedModels}
           routes={configuration.routing.routes}
           draft={readChannelDraft(document)}
@@ -585,6 +655,7 @@ export function NativeChannelFields({
                 2
               )
             )
+            editModelBindings()
           }}
           onRemove={(attachments) => {
             const current = readChannelDraft(document)
@@ -607,6 +678,7 @@ export function NativeChannelFields({
                 2
               )
             )
+            editModelBindings()
           }}
           onApply={(routes) => {
             const current = readChannelDraft(document)
@@ -621,10 +693,12 @@ export function NativeChannelFields({
                 2
               )
             )
+            editModelBindings()
           }}
         />
       )}
       <NativeChannelModelsFields
+        ref={modelFields}
         document={document}
         configuration={configuration}
         disabled={disabled}

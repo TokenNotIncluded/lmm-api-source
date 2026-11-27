@@ -81,6 +81,14 @@ export function readNativeModelDraft(
   }
 }
 
+const displayNameEncoder = new TextEncoder()
+
+/** Keep the full route ID; the default display label has a 128-byte Core limit. */
+export function defaultModelDisplayName(model: string): string {
+  const { read } = displayNameEncoder.encodeInto(model, new Uint8Array(128))
+  return model.slice(0, read)
+}
+
 export function modelIdentity(
   draft: NativeModelDraft,
   key: 'model' | 'group',
@@ -94,6 +102,13 @@ export function modelIdentity(
   return {
     ...draft,
     route: { ...draft.route, [key]: value },
+    metadata:
+      key === 'model' &&
+      (!draft.metadata.display_name ||
+        draft.metadata.display_name ===
+          defaultModelDisplayName(draft.route.model))
+        ? { ...draft.metadata, display_name: defaultModelDisplayName(value) }
+        : draft.metadata,
     prices: draft.prices.map((price) => ({
       ...price,
       [key]: value,

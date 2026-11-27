@@ -2596,6 +2596,11 @@ test('channel bindings add, map and remove models through one reviewed channel d
   const picker = required(
     form.querySelector('section[aria-label="Available models"]')
   )
+  assert.equal(button(routeFields(1), 'Remove').disabled, true)
+  assert.match(
+    routeFields(1).textContent ?? '',
+    /Disable the channel before removing its last configured model/
+  )
   const choice = required(
     [...picker.querySelectorAll('label')]
       .find((item) => item.textContent?.includes('model-b'))
@@ -2631,8 +2636,10 @@ test('channel bindings add, map and remove models through one reviewed channel d
   await changeInput(field(routeFields(2), 'Maximum output tokens'), '2048')
   await changeInput(field(routeFields(2), 'Contract revision'), 'supplier-b-v1')
   assert.equal(required(routeFields(2).querySelector('details')).open, true)
+  assert.equal(button(routeFields(1), 'Remove').disabled, false)
   await act(async () => button(routeFields(1), 'Remove').click())
   assert.equal(form.querySelector('[data-route-id="1"]'), null)
+  assert.equal(button(routeFields(2), 'Remove').disabled, true)
   assert.equal(writes.length, 0)
   const draft = JSON.parse(textarea.value)
   assert.deepEqual(draft.expected_version, { routing: 1, pricing: 1 })
@@ -3202,6 +3209,34 @@ test('adding a model shows and previews the selected group tariff', async () => 
     control('Model name', 'input') as HTMLInputElement,
     'new-model'
   )
+  const displayName = control('Display name', 'input') as HTMLInputElement
+  assert.equal(displayName.value, 'new-model')
+  const longModel = 'x'.repeat(160)
+  await changeInput(
+    control('Model name', 'input') as HTMLInputElement,
+    longModel
+  )
+  assert.equal(displayName.value, longModel.slice(0, 128))
+  await changeInput(
+    control('Model name', 'input') as HTMLInputElement,
+    'new-model'
+  )
+  assert.equal(displayName.value, 'new-model')
+  await changeInput(displayName, '界'.repeat(43))
+  assert.equal(displayName.checkValidity(), false)
+  assert.match(displayName.validationMessage, /128 UTF-8 bytes/)
+  await changeInput(displayName, '\u0081')
+  assert.equal(displayName.checkValidity(), false)
+  await changeInput(displayName, ' ')
+  assert.equal(displayName.checkValidity(), false)
+  const customName = `${'界'.repeat(42)}é`
+  await changeInput(displayName, customName)
+  assert.equal(displayName.checkValidity(), true)
+  await changeInput(
+    control('Model name', 'input') as HTMLInputElement,
+    'new-model-2'
+  )
+  assert.equal(displayName.value, customName)
   await act(async () => button(form, 'Preview').click())
   await until(() => previews.length === 1)
   assert.equal(previews[0].route.group, 'FREE')
@@ -3739,7 +3774,7 @@ test('channel capability expiry and failed refresh preserve the draft and CAS un
   for (const label of [
     'Disable',
     'Test Connection',
-    'Sync Upstream Models',
+    'Fetch Models',
     'Delete',
     'API Keys',
   ]) {
@@ -4255,7 +4290,7 @@ test('channel override preview preserves other channels and prices and confirms 
   assert.deepEqual(changes, ['POST', 'PUT'])
 })
 
-test('fetched channels apply selected routes to the editor without publishing', async () => {
+test('fetching a channel catalog previews editable changes and only Save publishes the final draft', async () => {
   const config: NativeConfiguration = fixture()
   config.bindings.discoveries['1'] = {
     models: ['saved-only-model'],
@@ -4302,11 +4337,34 @@ test('fetched channels apply selected routes to the editor without publishing', 
     balance_units: [],
     sort_unit: null,
   }
-  let writes = 0
+  const writes: Array<{ method: string; url: string; data: unknown }> = []
+  const previews: Array<{
+    route: { model: string }
+    metadata: { display_name: string }
+  }> = []
   let catalogReads = 0
   let returnedModels = ['model-a', 'model-b', 'unpublished-model']
-  api.request = (async (options: { method: string; url: string }) => {
-    if (options.method !== 'GET') writes++
+  api.request = (async (options: {
+    method: string
+    url: string
+    data: unknown
+  }) => {
+    if (options.method === 'POST' && options.url.endsWith('/models/preview')) {
+      previews.push(
+        (options.data as { model: (typeof previews)[number] }).model
+      )
+      return {
+        data: { success: true, data: { confirmation_digest: 'a'.repeat(64) } },
+      }
+    }
+    if (options.method === 'PUT') {
+      writes.push(options)
+      config.version = { routing: 2, pricing: 1 }
+      config.routing.version = 2
+      page.config_version = 2
+      return { data: { success: true, data: { version: config.version } } }
+    }
+    assert.equal(options.method, 'GET')
     if (options.url === '/api/channel/fetch_models/1') catalogReads++
     return {
       data: {
@@ -4330,14 +4388,22 @@ test('fetched channels apply selected routes to the editor without publishing', 
     )
   )
   await act(async () => button(container, 'Edit').click())
-  const form = required(
-    container.querySelector('form[aria-label="Edit Channel"]')
+  const editForm = required(
+    container.querySelector<HTMLFormElement>('form[aria-label="Edit Channel"]')
   )
-  assert.match(form.textContent ?? '', /saved-only-model/)
+  assert.match(editForm.textContent ?? '', /saved-only-model/)
   assert.equal(catalogReads, 0)
-  assert.doesNotMatch(form.textContent ?? '', /Remove from draft/)
-  await act(async () => button(form, 'Fetch Models').click())
+  assert.doesNotMatch(editForm.textContent ?? '', /Remove from draft/)
+  await act(async () => button(editForm, 'Cancel').click())
+  await act(async () => button(container, 'Fetch Models').click())
+  const form = required(
+    container.querySelector<HTMLFormElement>('form[aria-label="Edit Channel"]')
+  )
   await until(() => form.textContent?.includes('unpublished-model') === true)
+  assert.match(form.textContent ?? '', /Preview changes/)
+  assert.match(form.textContent ?? '', /New Models \(2\)/)
+  assert.match(form.textContent ?? '', /Existing Models \(1\)/)
+  assert.equal(writes.length, 0)
   assert.doesNotMatch(form.textContent ?? '', /saved-only-model/)
   assert.equal(catalogReads, 1)
   const row = required(
@@ -4373,6 +4439,18 @@ test('fetched channels apply selected routes to the editor without publishing', 
     form.textContent ?? '',
     /Models missing from the upstream catalogmodel-b/
   )
+  const missing = required(
+    [...form.querySelectorAll('label')]
+      .find(
+        (label) =>
+          label.textContent?.trim() === 'model-b' &&
+          label.querySelector('input[type=checkbox]')
+      )
+      ?.querySelector<HTMLInputElement>('input')
+  )
+  await act(async () => missing.click())
+  assert.equal(button(form, 'Remove from draft').disabled, true)
+  await act(async () => missing.click())
   await act(async () => button(form, 'Remove from draft').click())
   assert.doesNotMatch(models.textContent ?? '', /model-b/)
   assert.match(models.textContent ?? '', /1 selected/)
@@ -4455,5 +4533,69 @@ test('fetched channels apply selected routes to the editor without publishing', 
   assert.match(form.textContent ?? '', /catalog-last/)
   await act(async () => button(form, 'Apply').click())
   assert.match(models.textContent ?? '', /model-b/)
-  assert.equal(writes, 0)
+  assert.equal(models.parentElement?.hasAttribute('open'), true)
+  for (const row of form.querySelectorAll('fieldset[data-route-id]')) {
+    const field = (name: string) =>
+      required(
+        [...row.querySelectorAll('label')]
+          .find((label) => label.querySelector('span')?.textContent === name)
+          ?.querySelector('input')
+      )
+    await changeInput(field('Maximum input tokens'), '16384')
+    await changeInput(field('Maximum output tokens'), '2048')
+    await changeInput(field('Contract revision'), 'reviewed-v2')
+    if (row.getAttribute('data-route-id') === '2') {
+      await changeInput(field('Weight'), '17')
+    }
+  }
+  await act(async () => button(form, 'Add Model').click())
+  const discard = required(document.querySelector('[data-slot=dialog-content]'))
+  assert.match(discard.textContent ?? '', /unsaved changes/)
+  await act(async () => button(discard, 'Stay').click())
+  const draft = JSON.parse(required(form.querySelector('textarea')).value)
+  assert.deepEqual(draft.expected_version, { routing: 1, pricing: 1 })
+  assert.deepEqual(
+    draft.attachments.map(
+      (item: { upstream_model: string; weight: number }) => [
+        item.upstream_model,
+        item.weight,
+      ]
+    ),
+    [
+      ['unpublished-model', 1],
+      ['model-b', 17],
+    ]
+  )
+  assert.equal(writes.length, 0)
+  assert.equal(form.checkValidity(), true)
+  await act(async () => button(form, 'Save').click())
+  await until(() => writes.length === 1)
+  assert.equal(writes[0].method, 'PUT')
+  assert.equal(writes[0].url, '/core/v1/admin/routing/channels/1')
+  assert.deepEqual(writes[0].data, draft)
+  await until(() => !container.querySelector('form[aria-label="Edit Channel"]'))
+  await act(async () => button(container, 'Edit').click())
+  const next = required(
+    container.querySelector('form[aria-label="Edit Channel"]')
+  )
+  await act(async () => button(next, 'Add Model').click())
+  const newModel = required(
+    container.querySelector('form[aria-label="Add Model"]')
+  )
+  const modelField = (label: string) =>
+    required(
+      [...newModel.querySelectorAll('label')]
+        .find((item) => item.querySelector('span')?.textContent === label)
+        ?.querySelector('input')
+    )
+  assert.equal(modelField('Model name').value, 'saved-only-model')
+  assert.equal(modelField('Display name').value, 'saved-only-model')
+  await changeInput(modelField('Maximum input tokens'), '16000')
+  await changeInput(modelField('Maximum output tokens'), '2000')
+  await changeInput(modelField('Contract revision'), 'supplier-v1')
+  await act(async () => button(newModel, 'Preview').click())
+  await until(() => previews.length === 1)
+  assert.equal(previews[0].route.model, 'saved-only-model')
+  assert.equal(previews[0].metadata.display_name, 'saved-only-model')
+  assert.equal(writes.length, 1)
 })

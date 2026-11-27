@@ -3721,6 +3721,7 @@
     "Display name for this monitoring group (max 50 characters)": "Tên hiển thị cho nhóm giám sát này (tối đa 50 ký tự)",
     "Display name for this payment method.": "Tên hiển thị cho phương thức thanh toán này.",
     "Display name must be 1 to 20 characters": "Tên hiển thị phải có từ 1 đến 20 ký tự",
+    "Display name must fit within 128 UTF-8 bytes.": "Tên hiển thị không được vượt quá 128 byte UTF-8.",
     "Display name shown to users.": "Tên hiển thị cho người dùng.",
     "Display Options": "Tùy chọn hiển thị",
     "Display period": "Thời gian hiển thị",

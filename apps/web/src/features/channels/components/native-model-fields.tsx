@@ -13,6 +13,7 @@ import {
 } from '../native-api'
 import { NativeFailoverFields } from './native-failover-fields'
 import {
+  defaultModelDisplayName,
   maxGroupMultiplierPpm,
   microsToUsd,
   modelIdentity,
@@ -136,6 +137,14 @@ export function NativeModelFields({
   const [tagText, setTagText] = useState('')
   const draft = readNativeModelDraft(document)
   if (!draft) return null
+  const displayName = draft.metadata.display_name
+  const displayNameError = !displayName.trim()
+    ? t('Name is required')
+    : /\p{Cc}/u.test(displayName)
+      ? t('Display name cannot contain control characters')
+      : defaultModelDisplayName(displayName) !== displayName
+        ? t('Display name must fit within 128 UTF-8 bytes.')
+        : ''
   const current = draft
   const usedUpstreams = new Set(
     draft.route.targets.map((target) => target.upstream_id)
@@ -225,7 +234,10 @@ export function NativeModelFields({
           <span>{t('Display name')}</span>
           <Input
             className='min-h-11'
-            value={draft.metadata.display_name}
+            value={displayName}
+            required
+            aria-invalid={displayName && displayNameError ? true : undefined}
+            ref={(input) => input?.setCustomValidity(displayNameError)}
             disabled={disabled}
             onChange={(event) =>
               put({
@@ -237,6 +249,9 @@ export function NativeModelFields({
               })
             }
           />
+          {displayName && displayNameError && (
+            <span className='text-destructive text-xs'>{displayNameError}</span>
+          )}
         </label>
         <label className={fieldClass}>
           <span>{t('Vendor')}</span>

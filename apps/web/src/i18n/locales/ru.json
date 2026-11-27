@@ -3721,6 +3721,7 @@
     "Display name for this monitoring group (max 50 characters)": "Отображаемое имя для этой группы мониторинга (макс. 50 символов)",
     "Display name for this payment method.": "Отображаемое имя для этого метода оплаты.",
     "Display name must be 1 to 20 characters": "Отображаемое имя должно содержать от 1 до 20 символов",
+    "Display name must fit within 128 UTF-8 bytes.": "Отображаемое имя должно занимать не более 128 байт в UTF-8.",
     "Display name shown to users.": "Отображаемое название для пользователей.",
     "Display Options": "Параметры отображения",
     "Display period": "Срок показа",

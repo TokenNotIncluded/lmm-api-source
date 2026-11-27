@@ -1,6 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { ChevronDown } from 'lucide-react'
-import { useState } from 'react'
+import { useState, type Ref } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -66,11 +66,13 @@ function IntegerField({
 
 /** Model bindings edit the same channel draft that the CAS save publishes. */
 export function NativeChannelModelsFields({
+  ref,
   document,
   configuration,
   disabled,
   onChange,
 }: {
+  ref?: Ref<HTMLDetailsElement>
   document: string
   configuration: NativeConfiguration
   disabled: boolean
@@ -95,6 +97,7 @@ export function NativeChannelModelsFields({
   })
   const draft = readChannelDraft(document)
   if (!draft) return null
+  const removingLastModel = draft.enabled && draft.attachments.length === 1
   const current = draft
   const openAi =
     draft.protocol === 'openai_chat' || draft.protocol === 'openai_responses'
@@ -154,6 +157,7 @@ export function NativeChannelModelsFields({
   }
   return (
     <details
+      ref={ref}
       className='group/models min-w-0 space-y-3 border-t'
       aria-label={t('Models')}
     >
@@ -262,12 +266,19 @@ export function NativeChannelModelsFields({
               <legend className='sr-only'>
                 {route?.model ?? attachment.upstream_model}
               </legend>
-              <div className='flex justify-end'>
+              <div className='flex flex-wrap items-center justify-end gap-2'>
+                {removingLastModel && (
+                  <p className='text-muted-foreground text-xs'>
+                    {t(
+                      'Disable the channel before removing its last configured model.'
+                    )}
+                  </p>
+                )}
                 <Button
                   type='button'
                   variant='ghost'
                   className='min-h-11'
-                  disabled={disabled}
+                  disabled={disabled || removingLastModel}
                   onClick={() =>
                     put(
                       toggleChannelAttachment(

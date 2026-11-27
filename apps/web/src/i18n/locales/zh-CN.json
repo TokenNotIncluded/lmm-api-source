@@ -3721,6 +3721,7 @@
     "Display name for this monitoring group (max 50 characters)": "此监控分组的显示名称（最多 50 个字符）",
     "Display name for this payment method.": "此支付方式的显示名称。",
     "Display name must be 1 to 20 characters": "昵称须为 1 到 20 个字符",
+    "Display name must fit within 128 UTF-8 bytes.": "显示名称不能超过 128 个 UTF-8 字节。",
     "Display name shown to users.": "显示给用户的名称。",
     "Display Options": "显示选项",
     "Display period": "展示期限",

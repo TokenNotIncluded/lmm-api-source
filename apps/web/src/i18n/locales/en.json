@@ -3721,6 +3721,7 @@
     "Display name for this monitoring group (max 50 characters)": "Display name for this monitoring group (max 50 characters)",
     "Display name for this payment method.": "Display name for this payment method.",
     "Display name must be 1 to 20 characters": "Display name must be 1 to 20 characters",
+    "Display name must fit within 128 UTF-8 bytes.": "Display name must fit within 128 UTF-8 bytes.",
     "Display name shown to users.": "Display name shown to users.",
     "Display Options": "Display Options",
     "Display period": "Display period",
