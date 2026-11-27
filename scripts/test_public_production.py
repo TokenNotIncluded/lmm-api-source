@@ -21,6 +21,16 @@ class AcceptanceTest(unittest.TestCase):
         }
         for path in ("/", "/sign-in", "/console"):
             self.responses[path] = module.Response(200, "text/html", b'<script src="/app.js"></script><link rel="stylesheet" href="/app.css">')
+        for locale, prefix in module.LEGAL_LOCALES.items():
+            for doc in module.LEGAL_DOCUMENTS:
+                self.responses[f"{prefix}/{doc}"] = module.Response(
+                    200, "text/html",
+                    f'<html lang="{locale}"><article>Contact support@lmm.best</article></html>'.encode(),
+                )
+                self.responses[f"/api/{doc}?lang={locale}"] = module.Response(
+                    200, "application/json",
+                    json.dumps({"success": True, "language": locale.lower(), "data": "Contact support@lmm.best"}).encode(),
+                )
         self.visited = []
 
     def fetch(self, url):
@@ -36,6 +46,26 @@ class AcceptanceTest(unittest.TestCase):
         self.assertEqual(self.visited.count("/app.js"), 1)
         self.assertIn("/sign-in", self.visited)
         self.assertNotIn("/login", self.visited)
+
+    def test_checks_the_localized_legal_html_and_optionally_the_json_api(self):
+        result = module.verify(self.fetch, check_legal_api=True)
+        self.assertEqual(result["legal_documents"], 9)
+        self.assertTrue(result["legal_api_checked"])
+        self.assertIn("/api/privacy-policy?lang=zh-TW", self.visited)
+        self.responses["/api/privacy-policy?lang=zh-TW"] = self.responses["/"]
+        with self.assertRaisesRegex(ValueError, "public legal API"):
+            module.verify(self.fetch, check_legal_api=True)
+
+    def test_legal_documents_reject_personal_email_and_spa_fallback(self):
+        self.responses["/user-agreement"] = module.Response(
+            200, "text/html",
+            b'<html lang="en"><article>personal&#64;example.net</article></html>',
+        )
+        with self.assertRaisesRegex(ValueError, "unexpected email domain"):
+            module.verify(self.fetch)
+        self.responses["/user-agreement"] = self.responses["/"]
+        with self.assertRaisesRegex(ValueError, "missing en legal document"):
+            module.verify(self.fetch)
 
     def test_public_readiness_requires_a_ready_database(self):
         self.responses["/health/ready"] = module.Response(

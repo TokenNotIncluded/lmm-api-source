@@ -2,6 +2,7 @@
 """Read-only acceptance for the public origin; never confirms a native transaction."""
 import argparse
 from dataclasses import dataclass, field
+from html import unescape
 from html.parser import HTMLParser
 import json
 import re
@@ -13,6 +14,10 @@ import urllib.request
 ORIGIN = "https://api.lmm.best"
 MAX_BODY = 8 * 1024 * 1024
 APP_PAGES = ("/", "/sign-in", "/console")
+LEGAL_LOCALES = {"en": "", "zh-CN": "/legal/current/zh-CN", "zh-TW": "/legal/current/zh-TW"}
+LEGAL_DOCUMENTS = ("user-agreement", "privacy-policy", "refund-policy")
+LEGAL_CONTACT_DOMAIN = "lmm.best"
+EMAIL = re.compile(r"[\w.+-]+@([\w.-]+\.[A-Za-z]{2,})")
 
 
 @dataclass(frozen=True)
@@ -27,9 +32,15 @@ class Assets(HTMLParser):
     def __init__(self):
         super().__init__()
         self.urls = set()
+        self.language = None
+        self.document = False
 
     def handle_starttag(self, tag, attributes):
         values = dict(attributes)
+        if tag == "html":
+            self.language = values.get("lang")
+        if tag == "article":
+            self.document = True
         url = values.get("src") if tag == "script" else values.get("href") if tag == "link" else None
         if url and re.search(r"\.(?:js|css)$", urllib.parse.urlsplit(url).path):
             self.urls.add(url)
@@ -52,7 +63,43 @@ def response_header(response, name):
     return None
 
 
-def verify(fetch, expected_version=None):
+def check_legal_contacts(document, path):
+    domains = {match.lower() for match in EMAIL.findall(unescape(document))}
+    if domains - {LEGAL_CONTACT_DOMAIN}:
+        raise ValueError(f"unexpected email domain in public legal document {path}")
+
+
+def verify_legal_documents(fetch, check_api):
+    for language, prefix in LEGAL_LOCALES.items():
+        for document in LEGAL_DOCUMENTS:
+            path = f"{prefix}/{document}"
+            response = fetch(ORIGIN + path)
+            if response.status != 200 or "text/html" not in response.content_type:
+                raise ValueError(f"public legal document {path} is not HTTP 200 HTML")
+            page = Assets()
+            body = response.body.decode("utf-8")
+            page.feed(body)
+            if not page.document or page.language != language:
+                raise ValueError(f"missing {language} legal document at {path}")
+            check_legal_contacts(body, path)
+            if check_api:
+                path = f"/api/{document}?lang={language}"
+                response = fetch(ORIGIN + path)
+                if response.status != 200 or "json" not in response.content_type:
+                    raise ValueError(f"public legal API {path} is not HTTP 200 JSON")
+                payload = json.loads(response.body)
+                document_language = payload.get("language") if isinstance(payload, dict) else None
+                if (not isinstance(document_language, str)
+                        or document_language.lower() != language.lower()
+                        or payload.get("success") is not True
+                        or not isinstance(payload.get("data"), str)
+                        or not payload["data"].strip()):
+                    raise ValueError(f"missing {language} legal API content at {path}")
+                check_legal_contacts(payload["data"], path)
+    return len(LEGAL_LOCALES) * len(LEGAL_DOCUMENTS)
+
+
+def verify(fetch, expected_version=None, *, check_legal_api=False):
     readiness = fetch(ORIGIN + "/health/ready")
     if readiness.status != 200 or "json" not in readiness.content_type:
         raise ValueError("readiness endpoint did not return HTTP 200 JSON")
@@ -112,12 +159,16 @@ def verify(fetch, expected_version=None):
         total += len(response.body)
         if total > 64 * 1024 * 1024:
             raise ValueError("public assets exceed the total probe size limit")
-    return {"origin": ORIGIN, "backend_version": data["version"], "pages": len(APP_PAGES), "assets": len(assets), "asset_bytes": total}
+    legal_documents = verify_legal_documents(fetch, check_legal_api)
+    return {"origin": ORIGIN, "backend_version": data["version"], "pages": len(APP_PAGES),
+            "assets": len(assets), "asset_bytes": total, "legal_documents": legal_documents,
+            "legal_api_checked": check_legal_api}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--expected-backend-version")
+    parser.add_argument("--legal-api", action="store_true", help="also require the localized legal JSON endpoints")
     args = parser.parse_args()
     opener = urllib.request.build_opener(SameOriginRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context()))
     deadline = time.monotonic() + 120
@@ -134,7 +185,7 @@ def main():
             return Response(response.status, response.headers.get("Content-Type", ""), body,
                             dict(response.headers.items()))
 
-    print(json.dumps(verify(fetch, args.expected_backend_version), sort_keys=True))
+    print(json.dumps(verify(fetch, args.expected_backend_version, check_legal_api=args.legal_api), sort_keys=True))
 
 
 if __name__ == "__main__":
