@@ -190,7 +190,7 @@ pub fn configured_router_with_runtime_status(
         .route("/health/ready", get(ready))
         .route("/health/model-ready", get(model_ready))
         .route("/api/status", get(public_status_response))
-        .fallback(unavailable)
+        .fallback(configured_fallback)
         .with_state(Readiness {
             pool,
             capabilities,
@@ -485,6 +485,19 @@ pub fn router() -> Router {
         .fallback(unavailable)
 }
 
+async fn configured_fallback(
+    State(state): State<Readiness>,
+) -> (StatusCode, [(String, String); 1], Json<Value>) {
+    if !state.capabilities.identity || !state.capabilities.models {
+        return unavailable().await;
+    }
+    (
+        StatusCode::NOT_FOUND,
+        [("cache-control".into(), "no-store".into())],
+        Json(json!({"error": {"code": "route_not_found", "message": "API endpoint not found."}})),
+    )
+}
+
 async fn unavailable() -> (StatusCode, [(String, String); 1], Json<Value>) {
     // No environment variable can turn an incomplete ledger into a ready core.
     // Never forward an uncharged request, silently call Go, or fake a balance.
@@ -502,6 +515,43 @@ mod tests {
     use super::*;
     use axum::{body::Body, http::Request};
     use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn configured_gateway_separates_unknown_endpoints_from_incomplete_core() {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://unused@127.0.0.1:1/unused")
+            .unwrap();
+        let enabled = Capabilities {
+            identity: true,
+            models: true,
+            ..Capabilities::default()
+        };
+        for (capabilities, status, code) in [
+            (enabled, StatusCode::NOT_FOUND, "route_not_found"),
+            (
+                Capabilities::default(),
+                StatusCode::SERVICE_UNAVAILABLE,
+                "core_migration_incomplete",
+            ),
+        ] {
+            let response = configured_router(pool.clone(), capabilities)
+                .oneshot(
+                    Request::builder()
+                        .uri("/api/pricing")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), status);
+            assert_eq!(response.headers()["cache-control"], "no-store");
+            let body = axum::body::to_bytes(response.into_body(), 4096)
+                .await
+                .unwrap();
+            let data: Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(data["error"]["code"], code);
+        }
+    }
 
     #[tokio::test]
     async fn public_status_declares_authoritative_credit_units() {
