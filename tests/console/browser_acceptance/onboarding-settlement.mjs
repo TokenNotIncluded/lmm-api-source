@@ -290,6 +290,15 @@ async function settle(browser) {
   const release = await request(page, identity, '/api/release-notes/latest')
   assert.equal(release.json.success, true)
   assert.equal(release.json.data, null)
+  const channelPath = '/api/user/payments/channels'
+  const anonymousChannels = await fetch(web + channelPath)
+  assert.equal(anonymousChannels.status, 401)
+  await anonymousChannels.body?.cancel()
+  const checkout = await request(page, identity, channelPath)
+  assert.equal(checkout.json.success, true)
+  assert.deepEqual(checkout.json.data.channels, [])
+  assert.equal(checkout.json.data.available, false)
+  assert.equal(checkout.json.data.pancake_portal_available, false)
   const wallet = async () => {
     const { json: { data } } = await request(page, identity, '/api/user/self')
     assert.equal(data.id, user)
@@ -334,6 +343,9 @@ async function settle(browser) {
   return {
     request_id: paid.id, user, key_id: key.id, before, after, settled: 50, stream_terminal: paid.done,
     shell: { navigation_revision: navigation.data.revision, anonymous_release: anonymousRelease.status, signed_in_release: release.status },
+    checkout: { anonymous_status: anonymousChannels.status, signed_in_status: checkout.status,
+      available: checkout.json.data.available, channels: checkout.json.data.channels.length,
+      portal_available: checkout.json.data.pancake_portal_available },
   }
 }
 
