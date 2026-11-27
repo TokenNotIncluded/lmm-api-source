@@ -94,13 +94,14 @@ type ModuleReloader interface {
 // It never accepts executable bytes, imports a Go plugin, or grants a module
 // core authority; those properties are fixed by the compiled registration.
 type PluginManager struct {
-	mu        sync.RWMutex
-	reloader  ModuleReloader
-	stateFile string
-	entries   map[string]pluginEntry
-	installed map[string]bool
-	enabled   map[string]bool
-	loadOrder []string
+	mu             sync.RWMutex
+	reloader       ModuleReloader
+	stateFile      string
+	paymentAdapter bool
+	entries        map[string]pluginEntry
+	installed      map[string]bool
+	enabled        map[string]bool
+	loadOrder      []string
 }
 
 func RegistrationSHA256(name, version string) string {
@@ -148,6 +149,11 @@ func NewPluginManager(reloader ModuleReloader, registered []Module, stateFile st
 		entry.module, entry.info.Available = module, true
 		m.entries[module.Name()] = entry
 	}
+	// A configured payment adapter serves Core financial operations for the host
+	// lifetime. It is never a marketplace installation or load-order slot.
+	payments := m.entries["payments"]
+	m.paymentAdapter = payments.info.Available
+	delete(m.entries, "payments")
 	defaultOrder, err := m.sortedOrder()
 	if err != nil {
 		return nil, err
@@ -156,6 +162,18 @@ func NewPluginManager(reloader ModuleReloader, registered []Module, stateFile st
 	loaded, exists, err := readPluginState(stateFile)
 	if err != nil {
 		return nil, err
+	}
+	// Previous format-v1 files include the compiled payments module. Read that
+	// one historical record without letting its lifecycle flag suppress checkout.
+	for i, state := range loaded {
+		if state.Name != "payments" {
+			continue
+		}
+		if state.Version != "1.0.0" || state.RegistrationSHA256 != RegistrationSHA256("payments", state.Version) || (state.Enabled && !state.Installed) {
+			return nil, ErrPluginState
+		}
+		loaded = slices.Delete(loaded, i, i+1)
+		break
 	}
 	if exists {
 		// Format v1 stored plugins alphabetically. Reuse the entry order for
@@ -341,7 +359,11 @@ func (m *PluginManager) reloadLocked() error {
 	if err := m.validateEnabledLocked(); err != nil {
 		return err
 	}
-	return m.reloader.ReloadModules(m.enabledOrderLocked())
+	names := m.enabledOrderLocked()
+	if m.paymentAdapter {
+		names = append(names, "payments")
+	}
+	return m.reloader.ReloadModules(names)
 }
 
 func (m *PluginManager) enabledOrderLocked() []string {
@@ -354,6 +376,10 @@ func (m *PluginManager) enabledOrderLocked() []string {
 func (m *PluginManager) SetLoadOrder(order []string) ([]PluginInfo, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if i := slices.Index(order, "payments"); i >= 0 && m.paymentAdapter {
+		// Old consoles return the complete host order, including this adapter.
+		order = slices.Delete(slices.Clone(order), i, i+1)
+	}
 	current := m.enabledOrderLocked()
 	if len(order) != len(current) {
 		return nil, ErrPluginOrder

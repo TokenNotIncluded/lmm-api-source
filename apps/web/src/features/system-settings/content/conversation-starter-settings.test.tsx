@@ -90,8 +90,6 @@ const { Route: ContentRoute } =
 const { useRootSidebarNavigation } = await import('@/hooks/use-sidebar-view')
 const { buildSettingsSearchIndex } =
   await import('../utils/settings-search-index')
-const { getSystemSettingsNavGroups } =
-  await import('@/components/layout/config/system-settings.config')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { validPresetConfiguration } =
@@ -658,7 +656,7 @@ test('actual parent guard rejects other L5 settings and revoked sessions', async
   }
 })
 
-test('L5 discovers its settings home, assistant and shared market review while root sees authorized settings', async () => {
+test('the sidebar exposes plugin management separately and core search lists only authorized Core settings', async () => {
   useAuthStore.getState().auth.setBundle(bundle(10))
   const page = await renderRoute('/dashboard/overview', true)
   try {
@@ -682,16 +680,20 @@ test('L5 discovers its settings home, assistant and shared market review while r
     assert.ok(rootRoutes.includes(target))
     const t = i18n.getFixedT('en')
     assert.deepEqual(
-      buildSettingsSearchIndex(t, undefined, 10).flatMap((group) =>
+      buildSettingsSearchIndex(t, 10).flatMap((group) =>
         group.entries.map((entry) => entry.url)
       ),
-      [
-        '/extensions/plugins?configure=toolmarket',
-        '/extensions/plugins?configure=assistant',
-      ]
+      []
     )
-    const full = buildSettingsSearchIndex(t, undefined, 100).flatMap(
+    const full = buildSettingsSearchIndex(t, 100).flatMap(
       (group) => group.entries
+    )
+    assert.ok(
+      full.every((entry) => getSettingsBoundary(entry.url)?.owner === 'core')
+    )
+    assert.ok(!full.some((entry) => entry.url.includes('checkin')))
+    assert.ok(
+      full.some((entry) => entry.url === '/system-settings/billing/payment')
     )
     assert.ok(
       full.some((entry) => entry.url === '/system-settings/auth/custom-oauth')
@@ -699,13 +701,7 @@ test('L5 discovers its settings home, assistant and shared market review while r
     assert.ok(
       !full.some((entry) => entry.url === '/system-settings/operations/email')
     )
-    assert.equal(
-      full.length,
-      buildSettingsSearchIndex(t, getSystemSettingsNavGroups(t, 100)).flatMap(
-        (group) => group.entries
-      ).length
-    )
-    assert.equal(buildSettingsSearchIndex(t, undefined, 1).length, 0)
+    assert.equal(buildSettingsSearchIndex(t, 1).length, 0)
   } finally {
     await page.cleanup()
   }
@@ -726,17 +722,19 @@ test('the real settings home keeps personal keys, seller settings and capability
     for (const path of [
       '/users',
       '/system-settings/auth/custom-oauth',
+      '/system-settings/billing/payment',
       '/system-settings/billing/quota',
-      '/extensions/plugins',
     ]) {
       assert.ok(links.includes(path), path)
     }
     for (const path of [
+      '/extensions/plugins',
+      '/extensions/plugins?configure=checkins',
+      '/system-settings/billing/checkin',
       '/keys',
       '/profile',
       '/profile/share',
       '/store/settings',
-      '/system-settings/billing/payment',
       '/system-settings/security/market-ai-review',
       '/system-settings/operations/email',
       '/system-settings/site/rss',
@@ -757,7 +755,7 @@ test('the real settings home keeps personal keys, seller settings and capability
     )
     assert.equal(
       getSettingsBoundary('/system-settings/billing/payment')?.owner,
-      'payments'
+      'core'
     )
     assert.equal(
       getSettingsBoundary('/system-settings/billing/payment#merchant-store')
@@ -788,20 +786,13 @@ test('the real settings home keeps personal keys, seller settings and capability
   const admin = await renderRoute('/system-settings')
   try {
     await until(
-      () =>
-        paths(admin.container).includes(
-          '/extensions/plugins?configure=assistant'
-        ),
-      'administrator assistant link'
+      () => admin.container.textContent?.includes('No settings found') === true,
+      'administrator core settings empty state'
     )
     assert.ok(
       !paths(admin.container).includes('/system-settings/auth/custom-oauth')
     )
-    assert.deepEqual(paths(admin.container), [
-      '/extensions/plugins',
-      '/extensions/plugins?configure=assistant',
-      '/extensions/plugins?configure=toolmarket',
-    ])
+    assert.deepEqual(paths(admin.container), [])
     assert.ok(!requests.some((r) => r.url === '/api/option/'))
   } finally {
     await admin.cleanup()
@@ -815,6 +806,53 @@ test('the real settings home keeps personal keys, seller settings and capability
     )
   } finally {
     await viewer.cleanup()
+  }
+})
+
+test('the core settings search finds core editors and excludes plugin editors', async () => {
+  const page = await renderRoute('/system-settings')
+  try {
+    await click(page.container, 'Search settings')
+    const input = document.querySelector<HTMLInputElement>(
+      'input[placeholder="Search settings"]'
+    )
+    assert.ok(input)
+    const search = async (query: string) => {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(
+          dom.HTMLInputElement.prototype,
+          'value'
+        )?.set?.call(input, query)
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+    }
+    await search('quota')
+    await until(
+      () =>
+        [...document.querySelectorAll('[cmdk-item]')].some((item) =>
+          item.textContent?.includes('Quota Settings')
+        ),
+      'core quota editor'
+    )
+    await search('waffo')
+    await until(
+      () =>
+        [...document.querySelectorAll('[cmdk-item]')].some((item) =>
+          item.textContent?.includes('Payment')
+        ),
+      'core payment editor'
+    )
+    await search('checkin')
+    await until(
+      () =>
+        document
+          .querySelector('[cmdk-empty]')
+          ?.textContent?.includes('No settings found') === true,
+      'check-in is configured in its plugin'
+    )
+    assert.equal(document.querySelector('[cmdk-item]'), null)
+  } finally {
+    await page.cleanup()
   }
 })
 

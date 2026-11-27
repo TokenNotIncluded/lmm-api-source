@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import type { ReactNode, Ref } from 'react'
 
 import { BrandLogo } from '@/components/brand-logo'
+import { HtmlContent } from '@/components/html-content'
 import { Button } from '@/components/ui/button'
 import type { ConnectionMethod } from '@/features/onboarding/next-step'
 import { RepositoryLink } from '@/features/repositories/repository-link'
@@ -39,6 +40,7 @@ type HomeLandingProps = {
   rootRef: Ref<HTMLElement>
   brandName: string
   brandLogo: string
+  footerHtml?: string
   apiBaseUrl: string | null
   pricingHref: string | null
   navigation: Pick<HeaderNavModules, 'developers' | 'directory' | 'about'>
@@ -112,6 +114,7 @@ export function HomeLanding({
   rootRef,
   brandName,
   brandLogo,
+  footerHtml,
   apiBaseUrl,
   pricingHref,
   navigation,
@@ -511,6 +514,13 @@ export function HomeLanding({
             </a>
           )}
         </div>
+        {footerHtml && (
+          <HtmlContent
+            content={footerHtml}
+            variant='inline'
+            className='custom-footer'
+          />
+        )}
         <span className='lmm-footer-brand lmm-brand-hover'>
           <BrandLogo
             src={brandLogo}

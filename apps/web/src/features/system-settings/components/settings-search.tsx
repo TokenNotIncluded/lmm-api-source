@@ -24,7 +24,6 @@ import { ArrowUpRight, ChevronDown, ChevronRight, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { getSystemSettingsNavGroups } from '@/components/layout/config/system-settings.config'
 import { Button } from '@/components/ui/button'
 import {
   Command,
@@ -71,12 +70,7 @@ function useSettingsNavigation() {
   const available =
     role === ROLE.SUPER_ADMIN && phase === 'fresh' ? options.data : undefined
   const index = useMemo(
-    () =>
-      buildSettingsSearchIndex(
-        t,
-        getSystemSettingsNavGroups(t, role, undefined, true, available),
-        role
-      ),
+    () => buildSettingsSearchIndex(t, role, 'core', available),
     [t, role, available]
   )
   const current = index.find((group) =>

@@ -184,6 +184,7 @@ async function renderHome(
     component?: typeof ForgeHome
     headerNavModules?: string
     serverAddress?: string
+    footerHtml?: string
   } = {}
 ) {
   useAuthStore.getState().auth.setUser(user)
@@ -225,6 +226,7 @@ async function renderHome(
             register_enabled: options.registrationEnabled ?? true,
             HeaderNavModules: options.headerNavModules,
             server_address: options.serverAddress,
+            footer_html: options.footerHtml,
             data: { server_address: 'https://nested.example.test' },
           },
         },
@@ -331,6 +333,20 @@ afterEach(() => {
 })
 
 after(() => domWindow.close())
+
+test('publishes the configured site footer through the inline HTML renderer', async () => {
+  const rendered = await renderHome(null, false, false, {
+    footerHtml: '<strong>Operator footer</strong>',
+  })
+  try {
+    const footer = rendered.container.querySelector(
+      '.lmm-home-footer .custom-footer'
+    )
+    assert.equal(footer?.textContent, 'Operator footer')
+  } finally {
+    await unmountHome(rendered)
+  }
+})
 
 describe('ForgeHome code preview accessibility', () => {
   test('switches complete request examples with arrow keys and exposes the active panel', async () => {

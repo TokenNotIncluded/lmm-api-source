@@ -13,11 +13,6 @@ export function pluginPresentation(name: string, t: TFunction) {
         title: t('Assistant'),
         description: t('Assistant conversations and connected tools.'),
       }
-    case 'payments':
-      return {
-        title: t('Payments'),
-        description: t('Payment providers and order processing.'),
-      }
     case 'operations':
       return {
         title: t('Operations'),

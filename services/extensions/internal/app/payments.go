@@ -38,10 +38,7 @@ func validatePaymentsConfiguration(cfg GoConfig) error {
 		selected = selected || name == "payments"
 	}
 	configured := cfg.Core.PaymentTokenFile != "" || cfg.Payments.DatabaseName != "" || cfg.Payments.DatabaseURLFile != "" || cfg.Payments.ConfigFile != "" || cfg.Payments.CallbacksEnabled || len(cfg.Payments.ExternalLegacyPancakeOwners) != 0
-	if !selected {
-		if configured {
-			return errors.New("payments configuration requires explicit module selection")
-		}
+	if !selected && !configured {
 		return nil
 	}
 	if cfg.Core.PaymentTokenFile == "" || cfg.Payments.DatabaseName == "" || cfg.Payments.DatabaseURLFile == "" || cfg.Payments.ConfigFile == "" {

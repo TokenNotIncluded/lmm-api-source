@@ -141,6 +141,30 @@ class NativeManagementRoutes(unittest.TestCase):
                 self.assertEqual(actual['body'], body or '')
                 self.assertEqual(actual['authorization'], 'Bearer synthetic-native-route-session')
 
+    def test_console_reads_reach_their_extensions_with_original_uri(self):
+        routes = (
+            ('GET', '/api/assistant/support/self?conversation_id=0', None),
+            ('GET', '/api/assistant/support/eligibility', None),
+            ('GET', '/api/user/self/onboarding/todo', None),
+            ('PATCH', '/api/user/self/onboarding/todo', '{"dismissed":true}'),
+            ('GET', '/api/scripts', None),
+        )
+        for method, path, body in routes:
+            with self.subTest(method=method, path=path):
+                status, raw = self.request(method, path, body)
+                self.assertEqual(status, 200)
+                self.assertEqual(json.loads(raw), {
+                    'backend': 'go', 'method': method, 'path': path,
+                    'authorization': 'Bearer synthetic-native-route-session',
+                    'body': body or '', 'policy_path': path.split('?')[0],
+                })
+        before = len(self.go.calls)
+        for path in {path.split('?')[0] for _, path, _ in routes}:
+            self.assertEqual(self.request('OPTIONS', path)[0], 418)
+            self.assertEqual(self.request('POST', path)[0], 405)
+            self.assertEqual(self.request('GET', path + '/unowned')[0], 418)
+        self.assertEqual(len(self.go.calls), before)
+
     def test_store_and_assistant_settings_reach_extensions_with_original_identity(self):
         store = '/api/store/product-link-presets'
         assistant = '/api/assistant/settings/model-route'

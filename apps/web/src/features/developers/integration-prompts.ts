@@ -1,6 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 
-export const LMM_ISSUER = 'https://api.lmm.best'
 export const LMM_SOURCE = 'https://github.com/TokenNotIncluded/lmm-api-source'
 
 // Copyable technical artifacts deliberately use English; the surrounding UI is localized.
@@ -23,17 +22,19 @@ https://github.com/TokenNotIncluded/lmm-api-source/blob/main/services/core/src/m
 https://github.com/TokenNotIncluded/lmm-api-source/blob/main/services/core/src/oauth2_http.rs
 Deliver the implementation, configuration example without credentials, and test results.`
 
-export const OAUTH_PROMPT = `Integrate LMM OAuth into this project where the provider contract supports it. First inspect the application type and existing auth libraries; check installed dependencies and reuse the current stack. Explain your work in the language of our conversation.
+export const buildOAuthPrompt = (
+  issuer: string
+) => `Integrate LMM OAuth into this project where the provider contract supports it. First inspect the application type and existing auth libraries; check installed dependencies and reuse the current stack. Explain your work in the language of our conversation.
 
-Trusted issuer: https://api.lmm.best
+Trusted issuer: ${issuer}
 Discovery: GET /.well-known/oauth-authorization-server
 Resource metadata: GET /.well-known/oauth-protected-resource/api/oauth2
 Authorize: GET /api/oauth2/authorize
 Token: POST /api/oauth2/token
 Revoke: POST /api/oauth2/revoke
-Resource: https://api.lmm.best/api/oauth2
+Resource: ${issuer}/api/oauth2
 
-Confirm prerequisites before writing an unusable login flow. Use only a client advertised by discovery. Current Core supports the read-only lmm client and optionally enabled lmm-pi; enabled managed applications are enumerated in lmm_managed_clients. Use the exact advertised client_id/application pair and capability prerequisites; absence means unavailable. Do not borrow these IDs or invent a client secret. There is no public dynamic registration, OpenID Connect discovery, userinfo endpoint or ID token. If the goal is third-party website identity/SSO, explain this missing provider capability instead of pretending a resource access token identifies a website user.
+Confirm prerequisites before writing an unusable login flow. Use only a client advertised by discovery. Current Core supports the read-only lmm client and optionally enabled lmm-pi; enabled managed applications are enumerated in lmm_managed_clients. Use the exact advertised client_id/application pair and capability prerequisites; absence means unavailable. Do not borrow these IDs or invent a client secret. There is no public dynamic client registration. For identity or SSO, verify this issuer's OpenID Connect discovery and the registered application's identity scopes before using that flow. A resource access token alone does not establish a website user's identity.
 
 For a registered native client:
 - Use Authorization Code with PKCE S256 and a cryptographically random state/verifier. Bind the loopback callback listener before opening the system browser. The registered native callback is http://127.0.0.1:<nonzero-port>/oauth/lmm/callback with the actual ephemeral port; localhost, missing ports, query and fragment are rejected. Verify the exact registered contract for this client.

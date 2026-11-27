@@ -46,7 +46,7 @@ describe('plugin configuration links', () => {
     it(`opens payment gateways for payment anchor ${hash}`, () => {
       assert.equal(
         legacyPluginPanel('/system-settings/billing/payment', hash),
-        'payments'
+        undefined
       )
     })
   }
@@ -60,7 +60,7 @@ describe('plugin configuration links', () => {
     assert.equal(canOpenConfiguration('store-review', false), true)
     assert.equal(canOpenConfiguration('toolmarket', false), true)
     assert.equal(canOpenConfiguration('payments', false), false)
-    assert.equal(canOpenConfiguration('payments', true), true)
+    assert.equal(canOpenConfiguration('payments', true), false)
   })
   it('retains the old root-only boundary for new plugin editors', () => {
     for (const panel of [

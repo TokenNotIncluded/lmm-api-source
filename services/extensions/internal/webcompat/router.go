@@ -74,13 +74,13 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 		paymentReader = additional.Payments
 		paymentCheckout = additional.PaymentCheckout
 		paymentPortal = additional.PaymentPortal
-		RegisterPaymentPortal(routes.forPlugins("payments"), auth, paymentPortal)
-		RegisterPancakeAdmin(routes.forPlugins("payments"), auth, additional.PancakeAdmin)
-		RegisterEPayAdmin(routes.forPlugins("payments"), auth, additional.EPayAdmin)
-		registerProviderGatewayConfiguration(routes.forPlugins("payments"), auth, additional.ProviderGateways)
+		RegisterPaymentPortal(routes, auth, paymentPortal)
+		RegisterPancakeAdmin(routes, auth, additional.PancakeAdmin)
+		RegisterEPayAdmin(routes, auth, additional.EPayAdmin)
+		registerProviderGatewayConfiguration(routes, auth, additional.ProviderGateways)
 		if !store.Missing(additional.SubscriptionPayments) {
 			subscriptions := http.StripPrefix("/api/user/payments/subscriptions", additional.SubscriptionPayments)
-			routes.forPlugins("payments").Handle("/api/user/payments/subscriptions/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			routes.Handle("/api/user/payments/subscriptions/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if _, err := auth.Verify(r.Context(), r); err != nil {
 					Respond(w, nil, err)
 					return
@@ -120,8 +120,8 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 	}
 	RegisterCheckinSettings(routes.forPlugins(), auth, additional.Checkins, additional.Plugins)
 	RegisterOperations(routes.forPlugins("operations"), auth, operationsService)
-	RegisterPayments(routes.forPlugins("payments"), auth, paymentReader)
-	RegisterPaymentCheckout(routes.forPlugins("payments"), auth, paymentCheckout, paymentPortal, payments.WalletPresets{Directory: additional.WalletPresetDirectory})
+	RegisterPayments(routes, auth, paymentReader)
+	RegisterPaymentCheckout(routes, auth, paymentCheckout, paymentPortal, payments.WalletPresets{Directory: additional.WalletPresetDirectory})
 	// Forward only the host's own namespaces so its fallback cannot swallow
 	// method-not-allowed responses from registered Web routes.
 	mux.Handle("/extensions/v1/", host)

@@ -31,8 +31,11 @@ func TestPaymentsTypedConfig(t *testing.T) {
 	if err != nil || cfg.Core.PaymentTokenFile != "/tmp/payment-token" || cfg.Payments.DatabaseName != "lmm_payments_test" || !cfg.Payments.CallbacksEnabled {
 		t.Fatal(cfg, err)
 	}
+	withoutPlugin := strings.Replace(base, "modules=['payments']", "modules=['identity']", 1)
+	if _, err := LoadConfig(write(withoutPlugin)); err != nil {
+		t.Fatal("configured payment adapter must not require a plugin selection", err)
+	}
 	for _, raw := range []string{
-		strings.Replace(base, "modules=['payments']", "modules=['identity']", 1),
 		strings.Replace(base, "payment_token_file=", "PaymentTokenFile=", 1),
 		strings.Replace(base, "[payments]", "[Payments]", 1),
 		strings.Replace(base, "'/tmp/payment-token'", "'/tmp/identity-token'", 1),

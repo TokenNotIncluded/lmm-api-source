@@ -165,7 +165,7 @@ export function ForgeHome() {
         typeof window === 'undefined' ? '' : window.location.origin
       )
     : null
-  const { systemName, logo } = useSystemConfig()
+  const { systemName, logo, footerHtml } = useSystemConfig()
   const navLinks = useTopNavLinks('public')
   const navigation = parseHeaderNavModulesFromStatus(status)
   const pricingLink = navLinks.find((link) => link.href === '/pricing')
@@ -274,6 +274,7 @@ export function ForgeHome() {
         rootRef={rootRef}
         brandName={systemName}
         brandLogo={logo}
+        footerHtml={footerHtml}
         apiBaseUrl={apiBaseUrl}
         pricingHref={
           pricingLink

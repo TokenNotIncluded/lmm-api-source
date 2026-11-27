@@ -79,8 +79,8 @@ async function settingsIndex(signal: AbortSignal) {
   }
   return buildSettingsSearchIndex(
     appI18n.getFixedT(appI18n.language),
-    undefined,
     ROLE.SUPER_ADMIN,
+    'all',
     options
   )
 }

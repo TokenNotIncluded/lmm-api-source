@@ -7,16 +7,21 @@ import { installWebMcp, listWebMcpTools } from './index'
 test('registers safe read/navigation tools and aborts them on cleanup', async () => {
   const registered: { name: string; signal?: AbortSignal }[] = []
   const listeners: (() => void)[] = []
+  let readSite!: (
+    input: object,
+    options: { signal: AbortSignal }
+  ) => Promise<{ site: string; pi_oauth: boolean | null }>
   const previousDocument = globalThis.document
   Object.defineProperty(globalThis, 'document', {
     configurable: true,
     value: {
       modelContext: {
         registerTool: async (
-          tool: { name: string },
+          tool: { name: string; execute: typeof readSite },
           options?: { signal?: AbortSignal }
         ) => {
           registered.push({ name: tool.name, signal: options?.signal })
+          if (tool.name === 'lmm_site_info') readSite = tool.execute
         },
       },
     },
@@ -46,6 +51,24 @@ test('registers safe read/navigation tools and aborts them on cleanup', async ()
       'lmm_account_status',
     ]) {
       assert.ok(names.includes(name), `${name} is registered`)
+    }
+    const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+    const originalFetch = globalThis.fetch
+    try {
+      Object.defineProperty(globalThis, 'window', {
+        configurable: true,
+        value: { location: new URL('https://console.example.test/docs') },
+      })
+      globalThis.fetch = (async () =>
+        new Response('', { status: 503 })) as typeof fetch
+      const site = await readSite({}, { signal: new AbortController().signal })
+      assert.equal(site.site, 'console.example.test')
+      assert.equal(site.pi_oauth, null)
+    } finally {
+      globalThis.fetch = originalFetch
+      if (previousWindow)
+        Object.defineProperty(globalThis, 'window', previousWindow)
+      else Reflect.deleteProperty(globalThis, 'window')
     }
     assert.equal(new Set(names).size, names.length)
     assert.equal(listeners.length, 1)

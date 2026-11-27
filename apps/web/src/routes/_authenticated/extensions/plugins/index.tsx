@@ -1,5 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
-import { createFileRoute, redirect, useLocation } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 
 import { PluginsPage } from '@/features/plugins'
 import {
@@ -13,18 +13,21 @@ export const Route = createFileRoute('/_authenticated/extensions/plugins/')({
   validateSearch: (search): { configure?: string } => ({
     configure:
       typeof search.configure === 'string' &&
-      configurationOwner(search.configure)
+      (search.configure === 'payments' || configurationOwner(search.configure))
         ? search.configure
         : undefined,
   }),
-  beforeLoad: ({ search }) => {
+  beforeLoad: ({ search, location }) => {
     const { auth } = useAuthStore.getState()
     if (
       !auth.session ||
       !auth.accessToken ||
       !auth.user ||
       auth.user.role < ROLE.ADMIN ||
+      (search.configure === 'payments' &&
+        auth.user.role !== ROLE.SUPER_ADMIN) ||
       (search.configure &&
+        search.configure !== 'payments' &&
         !canOpenConfiguration(
           search.configure,
           auth.user.role === ROLE.SUPER_ADMIN
@@ -32,15 +35,21 @@ export const Route = createFileRoute('/_authenticated/extensions/plugins/')({
     ) {
       throw redirect({ to: '/403' })
     }
+    if (search.configure === 'payments') {
+      throw redirect({
+        to: '/system-settings/billing/$section',
+        params: { section: 'payment' },
+        hash: location.hash,
+        replace: true,
+      })
+    }
   },
   component: function PluginSettingsRoute() {
     const { configure } = Route.useSearch()
-    const hash = useLocation({ select: (location) => location.hash })
     const navigate = Route.useNavigate()
     return (
       <PluginsPage
         panel={configure}
-        paymentHash={hash}
         onPanelChange={(panel) => {
           void navigate({
             search: (previous) => ({ ...previous, configure: panel }),

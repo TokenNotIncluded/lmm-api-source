@@ -11,6 +11,7 @@ import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import {
+  directoryAdErrorCode,
   hideDirectoryAd,
   listDirectoryAds,
   type DirectoryAd,
@@ -37,26 +38,36 @@ export function AIDirectoryAdsSection() {
   const ads = adsQuery.data?.pages.flatMap((page) => page.items) ?? []
   const hide = useMutation({
     mutationFn: hideDirectoryAd,
-    onSuccess: () => {
+    onSuccess: (outcome) => {
       setSelected(null)
-      toast.success(t('Advertisement hidden and payment refunded.'))
+      if (outcome === 'refunded') {
+        toast.success(t('Advertisement hidden and payment refunded.'))
+      } else {
+        toast.info(t('Advertisement hidden. Refund pending.'))
+      }
+    },
+    onError: (error) => {
+      if (directoryAdErrorCode(error) === 'AI_DIRECTORY_AD_PAYMENT_PENDING') {
+        toast.info(t('Advertisement hidden. Refund pending.'))
+      } else {
+        toast.error(
+          t(
+            'Could not confirm whether the advertisement was hidden or refunded.'
+          )
+        )
+      }
+    },
+    onSettled: () => {
       void Promise.allSettled([
         cache.invalidateQueries({ queryKey: ['ai-directory-ads'] }),
         cache.invalidateQueries({ queryKey: ['ai-directory-my-ads'] }),
         refreshCurrentAccount(),
       ])
     },
-    onError: () =>
-      toast.error(t('Unable to hide the advertisement. Try again.')),
   })
 
   return (
     <SettingsSection title={t('Advertisement moderation')}>
-      <p className='text-muted-foreground max-w-2xl text-sm'>
-        {t(
-          'Review active paid placements. Hiding an ad removes it immediately and refunds its full wallet charge.'
-        )}
-      </p>
       <DirectoryAdCurrencyControl />
       {adsQuery.isPending && (
         <p className='text-muted-foreground text-sm'>
@@ -126,7 +137,7 @@ export function AIDirectoryAdsSection() {
         }}
         title={t('Hide this advertisement?')}
         desc={t(
-          'The ad will disappear immediately and {{amount}} will be refunded to its owner.',
+          'Hiding the ad requests a refund of {{amount}} for its owner.',
           { amount: selected ? formatQuota(selected.charged_quota) : '—' }
         )}
         confirmText={t('Hide and refund')}

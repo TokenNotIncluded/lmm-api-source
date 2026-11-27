@@ -9,7 +9,6 @@ License, or (at your option) any later version.
 import type { TFunction } from 'i18next'
 
 import { getSystemSettingsNavGroups } from '@/components/layout/config/system-settings.config'
-import type { NavGroup } from '@/components/layout/types'
 import { legacyPluginPanel } from '@/features/plugins/configuration'
 import { ROLE } from '@/lib/roles'
 import { canReadSystemSettingsPath } from '@/lib/system-settings-access'
@@ -160,13 +159,11 @@ function normalize(value: string) {
 /** Flatten the localized settings navigation into a searchable index. */
 export function buildSettingsSearchIndex(
   t: TFunction,
-  groups: NavGroup[] | undefined = undefined,
   role: number = ROLE.SUPER_ADMIN,
+  scope: 'core' | 'all' = 'core',
   options?: SystemOptionsResponse
 ): SettingsSearchableGroup[] {
-  return (
-    groups ?? getSystemSettingsNavGroups(t, role, undefined, true, options)
-  )
+  return getSystemSettingsNavGroups(t, role, scope, options)
     .flatMap((group) =>
       group.items.map((section) => {
         const entries: SettingsSearchEntry[] = (section.items ?? []).flatMap(

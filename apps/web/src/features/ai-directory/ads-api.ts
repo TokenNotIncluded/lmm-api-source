@@ -136,20 +136,45 @@ export function listMyDirectoryAds() {
   )
 }
 
-export function hideDirectoryAd(id: number) {
-  return unwrap<{ ad: DirectoryAd; refunded: boolean; refunded_quota: number }>(
+export async function hideDirectoryAd(
+  id: number
+): Promise<'refunded' | 'pending'> {
+  const result = await unwrap<{
+    ad: DirectoryAd
+    refunded: boolean
+    refunded_quota: number
+    refund_pending: boolean
+  }>(
     api.post(`/api/ai-directory/ads/${id}/hide`, null, {
       skipErrorHandler: true,
       skipBusinessError: true,
     })
   )
+  if (result?.ad?.id === id && result.ad.status === 'hidden') {
+    if (
+      result.refunded === true &&
+      result.refund_pending === false &&
+      Number.isSafeInteger(result.refunded_quota) &&
+      result.refunded_quota > 0 &&
+      result.refunded_quota === result.ad.charged_quota
+    )
+      return 'refunded'
+    if (
+      result.refunded === false &&
+      result.refund_pending === true &&
+      result.refunded_quota === 0
+    ) {
+      return 'pending'
+    }
+  }
+  throw new Error('Invalid advertisement refund receipt')
 }
 
 export function directoryAdErrorCode(error: unknown): string | null {
   if (!error || typeof error !== 'object') return null
-  const direct = (error as { code?: unknown }).code
-  if (typeof direct === 'string') return direct
   const response = (error as { response?: { data?: { code?: unknown } } })
     .response
-  return typeof response?.data?.code === 'string' ? response.data.code : null
+  if (typeof response?.data?.code === 'string') return response.data.code
+  const direct = (error as { code?: unknown }).code
+  return typeof direct === 'string' ? direct : null
 }

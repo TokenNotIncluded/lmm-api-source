@@ -20,8 +20,12 @@ for (const name of [
 const { toast } = await import('sonner')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
-const { getPublicPlans, getSelfSubscriptionFull, paySubscriptionBalance } =
-  await import('./api')
+const {
+  getAdminPlans,
+  getPublicPlans,
+  getSelfSubscriptionFull,
+  paySubscriptionBalance,
+} = await import('./api')
 const originalAdapter = api.defaults.adapter
 const originalAuth = useAuthStore.getState().auth
 
@@ -250,5 +254,18 @@ test('native failures after route selection remain errors instead of empty subsc
       '/api/subscription/plans',
       '/core/v1/subscriptions/plans',
     ])
+  }
+})
+
+test('admin plan access failures stay on the classic route', async () => {
+  login()
+  for (const status of [401, 403, 503]) {
+    const requests: string[] = []
+    api.defaults.adapter = async (config) => {
+      requests.push(config.url ?? '')
+      throw failure(config, status)
+    }
+    await assert.rejects(getAdminPlans(true))
+    assert.deepEqual(requests, ['/api/subscription/admin/plans'])
   }
 })

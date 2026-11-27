@@ -27,7 +27,6 @@ import {
   Wrench,
 } from 'lucide-react'
 
-import { legacyPluginPanel } from '@/features/plugins/configuration'
 import { getAuthSectionNavItems } from '@/features/system-settings/auth/section-registry.tsx'
 import { getBillingSectionNavItems } from '@/features/system-settings/billing/section-registry.tsx'
 import { getContentSectionNavItems } from '@/features/system-settings/content/section-registry.tsx'
@@ -40,10 +39,7 @@ import { ROLE } from '@/lib/roles'
 import {
   canReadSystemSettingsPath,
   getSettingsBoundary,
-  getSettingsScope,
-  getSettingsTitle,
   isSettingsBoundaryVisible,
-  type SettingsScope,
 } from '@/lib/system-settings-access'
 
 import type { NavGroup } from '../types'
@@ -52,14 +48,13 @@ import type { NavGroup } from '../types'
 export function getSystemSettingsNavGroups(
   t: TFunction,
   role: number = ROLE.SUPER_ADMIN,
-  scope?: SettingsScope,
-  includePluginLinks = false,
+  scope: 'core' | 'all' = 'core',
   options?: SystemOptionsResponse
 ): NavGroup[] {
   const groups: NavGroup[] = [
     {
       id: 'system-administration',
-      title: t(scope ? getSettingsTitle(scope) : 'System Administration'),
+      title: t(scope === 'core' ? 'Core Settings' : 'System Administration'),
       items: [
         {
           title: t('Site & Branding'),
@@ -115,9 +110,7 @@ export function getSystemSettingsNavGroups(
             entry.url &&
             canReadSystemSettingsPath(role, entry.url) &&
             isSettingsBoundaryVisible(entry.url, options) &&
-            (!scope || includePluginLinks || !legacyPluginPanel(entry.url)) &&
-            (!scope || getSettingsScope(entry.url) === scope) &&
-            (scope !== 'core' ||
+            (scope === 'all' ||
               getSettingsBoundary(entry.url)?.owner === 'core')
         )
         return items.length ? [{ ...section, items }] : []

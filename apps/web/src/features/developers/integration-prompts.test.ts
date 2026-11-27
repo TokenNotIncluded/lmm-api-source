@@ -5,11 +5,12 @@ import { test } from 'node:test'
 import { parse } from '@babel/parser'
 
 import {
-  OAUTH_PROMPT,
+  buildOAuthPrompt,
   buildPricingExample,
   buildPricingPrompt,
 } from './integration-prompts'
 
+const OAUTH_PROMPT = buildOAuthPrompt('https://accounts.example.test')
 const rootUrl = 'https://relay.example.test:8443/gateway'
 const PRICING_EXAMPLE = buildPricingExample(rootUrl)
 const PRICING_PROMPT = buildPricingPrompt(rootUrl)
@@ -51,7 +52,10 @@ test('configured pricing URLs keep path prefixes without redefining the trusted 
     PRICING_PROMPT + PRICING_EXAMPLE,
     /https:\/\/api\.lmm\.best/
   )
-  assert.match(OAUTH_PROMPT, /Trusted issuer: https:\/\/api\.lmm\.best/)
+  assert.match(
+    OAUTH_PROMPT,
+    /Trusted issuer: https:\/\/accounts\.example\.test/
+  )
   const quoted = buildPricingExample("https://relay.test/customer's-gateway")
   assert.doesNotThrow(() => parse(quoted, { sourceType: 'module' }))
 })

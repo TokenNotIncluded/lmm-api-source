@@ -524,7 +524,8 @@ export function SubscriptionResetWorkspace() {
                             }}
                           />
                           <span>{record.plan.title}</span>
-                          {(record.plan.archived_at ?? 0) > 0 && (
+                          {(record.plan.archived ||
+                            (record.plan.archived_at ?? 0) > 0) && (
                             <Badge variant='outline'>{t('Archived')}</Badge>
                           )}
                         </label>

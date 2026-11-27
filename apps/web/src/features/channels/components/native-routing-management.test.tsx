@@ -2503,6 +2503,69 @@ test('native key manager enables a pooled key and changes polling with release C
   })
 })
 
+for (const mode of ['Create', 'Edit'] as const) {
+  test(`${mode} channel applies provider protocol defaults only to new channels`, async () => {
+    const config: NativeConfiguration = fixture()
+    config.provider_presets = [
+      {
+        id: 'openai',
+        label: 'OpenAI',
+        icon: 'OpenAI',
+        protocol: 'openai_responses',
+        endpoint: 'https://api.openai.com/v1',
+      },
+      {
+        id: 'deepseek',
+        label: 'DeepSeek',
+        icon: 'DeepSeek',
+        protocol: 'openai_chat',
+        endpoint: 'https://api.deepseek.com',
+      },
+    ]
+    api.request = (async (options: { method: string }) => {
+      assert.equal(options.method, 'GET')
+      return { data: { success: true, data: config } }
+    }) as typeof api.request
+    const container = await mount('channels')
+    await until(
+      () => container.textContent?.includes('Private provider') === true
+    )
+    await act(async () =>
+      button(container, mode === 'Create' ? 'Create Channel' : 'Edit').click()
+    )
+    const form = required(
+      container.querySelector(`form[aria-label="${mode} Channel"]`)
+    )
+    const protocol = required(
+      form.querySelector<HTMLSelectElement>('select[aria-label="Protocol"]')
+    )
+    const provider = required(
+      form.querySelector<HTMLButtonElement>('[aria-label="Provider"]')
+    )
+    async function choose(label: string) {
+      await act(async () => provider.click())
+      const option = () =>
+        [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+          (item) => item.textContent?.endsWith(label)
+        )
+      await until(() => !!option())
+      await act(async () => required(option()).click())
+    }
+    if (mode === 'Create') {
+      assert.equal(protocol.value, 'openai_responses')
+      await choose('DeepSeek')
+      assert.equal(protocol.value, 'openai_chat')
+    } else {
+      assert.equal(protocol.value, 'openai_chat')
+    }
+    await choose('OpenAI')
+    assert.equal(
+      protocol.value,
+      mode === 'Create' ? 'openai_responses' : 'openai_chat'
+    )
+  })
+}
+
 test('channel editing exposes common fields and preserves bindings, context metadata and the existing key', async () => {
   const config: NativeConfiguration = fixture()
   config.bindings.contexts = [

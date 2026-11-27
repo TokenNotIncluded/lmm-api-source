@@ -48,7 +48,6 @@ import { getServerErrorMessage } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
-  configuredRouterSelectors,
   priceSelectorKey,
   routingPriceCoverage,
   type PriceSelector,
@@ -64,6 +63,7 @@ import {
   samePriceRule,
   type NativePriceRule,
 } from './native-price-rules'
+import { NativeRouterPrices } from './native-router-prices'
 import {
   originalGroupDescriptions,
   readPricingSourceSnapshot,
@@ -105,7 +105,7 @@ export function NativePricingManagement({
   }
   return (
     <PricingWorkspace
-      key={`${scope.userId}:${scope.sessionId}:${scope.role}`}
+      key={`${scope.userId}:${scope.sessionId}:${scope.role}:${initialMode}:${groupWorkspace}`}
       scope={scope}
       initialMode={initialMode}
       groupWorkspace={groupWorkspace}
@@ -444,13 +444,6 @@ function PricingWorkspace({
     ]),
   ].sort()
   const coverage = routingPriceCoverage(configuration.routing, rules)
-  const routers = configuredRouterSelectors(configuration.routing)
-  const unpricedRouters = routers.filter(
-    (selector) =>
-      !rules.some(
-        (rule) => priceSelectorKey(rule) === priceSelectorKey(selector)
-      )
-  )
   const routerWorkspace = initialMode === 'upstream_cost'
   const matching = rules.filter(
     (rule) =>
@@ -470,7 +463,20 @@ function PricingWorkspace({
     !!draft &&
     (draft.expected.routing !== configuration.version.routing ||
       draft.expected.pricing !== configuration.version.pricing)
-  const drafts = Object.values(configuration.bindings.price_drafts)
+  // A named draft contains the complete price book. Leave mixed drafts with the
+  // ordinary price editor so a router action cannot publish unrelated changes.
+  const otherRules = (source: NativePrices) =>
+    source.rules.filter((rule) => rule.billing_mode !== 'upstream_cost')
+  const drafts = Object.values(configuration.bindings.price_drafts).filter(
+    (saved) =>
+      !routerWorkspace ||
+      (saved.base_pricing_version === configuration.version.pricing &&
+        samePriceRule(
+          otherRules(saved.prices),
+          otherRules(configuration.prices)
+        ) &&
+        !samePriceRule(saved.prices.rules, configuration.prices.rules))
+  )
   const billingLabel = (value: string | undefined) =>
     value === 'tiered_decimal'
       ? t('Tiered pricing')
@@ -652,21 +658,17 @@ function PricingWorkspace({
           >
             {t('Export JSON')}
           </Button>
-          {!routerWorkspace && (
-            <Button
-              type='button'
-              variant='outline'
-              disabled={busy}
-              onClick={() => addRule(undefined, true)}
-            >
-              {t('Upstream price sync')}
-            </Button>
-          )}
-          {!routerWorkspace && (
-            <Button type='button' disabled={busy} onClick={() => addRule()}>
-              {t('Add price rule')}
-            </Button>
-          )}
+          <Button
+            type='button'
+            variant='outline'
+            disabled={busy}
+            onClick={() => addRule(undefined, true)}
+          >
+            {t('Upstream price sync')}
+          </Button>
+          <Button type='button' disabled={busy} onClick={() => addRule()}>
+            {t('Add price rule')}
+          </Button>
         </div>
       </div>
       <div className='flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center'>
@@ -699,7 +701,6 @@ function PricingWorkspace({
         <NativeSelect
           className='w-full sm:w-auto'
           aria-label={t('Billing mode')}
-          disabled={routerWorkspace}
           value={mode}
           onChange={(event) => {
             setMode(event.target.value)
@@ -922,7 +923,13 @@ function PricingWorkspace({
   return (
     <section
       className='@container/prices min-w-0 space-y-7'
-      aria-label={t(groupWorkspace ? 'Group Pricing' : 'Model Pricing')}
+      aria-label={t(
+        groupWorkspace
+          ? 'Group Pricing'
+          : routerWorkspace
+            ? 'Router pricing'
+            : 'Model Pricing'
+      )}
     >
       {error && (
         <Alert variant='destructive' role='alert'>
@@ -947,50 +954,41 @@ function PricingWorkspace({
       )}
       {groupWorkspace ? (
         groupPrices
+      ) : routerWorkspace ? (
+        <NativeRouterPrices
+          routing={configuration.routing}
+          rules={rules}
+          disabled={busy || stale || query.isError}
+          onApply={(selector, multiplier, stored) => {
+            const rule = {
+              ...(stored ?? newRule(selector, prices)),
+              billing_mode: 'upstream_cost',
+              group_multiplier_ppm: multiplier,
+            }
+            updatePrices({
+              ...prices,
+              rules: stored
+                ? prices.rules.map((item) =>
+                    item.id === stored.id ? rule : item
+                  )
+                : [...prices.rules, rule],
+            })
+          }}
+          onRemove={(id) =>
+            updatePrices({
+              ...prices,
+              rules: prices.rules.filter((rule) => rule.id !== id),
+            })
+          }
+        />
       ) : (
         <Tabs defaultValue='models'>
-          {!initialMode && (
-            <TabsList variant='navigation' aria-label={t('Model Pricing')}>
-              <TabsTrigger value='models'>{t('Model prices')}</TabsTrigger>
-              <TabsTrigger value='missing'>
-                {t('Unset price models')}
-              </TabsTrigger>
-              <TabsTrigger value='tools'>{t('Tool prices')}</TabsTrigger>
-            </TabsList>
-          )}
+          <TabsList variant='navigation' aria-label={t('Model Pricing')}>
+            <TabsTrigger value='models'>{t('Model prices')}</TabsTrigger>
+            <TabsTrigger value='missing'>{t('Unset price models')}</TabsTrigger>
+            <TabsTrigger value='tools'>{t('Tool prices')}</TabsTrigger>
+          </TabsList>
           <TabsContent value='models' className='space-y-7'>
-            {routerWorkspace && (
-              <div className='space-y-3 rounded-lg border p-4'>
-                <h3 className='font-medium'>{t('Router pricing')}</h3>
-                <p className='text-muted-foreground text-sm'>
-                  {t(
-                    'Router rules use actual upstream USD cost. External text calls remain blocked until the supplier guarantees the request budget.'
-                  )}
-                </p>
-                {unpricedRouters.length ? (
-                  <NativePriceCoveragePanel
-                    rows={unpricedRouters.map((selector) => ({ selector }))}
-                    disabled={busy || stale || query.isError}
-                    addRule={(selector) => {
-                      const rule = newRule(selector, prices)
-                      setEditing({
-                        rule: { ...rule, billing_mode: 'upstream_cost' },
-                      })
-                    }}
-                    saveFee={saveToolFee}
-                  />
-                ) : (
-                  <p role='status' className='text-muted-foreground text-sm'>
-                    {t(
-                      'No unpriced router route with a supported budget contract'
-                    )}
-                  </p>
-                )}
-                <a href='/channels' className='text-sm underline'>
-                  {t('Channels')}
-                </a>
-              </div>
-            )}
             {modelPrices}
           </TabsContent>
           <TabsContent value='missing'>

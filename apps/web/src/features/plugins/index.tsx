@@ -51,14 +51,12 @@ type Selection =
 // @context-fold begin plugin-inventory
 type ConfigurationProps = {
   panel?: string
-  paymentHash?: string
   onPanelChange?: (panel: string | undefined) => void
 }
 
 function PluginInventory({
   scope,
   panel,
-  paymentHash,
   onPanelChange,
 }: { scope: NativeUsersScope } & ConfigurationProps) {
   const { t } = useTranslation()
@@ -250,16 +248,12 @@ function PluginInventory({
     return valid ? names : null
   }
 
-  // Payment adapters expose owner-only configuration without extension lifecycle controls.
-  const configurationCards = root
-    ? registry.filter((plugin) => plugin.name !== 'identity')
-    : extensions
   const marketReviewEnabled = registry.some(
     (plugin) =>
       (plugin.name === 'store' || plugin.name === 'toolmarket') &&
       plugin.enabled
   )
-  const visible = configurationCards.filter(
+  const visible = extensions.filter(
     (plugin) =>
       [plugin.name, ...Object.values(pluginPresentation(plugin.name, t))]
         .join(' ')
@@ -355,7 +349,7 @@ function PluginInventory({
       )}
       {phase === 'fresh' &&
         activePanel &&
-        !configurationCards.some(
+        !extensions.some(
           (plugin) => plugin.name === configurationOwner(activePanel)
         ) && <p role='status'>{t('No results found.')}</p>}
       {notice && (
@@ -415,7 +409,7 @@ function PluginInventory({
       >
         {t('Showing {{visible}} of {{total}} modules', {
           visible: visible.length,
-          total: configurationCards.length,
+          total: extensions.length,
         })}
       </p>
       {orderReady && orderedExtensions.length > 0 && (
@@ -509,7 +503,6 @@ function PluginInventory({
           const dependents = pluginDependents(plugin, registry)
           const presentation = pluginPresentation(plugin.name, t)
           const hostFields = pluginHostFields(plugin.name)
-          const gateways = plugin.name === 'payments'
           const defaultPanel =
             plugin.name === 'store' && !root ? 'store-review' : plugin.name
           const configOpen = configurationOwner(activePanel) === plugin.name
@@ -517,11 +510,10 @@ function PluginInventory({
           const sharedReview =
             activePanel === 'store-review' || activePanel === 'toolmarket'
           const configReady =
-            gateways ||
             plugin.enabled ||
             (plugin.name === 'checkins' && plugin.installed) ||
             sharedReview
-          const lifecycleControl = !gateways && plugin.available && (
+          const lifecycleControl = plugin.available && (
             <Button
               variant={action === 'disable' ? 'outline' : 'default'}
               className='min-h-11'
@@ -583,7 +575,7 @@ function PluginInventory({
                       })}
                     </p>
                   )}
-                {!gateways && plugin.enabled && dependents.length > 0 && (
+                {plugin.enabled && dependents.length > 0 && (
                   <p className='text-muted-foreground text-xs [overflow-wrap:anywhere]'>
                     {t('Disable dependent modules first: {{names}}.', {
                       names: dependents.join(', '),
@@ -681,7 +673,7 @@ function PluginInventory({
                     {t('Configure')}
                   </Button>
                 )}
-                {!gateways && plugin.installed && !plugin.enabled && (
+                {plugin.installed && !plugin.enabled && (
                   <Button
                     variant='ghost'
                     className='text-muted-foreground min-h-11'
@@ -705,8 +697,6 @@ function PluginInventory({
                   {configReady ? (
                     <PluginConfiguration
                       name={activePanel}
-                      paymentHash={paymentHash}
-                      paymentsEnabled={gateways && plugin.enabled}
                       marketReviewEnabled={marketReviewEnabled}
                       writable={writable}
                       onSelect={changePanel}

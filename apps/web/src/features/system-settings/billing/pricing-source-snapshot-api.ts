@@ -139,13 +139,6 @@ export async function readPricingSourceSnapshot(
   return parsePricingSourceSnapshot(response.data)
 }
 
-/** The raw option values remain strings; never parse/round their numeric lexemes. */
-export function serializePricingSourceSnapshot(
-  snapshot: PricingSourceSnapshot
-): string {
-  return `${JSON.stringify(snapshot, null, 2)}\n`
-}
-
 /** Old deployment's original group names and descriptions, for reference only. */
 export function originalGroupDescriptions(
   snapshot: PricingSourceSnapshot | null | undefined

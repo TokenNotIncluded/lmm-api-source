@@ -73,11 +73,6 @@ const MerchantStoreSettingsSection = lazy(() =>
   )
 )
 
-const NativePaymentGateways = lazy(() =>
-  import('@/features/system-settings/billing/native-payment-gateways').then(
-    (module) => ({ default: module.NativePaymentGateways })
-  )
-)
 const MarketAIReviewSettingsSection = lazy(() =>
   import('@/features/market-ai-review/settings').then((module) => ({
     default: module.MarketAIReviewSettingsSection,
@@ -87,15 +82,11 @@ const MarketAIReviewSettingsSection = lazy(() =>
 export function PluginConfiguration({
   name,
   writable,
-  paymentHash,
-  paymentsEnabled,
   marketReviewEnabled,
   onSelect,
 }: {
   name: string
   writable: boolean
-  paymentHash?: string
-  paymentsEnabled: boolean
   marketReviewEnabled: boolean
   onSelect: (name: string) => void
 }) {
@@ -126,15 +117,6 @@ export function PluginConfiguration({
     store: root && <MerchantStoreSettingsSection />,
     'store-review': marketReview,
     toolmarket: marketReview,
-    payments:
-      root &&
-      (paymentsEnabled ? (
-        <NativePaymentGateways initialHash={paymentHash} />
-      ) : (
-        <p role='status'>
-          {t('Payment Gateway')} · {t('Disabled')}
-        </p>
-      )),
   }
   if (!Object.hasOwn(content, name)) return null
 

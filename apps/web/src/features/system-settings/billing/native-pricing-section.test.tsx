@@ -179,7 +179,8 @@ function configuration() {
 async function mount(
   nativeConfiguration = true,
   role = 100,
-  rejectPublication = false
+  rejectPublication = false,
+  prepare?: (current: ReturnType<typeof configuration>) => void
 ) {
   useAuthStore.getState().auth.setBundle({
     access_token: 'synthetic-pricing-session',
@@ -200,6 +201,7 @@ async function mount(
   const requests: string[] = []
   const writes: Array<{ path: string; body: Record<string, unknown> }> = []
   let current = configuration()
+  prepare?.(current)
   api.defaults.adapter = async (config) => {
     requests.push(config.url ?? '')
     if (config.method !== 'get') {
@@ -314,6 +316,10 @@ for (const entry of ['model-pricing']) {
     assert.equal(cells[3], '6')
     assert.equal(cells[4], '0.5')
     assert.equal(container.querySelector('pre'), null)
+    assert.doesNotMatch(container.textContent ?? '', /Original configuration/)
+    assert.ok(
+      !requests.includes('/core/v1/admin/routing/pricing-source-snapshot')
+    )
     assert.ok(requests.includes('/core/v1/admin/routing/configuration'))
     assert.ok(!requests.some((url) => url.startsWith('/api/option')))
   })
@@ -327,6 +333,7 @@ test('group pricing shows one group row with old description and editable multip
   const row = container.querySelector('tbody tr')
   assert.ok(row)
   assert.match(row.textContent ?? '', /default.*Original description.*0\.75×/)
+  assert.doesNotMatch(container.textContent ?? '', /Original configuration/)
   assert.doesNotMatch(
     container.querySelector('table')?.textContent ?? '',
     /imported-model/
@@ -358,18 +365,22 @@ test('group pricing shows one group row with old description and editable multip
   assert.equal(after.rules[0].group_multiplier_ppm, 1250000)
 })
 
-test('openrouter with native budget-compatible route can stage an upstream-cost rule', async () => {
+test('router pricing stages only eligible upstream-cost rules and preserves ordinary prices through publication', async () => {
   section = 'router-pricing'
-  const { container, writes } = await mount()
+  const { container, requests, writes } = await mount()
   await until(
     () => container.textContent?.includes('openrouter/auto-beta') === true
   )
-  await clickButton('Add price rule')
-  const form = document.querySelector('form#native-price-rule-form')
-  assert.ok(form)
-  await act(async () =>
-    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  assert.doesNotMatch(
+    container.textContent ?? '',
+    /Original configuration|imported-model|deepseek-search|JSON|Cache write/
   )
+  assert.equal(container.querySelector('table'), null)
+  assert.ok(
+    !requests.includes('/core/v1/admin/routing/pricing-source-snapshot')
+  )
+  await clickButton('Add price rule')
+  await clickButton('Apply to draft')
   await until(
     () => container.textContent?.includes('Pending price changes') === true
   )
@@ -377,11 +388,91 @@ test('openrouter with native budget-compatible route can stage an upstream-cost 
   await clickButton('Preview changes')
   await until(() => writes.length === 1)
   const after = writes[0].body.prices as { rules: Record<string, unknown>[] }
-  assert.equal(
-    after.rules.find((rule) => rule.model === 'openrouter/auto-beta')
-      ?.billing_mode,
-    'upstream_cost'
+  assert.equal(after.rules.length, 2)
+  assert.deepEqual(after.rules[0], configuration().prices.rules[0])
+  assert.equal(after.rules[1].model, 'openrouter/auto-beta')
+  assert.equal(after.rules[1].billing_mode, 'upstream_cost')
+  assert.equal(after.rules[1].group_multiplier_ppm, 1_000_000)
+  await clickButton('Confirm and publish')
+  await until(
+    () =>
+      writes.length === 2 &&
+      !container.textContent?.includes('Pending price changes')
   )
+  assert.equal(writes[1].body.confirmation_digest, 'a'.repeat(64))
+  assert.deepEqual(writes[1].body.prices, after)
+  assert.doesNotMatch(
+    container.textContent ?? '',
+    /imported-model|deepseek-search/
+  )
+  await clickButton('Edit')
+  assert.equal(
+    container.querySelector<HTMLInputElement>('input[inputmode="decimal"]')
+      ?.value,
+    '1'
+  )
+  await clickButton('Cancel')
+  await clickButton('Remove')
+  await until(
+    () => container.textContent?.includes('Pending price changes') === true
+  )
+  assert.equal(writes.length, 2)
+})
+
+test('router page excludes incompatible candidates and mixed drafts and keeps stored router rules visible', async () => {
+  section = 'router-pricing'
+  const { container, writes } = await mount(true, 100, false, (current) => {
+    const source = current.routing.routes[0]
+    // Even a recognized router model is ineligible on an external target.
+    current.routing.routes.push({
+      ...source,
+      id: 30,
+      model: 'nvidia/switchyard',
+    })
+    const ordinary = current.prices.rules[0]
+    const stored = {
+      ...ordinary,
+      id: 28,
+      model: 'openrouter/fusion',
+      billing_mode: 'upstream_cost',
+      rates: { input: 0, output: 0, cache_read: 0, cache_write: 0, request: 0 },
+    }
+    current.prices.rules.push(stored)
+    Object.assign(current.bindings.price_drafts, {
+      '41': {
+        id: 41,
+        name: 'Router-only draft',
+        base_pricing_version: 2,
+        updated_by: 501,
+        updated_at: 1700000000,
+        prices: {
+          version: 3,
+          rules: [ordinary, { ...stored, group_multiplier_ppm: 900000 }],
+        },
+      },
+      '42': {
+        id: 42,
+        name: 'Mixed model draft',
+        base_pricing_version: 2,
+        updated_by: 501,
+        updated_at: 1700000000,
+        prices: {
+          version: 3,
+          rules: [{ ...ordinary, group_multiplier_ppm: 800000 }, stored],
+        },
+      },
+    })
+  })
+  await until(
+    () => container.textContent?.includes('openrouter/fusion') === true
+  )
+  assert.match(container.textContent ?? '', /Router-only draft/)
+  assert.doesNotMatch(
+    container.textContent ?? '',
+    /Mixed model draft|nvidia\/switchyard|imported-model/
+  )
+  assert.match(container.textContent ?? '', /Capability unavailable/)
+  assert.equal(writes.length, 0)
 })
 
 test('unavailable native configuration does not open a price editor', async () => {

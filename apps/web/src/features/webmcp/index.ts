@@ -36,6 +36,7 @@ License, or (at your option) any later version.
 */
 import { signalGameTools } from '@/features/signal-game/webmcp'
 import { api } from '@/lib/api'
+import { readPublicOAuthMetadata } from '@/lib/public-oauth-metadata'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { accountTools } from './areas/account'
@@ -215,15 +216,17 @@ function coreTools(router: WebMcpRouter): ModelContextTool[] {
       annotations: { readOnlyHint: true },
       execute: async (_input, options) => {
         ensureNotAborted(options.signal)
+        const oauth = await readPublicOAuthMetadata(options.signal)
+        ensureNotAborted(options.signal)
         return {
-          site: 'api.lmm.best',
+          site: window.location.host,
           current_path: window.location.pathname,
           pricing_path: '/pricing',
           guide_path: '/developers',
           developers_path: '/developers',
           scripts_path: '/scripts',
           webmcp_path: '/webmcp',
-          pi_oauth: true,
+          pi_oauth: oauth?.pi ?? null,
         }
       },
     },

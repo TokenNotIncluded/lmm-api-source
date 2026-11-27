@@ -1,4 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
+import { useQuery } from '@tanstack/react-query'
 import { ArrowUpRight, Check, ChevronDown, Copy, KeyRound } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -6,11 +7,14 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { useApiBaseUrl } from '@/hooks/use-api-base-url'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+import {
+  OAUTH_DISCOVERY_PATH,
+  readPublicOAuthMetadata,
+} from '@/lib/public-oauth-metadata'
 
 import {
-  LMM_ISSUER,
   LMM_SOURCE,
-  OAUTH_PROMPT,
+  buildOAuthPrompt,
   buildPricingExample,
   buildPricingPrompt,
 } from './integration-prompts'
@@ -183,6 +187,11 @@ function ConnectionAddress() {
 export function DevelopersPage() {
   const { t } = useTranslation()
   const { rootUrl, loading } = useApiBaseUrl()
+  const oauth = useQuery({
+    queryKey: ['public-oauth-metadata'],
+    queryFn: ({ signal }) => readPublicOAuthMetadata(signal),
+    staleTime: 60_000,
+  })
   return (
     <main className='developers-page'>
       <header className='developers-hero'>
@@ -307,11 +316,6 @@ export function DevelopersPage() {
             <h3 className='dev-reference-subtitle'>
               {t('Registered native clients')}
             </h3>
-            <p className='dev-availability-note'>
-              {t(
-                'No OpenID Connect sign-in yet: no userinfo endpoint, ID token, or public client registration.'
-              )}
-            </p>
             <dl className='dev-endpoints'>
               <Endpoint
                 method='GET'
@@ -345,7 +349,7 @@ export function DevelopersPage() {
             <div className='dev-reference-links'>
               <a
                 className='dev-source-link'
-                href={`${LMM_ISSUER}/.well-known/oauth-authorization-server`}
+                href={OAUTH_DISCOVERY_PATH}
                 target='_blank'
                 rel='noopener noreferrer'
               >
@@ -362,10 +366,12 @@ export function DevelopersPage() {
                 <ArrowUpRight aria-hidden='true' />
               </a>
             </div>
-            <IntegrationPrompt
-              prompt={OAUTH_PROMPT}
-              label={t('Copy OAuth prompt')}
-            />
+            {oauth.data && (
+              <IntegrationPrompt
+                prompt={buildOAuthPrompt(oauth.data.issuer)}
+                label={t('Copy OAuth prompt')}
+              />
+            )}
           </section>
         </div>
       </div>

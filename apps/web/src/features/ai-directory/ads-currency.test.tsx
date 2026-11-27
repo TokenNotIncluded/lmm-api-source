@@ -65,6 +65,7 @@ const { QueryClient, QueryClientProvider, notifyManager } =
 const { I18nextProvider } = await import('react-i18next')
 const { default: i18n } = await import('@/i18n/config')
 const { api } = await import('@/lib/api')
+const { toast } = await import('sonner')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { DEFAULT_CURRENCY_CONFIG, useSystemConfigStore } =
   await import('@/stores/system-config-store')
@@ -289,7 +290,7 @@ test('historical public and moderation prices follow charged quota, language and
   await click('Hide and refund', container)
   assert.match(
     document.querySelector('[role="alertdialog"]')?.textContent ?? '',
-    /7 CNY will be refunded/
+    /requests a refund of 7 CNY/
   )
   assert.equal(bids.length, 0)
 })
@@ -458,3 +459,83 @@ test('a legacy backend quote cannot open confirmation or submit a payment', asyn
   assert.doesNotMatch(dialog.textContent ?? '', /Confirm advertisement payment/)
   assert.equal(bids.length, 0)
 })
+
+const hiddenAd = { ...historicalAd, status: 'hidden' }
+const confirmed = {
+  ad: hiddenAd,
+  refunded: true,
+  refunded_quota: hiddenAd.charged_quota,
+  refund_pending: false,
+}
+const pending = {
+  ad: hiddenAd,
+  refunded: false,
+  refunded_quota: 0,
+  refund_pending: true,
+}
+const unknown =
+  'Could not confirm whether the advertisement was hidden or refunded.'
+for (const [name, data, error, title, type] of [
+  [
+    'confirmed Core refund',
+    confirmed,
+    null,
+    'Advertisement hidden and payment refunded.',
+    'success',
+  ],
+  [
+    'hidden legacy placement without a Core payment receipt',
+    pending,
+    null,
+    'Advertisement hidden. Refund pending.',
+    'info',
+  ],
+  [
+    'unresolved Core refund',
+    null,
+    {
+      code: 'ERR_BAD_RESPONSE',
+      response: { data: { code: 'AI_DIRECTORY_AD_PAYMENT_PENDING' } },
+    },
+    'Advertisement hidden. Refund pending.',
+    'info',
+  ],
+  [
+    'forbidden or failed request',
+    null,
+    { response: { data: { code: 'COMMUNITY_FORBIDDEN' } } },
+    unknown,
+    'error',
+  ],
+  ['incomplete receipt', { ad: hiddenAd }, null, unknown, 'error'],
+  [
+    'inconsistent refund amount',
+    { ...confirmed, refunded_quota: 0 },
+    null,
+    unknown,
+    'error',
+  ],
+] as const) {
+  test(`ad moderation reports ${name} from the hide receipt`, async () => {
+    let calls = 0
+    api.post = (async (url) => {
+      assert.equal(url, '/api/ai-directory/ads/1/hide')
+      calls++
+      if (error) throw error
+      return { data: { success: true, data } }
+    }) as typeof api.post
+    await render(true)
+    await click('Hide and refund', container)
+    const dialog = document.querySelector('[role="alertdialog"]')
+    assert.ok(dialog)
+    const previous = toast.getHistory().length
+    await click('Hide and refund', dialog)
+    const messages = toast.getHistory().slice(previous)
+    assert.equal(messages.length, 1)
+    const message = messages[0]
+    assert.ok('title' in message)
+    assert.equal(message.title, title)
+    assert.equal(message.type, type)
+    assert.equal(calls, 1)
+  })
+}

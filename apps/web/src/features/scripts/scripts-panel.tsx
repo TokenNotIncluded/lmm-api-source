@@ -180,6 +180,26 @@ function PublicScriptSource({
   )
 }
 
+function ScriptListError({ onRetry }: { onRetry: () => void }) {
+  const { t } = useTranslation()
+  return (
+    <div
+      role='alert'
+      className='flex flex-wrap items-center justify-between gap-3 py-2 text-sm'
+    >
+      <p className='text-muted-foreground'>{t('Unable to load scripts')}</p>
+      <Button
+        type='button'
+        className='min-h-11'
+        variant='outline'
+        onClick={onRetry}
+      >
+        {t('Retry')}
+      </Button>
+    </div>
+  )
+}
+
 export function PublicScriptsPanel({
   fullPage = false,
 }: {
@@ -219,22 +239,7 @@ export function PublicScriptsPanel({
   }
   if (scripts.isError) {
     if (!fullPage) {
-      return (
-        <div
-          role='alert'
-          className='flex flex-wrap items-center justify-between gap-3 py-2 text-sm'
-        >
-          <p className='text-muted-foreground'>{t('Unable to load scripts')}</p>
-          <Button
-            type='button'
-            className='min-h-11'
-            variant='outline'
-            onClick={() => void scripts.refetch()}
-          >
-            {t('Retry')}
-          </Button>
-        </div>
-      )
+      return <ScriptListError onRetry={() => void scripts.refetch()} />
     }
     return (
       <Empty role='alert' className='border-border/70 border py-12'>
@@ -530,6 +535,11 @@ export function ScriptsAdminSection() {
   const privateReadOnly =
     (!!configured?.github_key_set || !!githubKey || clearGithubKey) &&
     !canManageKey
+  const saveDisabled =
+    !config ||
+    privateReadOnly ||
+    saveMutation.isPending ||
+    pullMutation.isPending
   const markCredentialDraft = () =>
     setDraft(
       (current) =>
@@ -543,7 +553,13 @@ export function ScriptsAdminSection() {
   }
   return (
     <div className='space-y-6'>
-      <div className='space-y-4'>
+      <form
+        className='space-y-4'
+        onSubmit={(event) => {
+          event.preventDefault()
+          if (!saveDisabled) saveMutation.mutate()
+        }}
+      >
         <div>
           <h3 className='flex items-center gap-2 text-sm font-semibold'>
             <GitBranch className='size-4' aria-hidden='true' />
@@ -641,16 +657,7 @@ export function ScriptsAdminSection() {
           </label>
         )}
         <div className='flex flex-wrap gap-2'>
-          <Button
-            type='button'
-            onClick={() => saveMutation.mutate()}
-            disabled={
-              !config ||
-              privateReadOnly ||
-              saveMutation.isPending ||
-              pullMutation.isPending
-            }
-          >
+          <Button type='submit' disabled={saveDisabled}>
             <GitBranch className='me-2 size-4' />
             {saveMutation.isPending ? t('Saving...') : t('Save repository')}
           </Button>
@@ -690,18 +697,25 @@ export function ScriptsAdminSection() {
             {formatUpdated(configured.last_pulled_at, t('Unknown update time'))}
           </p>
         )}
-      </div>
+      </form>
       <div className='border-t pt-4'>
         <div className='mb-2 flex items-center justify-between gap-3'>
           <h3 className='text-sm font-semibold'>{t('Published scripts')}</h3>
-          <span className='text-muted-foreground text-xs'>
-            {sortedScripts.length} {t('scripts')}
-          </span>
+          {scripts.data && (
+            <span className='text-muted-foreground text-xs'>
+              {sortedScripts.length} {t('scripts')}
+            </span>
+          )}
         </div>
+        {scripts.isError && (
+          <ScriptListError onRetry={() => void scripts.refetch()} />
+        )}
         {sortedScripts.length === 0 ? (
-          <p className='text-muted-foreground text-sm'>
-            {t('Pull a repository to publish scripts.')}
-          </p>
+          scripts.isSuccess && (
+            <p className='text-muted-foreground text-sm'>
+              {t('Pull a repository to publish scripts.')}
+            </p>
+          )
         ) : (
           <div className='divide-border divide-y border'>
             {sortedScripts.map((script) => (

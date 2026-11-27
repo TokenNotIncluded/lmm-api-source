@@ -11,10 +11,9 @@ import { useCapabilityFreshness } from '@/hooks/use-capability-freshness'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 
 import { NativePricingManagement } from './native-pricing-management'
-import { PricingSourceSnapshot } from './pricing-source-snapshot'
 
 /** Prices belong to the published routing release, not the legacy options API. */
-function NativePricingEditor({
+export function NativePricingSection({
   initialMode,
   groupWorkspace,
 }: {
@@ -71,23 +70,5 @@ function NativePricingEditor({
       initialMode={initialMode}
       groupWorkspace={groupWorkspace}
     />
-  )
-}
-
-export function NativePricingSection({
-  initialMode,
-  groupWorkspace,
-}: {
-  initialMode?: string
-  groupWorkspace?: boolean
-}) {
-  return (
-    <div className='space-y-8'>
-      <NativePricingEditor
-        initialMode={initialMode}
-        groupWorkspace={groupWorkspace}
-      />
-      <PricingSourceSnapshot />
-    </div>
   )
 }

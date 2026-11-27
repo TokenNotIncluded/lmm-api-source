@@ -9,6 +9,7 @@ the Free Software Foundation, either version 3 of the License, or
 import assert from 'node:assert/strict'
 import { after, afterEach, describe, test } from 'node:test'
 
+import { AxiosError } from 'axios'
 import { Window } from 'happy-dom'
 import type React from 'react'
 
@@ -45,6 +46,7 @@ for (const key of [
   'cancelAnimationFrame',
   'getComputedStyle',
   'localStorage',
+  'sessionStorage',
   'scrollTo',
 ] as const) {
   Object.defineProperty(globalThis, key, {
@@ -68,6 +70,8 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { SidebarProvider } = await import('@/components/ui/sidebar')
 const { api } = await import('@/lib/api')
+const { toast } = await import('sonner')
+const { useAuthStore } = await import('@/stores/auth-store')
 const { SubscriptionResetWorkspace } = await import('./reset-workspace')
 const { SubscriptionResetVouchers } =
   await import('../wallet/components/subscription-reset-vouchers')
@@ -224,6 +228,109 @@ const voucher = {
 }
 
 describe('subscription reset browser accessibility', () => {
+  test('loads eligible targets and archived plan filters on a native deployment', async () => {
+    const auth = useAuthStore.getState().auth
+    const originalAdapter = api.defaults.adapter
+    const beforeToasts = toast.getHistory().length
+    auth.setBundle({
+      access_token: 'synthetic-reset-token',
+      token_type: 'Bearer',
+      access_expires_at: 9999999999,
+      user: { id: 52, role: 100, username: 'operator' },
+      session: {
+        sid: 'synthetic-52',
+        current: true,
+        login_method: 'password',
+        ip: null,
+        user_agent: null,
+        created_at: 1,
+        last_active_at: 1,
+        expires_at: 9999999999,
+      },
+    })
+    const requests: string[] = []
+    api.defaults.adapter = async (config) => {
+      const url = config.url ?? ''
+      requests.push(url)
+      const reply = { config, headers: {}, status: 200, statusText: 'OK' }
+      if (url === '/api/site/navigation' || url === '/api/status') {
+        return { ...reply, data: { success: true, data: {} } }
+      }
+      if (url === '/api/subscription/admin/plans') {
+        assert.deepEqual(config.params, { include_archived: '1' })
+        throw new AxiosError(
+          'route missing',
+          'ERR_BAD_REQUEST',
+          config,
+          undefined,
+          {
+            ...reply,
+            status: 404,
+            statusText: 'Not Found',
+            data: {},
+          }
+        )
+      }
+      if (url === '/api/subscription/root/reset-targets') {
+        return { ...reply, data: eligibleResponse }
+      }
+      assert.equal(url, '/core/v1/subscriptions/admin/plans')
+      return {
+        ...reply,
+        data: {
+          contract: 'core.subscriptions.v1',
+          plans: [
+            {
+              id: 3,
+              revision: 2,
+              archived: true,
+              terms: {
+                title: 'Retired plan',
+                price_units: '1',
+                duration_seconds: 3600,
+                reset_period: 'grant',
+                reset_seconds: 0,
+                limit_units: '10',
+                models: ['*'],
+                groups: ['*'],
+                max_purchases_per_user: 0,
+                enabled: false,
+                allow_balance_pay: false,
+              },
+            },
+          ],
+        },
+      }
+    }
+    const rendered = await renderWorkspace(
+      new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      })
+    )
+    try {
+      await waitFor(
+        () =>
+          !!rendered.container.querySelector(
+            '[aria-label="Select alice on Pro"]'
+          ) &&
+          [...rendered.container.querySelectorAll('fieldset label')].some(
+            (label) => label.textContent === 'Retired planArchived'
+          ),
+        'reset targets and archived plan filter did not load'
+      )
+      assert.equal(toast.getHistory().length, beforeToasts)
+      assert.deepEqual(
+        requests.filter((url) => url.endsWith('/admin/plans')),
+        ['/api/subscription/admin/plans', '/core/v1/subscriptions/admin/plans']
+      )
+      assert.ok(requests.includes('/api/subscription/root/reset-targets'))
+    } finally {
+      await unmount(rendered)
+      api.defaults.adapter = originalAdapter
+      useAuthStore.setState({ auth })
+    }
+  })
+
   test('requires an explicit future voucher expiry in soft mode and expires it without another query', async () => {
     let previewCalls = 0
     let sentPreview: { voucher_expires_at?: number; mode?: string } | undefined

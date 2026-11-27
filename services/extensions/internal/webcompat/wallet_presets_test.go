@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-
 	"reflect"
 	"testing"
 
@@ -22,19 +21,24 @@ func TestWalletPresetOwnerSaveAndWalletReadback(t *testing.T) {
 		{Channel: payments.Channel{ID: 4, Currency: "USD", Provider: "coinbase"}},
 		{Channel: payments.Channel{ID: 5, Currency: "USD", Provider: "coinbase", CreditQuantity: true}, MinCreditUnits: 500000},
 	}}
-	mount := func(level int32) *http.ServeMux {
+	mount := func(level int32) http.Handler {
 		core := &authCore{fn: func(context.Context, string) (*pb.AuthorizeResponse, error) {
 			self := sessionSelf()
 			self.PlatformLevel = level
 			return self, nil
 		}}
-		mux := http.NewServeMux()
-		RegisterPaymentCheckout(mux, newAuth(t, core), port, nil, payments.WalletPresets{Directory: path})
-		return mux
+		host, _ := mountTransportHost(t, nil)
+		if err := host.MarkReady(); err != nil {
+			t.Fatal(err)
+		}
+		return Mount(host, newAuth(t, core), nil, nil, AdditionalServices{
+			Plugins:         &pluginControllerFake{enabled: map[string]bool{"payments": false}},
+			PaymentCheckout: port, WalletPresetDirectory: path,
+		})
 	}
 	admin := mount(6)
 	const endpoint = "/api/user/payments/presets"
-	put := func(mux *http.ServeMux, currency, body string, want int) {
+	put := func(mux http.Handler, currency, body string, want int) {
 		t.Helper()
 		r := checkoutCall(mux, "PUT", endpoint+"/"+currency, webToken, body)
 		if r.Code != want {

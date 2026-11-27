@@ -59,7 +59,7 @@ func checkoutMux(t *testing.T, p PaymentCheckoutService) *http.ServeMux {
 	RegisterPaymentCheckout(m, a, p, nil, payments.WalletPresets{})
 	return m
 }
-func checkoutCall(m *http.ServeMux, method, path, token, body string) *httptest.ResponseRecorder {
+func checkoutCall(m http.Handler, method, path, token, body string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)

@@ -26,6 +26,7 @@ for (const [name, value] of Object.entries({
   HTMLButtonElement: dom.HTMLButtonElement,
   DocumentFragment: dom.DocumentFragment,
   ShadowRoot: dom.ShadowRoot,
+  scrollTo: dom.scrollTo.bind(dom),
   requestAnimationFrame: dom.requestAnimationFrame.bind(dom),
   cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom),
   getComputedStyle: dom.getComputedStyle.bind(dom),
@@ -188,6 +189,130 @@ async function edit(id: string, value: string) {
 }
 function body(config: ApiRequestConfig) {
   return typeof config.data === 'string' ? JSON.parse(config.data) : config.data
+}
+
+// Exercise the published file-route guards and the actual Core settings component
+// with memory history and synthetic authenticated API responses.
+async function paymentRouter(entry: string) {
+  const {
+    createRootRoute,
+    createRoute,
+    createRouter,
+    createMemoryHistory,
+    RouterProvider,
+  } = await import('@tanstack/react-router')
+  const { Route: marketplace } =
+    await import('@/routes/_authenticated/extensions/plugins/index')
+  const { Route: settings } =
+    await import('@/routes/_authenticated/system-settings/route')
+  const { Route: billing } =
+    await import('@/routes/_authenticated/system-settings/billing/$section')
+  const { BillingSettings } = await import('./index')
+  const root = createRootRoute()
+  const auth = createRoute({ getParentRoute: () => root, id: '_authenticated' })
+  const plugins = createRoute({
+    getParentRoute: () => auth,
+    path: 'extensions/plugins',
+    validateSearch: marketplace.options.validateSearch,
+    beforeLoad: (context) => marketplace.options.beforeLoad?.(context as never),
+  })
+  const core = createRoute({
+    getParentRoute: () => auth,
+    path: 'system-settings',
+    beforeLoad: (context) => settings.options.beforeLoad?.(context as never),
+  })
+  const payment = createRoute({
+    getParentRoute: () => core,
+    path: 'billing/$section',
+    beforeLoad: (context) => billing.options.beforeLoad?.(context as never),
+    component: BillingSettings,
+  })
+  const denied = createRoute({
+    getParentRoute: () => root,
+    path: '403',
+    component: () => <div>Forbidden</div>,
+  })
+  const router = createRouter({
+    routeTree: root.addChildren([
+      denied,
+      auth.addChildren([plugins, core.addChildren([payment])]),
+    ]),
+    history: createMemoryHistory({ initialEntries: [entry] }),
+  })
+  return { router, Page: () => <RouterProvider router={router} /> }
+}
+test('previous marketplace payment bookmark opens the Core Waffo page, saves there and reads back the update', async () => {
+  const { router, Page } = await paymentRouter(
+    '/extensions/plugins?configure=payments#waffo-pancake'
+  )
+  let value = configuration()
+  const { container, requests } = await mount(
+    (config) => {
+      if (config.url === '/api/option/' || config.url === '/api/option') {
+        return success([])
+      }
+      if (config.method === 'get') {
+        assert.equal(config.url, '/api/option/waffo-pancake/config')
+        return success(value)
+      }
+      assert.equal(config.url, '/api/option/waffo-pancake/save')
+      value = { ...value, return_url: body(config).return_url }
+      return success({ store_id: value.store_id, product_id: value.product_id })
+    },
+    100,
+    Page
+  )
+  await until(() =>
+    Boolean(container.querySelector('#native-payment-return-url'))
+  )
+  assert.equal(
+    router.state.location.pathname,
+    '/system-settings/billing/payment'
+  )
+  assert.equal(router.state.location.hash, 'waffo-pancake')
+  assert.equal(
+    container.querySelector('.settings-page-title')?.textContent,
+    'Payment'
+  )
+  assert.equal(
+    container.querySelector('[role="tab"][aria-selected="true"]')?.textContent,
+    'Waffo Pancake'
+  )
+  await edit('native-payment-return-url', 'https://example.com/from-core')
+  await click('Save payment settings')
+  await until(
+    () =>
+      container.textContent?.includes(
+        'Payment settings saved and read back'
+      ) === true
+  )
+  assert.equal(value.return_url, 'https://example.com/from-core')
+  assert.deepEqual(
+    requests
+      .filter((c) => c.url?.includes('waffo-pancake'))
+      .map((c) => c.method),
+    ['get', 'post', 'get']
+  )
+  assert.ok(requests.every((c) => c.url !== '/api/extensions/plugins'))
+})
+for (const entry of [
+  '/extensions/plugins?configure=payments#waffo-pancake',
+  '/system-settings/billing/payment#stripe',
+]) {
+  test(
+    'standard administrator cannot open payment settings through ' + entry,
+    async () => {
+      const { router, Page } = await paymentRouter(entry)
+      const { container, requests } = await mount(
+        () => assert.fail('Unexpected configuration access'),
+        10,
+        Page
+      )
+      await until(() => container.textContent?.includes('Forbidden') === true)
+      assert.equal(router.state.location.pathname, '/403')
+      assert.equal(requests.length, 0)
+    }
+  )
 }
 
 test('owner edits payment settings, saves once and reads back without caching private keys', async () => {

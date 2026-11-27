@@ -668,15 +668,13 @@ try {
         await go('/system-settings/billing/payment')
         await page.waitForURL(
           (url) =>
-            url.pathname.replace(/\/+$/, '') === '/extensions/plugins' &&
-            url.searchParams.get('configure') === 'payments'
+            url.pathname.replace(/\/+$/, '') ===
+            '/system-settings/billing/payment'
         )
-        const overview = page
-          .locator('article[data-plugin="payments"]')
-          .getByRole('tabpanel', {
-            name: t('Wallet payment methods'),
-            exact: true,
-          })
+        const overview = page.getByRole('tabpanel', {
+          name: t('Wallet payment methods'),
+          exact: true,
+        })
         const method = (name) =>
           overview.locator('dl > div').filter({
             has: page.getByText(t(name), { exact: true }),

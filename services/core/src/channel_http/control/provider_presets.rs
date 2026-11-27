@@ -42,7 +42,7 @@ pub(super) const PROVIDERS: &[ProviderPreset] = &[
         "openai",
         "OpenAI",
         "OpenAI",
-        OpenAiChat,
+        OpenAiResponses,
         "https://api.openai.com/v1",
     ),
     preset(
@@ -190,6 +190,21 @@ mod tests {
                 "protocol_endpoints": variants,
             })
         );
+    }
+
+    #[test]
+    fn official_openai_defaults_to_responses_and_deepseek_keeps_chat() {
+        let presets = serde_json::to_value(PROVIDERS).unwrap();
+        let protocol = |name: &str| {
+            &presets
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|preset| preset["id"] == name)
+                .unwrap()["protocol"]
+        };
+        assert_eq!(protocol("openai"), "openai_responses");
+        assert_eq!(protocol("deepseek"), "openai_chat");
     }
 
     #[test]

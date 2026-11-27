@@ -214,6 +214,11 @@ func (r *Runtime) StartWorkers(parent context.Context, host *modules.Host) {
 }
 
 func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
+	// Merchant adapters are assembled from trusted host configuration. The
+	// historical module name remains accepted by existing installations.
+	if paymentConfigured(cfg) && !slices.Contains(cfg.Selected, "payments") {
+		cfg.Selected = append(slices.Clone(cfg.Selected), "payments")
+	}
 	selection, err := SelectModules("", cfg.Selected)
 	if err != nil {
 		return nil, err

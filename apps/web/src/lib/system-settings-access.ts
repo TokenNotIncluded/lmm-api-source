@@ -282,7 +282,7 @@ const sections: Readonly<Record<string, SectionPolicy>> = {
   'billing/model-pricing': core,
   'billing/router-pricing': core,
   'billing/group-pricing': core,
-  'billing/payment': plugin,
+  'billing/payment': core,
   'billing/checkin': plugin,
 }
 
@@ -305,6 +305,9 @@ export function getSettingsBoundary(url: string): SettingsBoundary | undefined {
     path === PLUGINS
       ? (new URLSearchParams(query).get('configure') ?? undefined)
       : legacyPluginPanel(path, hash)
+  if (path === PLUGINS && panel === 'payments') {
+    return { owner: 'core', canonical: '/system-settings/billing/payment' }
+  }
   if (panel) {
     if (panel === 'toolmarket' || panel === 'store-review') {
       return { ...sharedReview, canonical: `${PLUGINS}?configure=${panel}` }
@@ -378,7 +381,10 @@ export function canReadSystemSettingsPath(
   }
   if (path === PLUGINS || path === LEGACY_EXTENSION_SETTINGS_HOME) {
     const panel = new URLSearchParams(query).get('configure')
-    return panel === null || canOpenConfiguration(panel, root)
+    return (
+      panel === null ||
+      (panel === 'payments' ? root : canOpenConfiguration(panel, root))
+    )
   }
   if (!root) return false
   if (

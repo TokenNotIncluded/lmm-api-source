@@ -32,8 +32,10 @@ await createInstance()
   .use(initReactI18next)
   .init({ lng: 'en', resources: { en: { translation: {} } } })
 const { DevelopersPage, IntegrationPrompt } = await import('./page')
-const { buildPricingExample, buildPricingPrompt, OAUTH_PROMPT } =
+const { buildPricingExample, buildPricingPrompt, buildOAuthPrompt } =
   await import('./integration-prompts')
+const issuer = 'https://accounts.example.test'
+const OAUTH_PROMPT = buildOAuthPrompt(issuer)
 const publicRoot = 'https://relay.example.test:8443/gateway'
 const PRICING_EXAMPLE = buildPricingExample(publicRoot)
 const PRICING_PROMPT = buildPricingPrompt(publicRoot)
@@ -134,6 +136,11 @@ for (const clipboardAvailable of [true, false]) {
     queryClient.setQueryData(['status', 'anonymous'], {
       server_address: `${publicRoot}/v1`,
     })
+    queryClient.setQueryData(['public-oauth-metadata'], {
+      issuer,
+      pi: false,
+      oidc: true,
+    })
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
@@ -155,8 +162,14 @@ for (const clipboardAvailable of [true, false]) {
       )
       assert.ok(
         container.querySelector(
-          'a[href="https://api.lmm.best/.well-known/oauth-authorization-server"]'
+          'a[href="/.well-known/oauth-authorization-server"]'
         )
+      )
+      assert.equal(
+        container.querySelector<HTMLTextAreaElement>(
+          'textarea[aria-label="Integration prompt: Copy OAuth prompt"]'
+        )?.value,
+        OAUTH_PROMPT
       )
       assert.equal(example.textContent, PRICING_EXAMPLE)
       const exampleBlock = example.parentElement
@@ -204,6 +217,12 @@ test('invalid configured API address disables request copying and hides pricing 
       )
     )
     assert.match(container.textContent ?? '', /API address unavailable/)
+    assert.equal(
+      container.querySelector(
+        'textarea[aria-label="Integration prompt: Copy OAuth prompt"]'
+      ),
+      null
+    )
     assert.doesNotMatch(container.textContent ?? '', /key:secret/)
     assert.equal(
       container.querySelector<HTMLButtonElement>('.dev-copy-request')?.disabled,
@@ -223,7 +242,7 @@ test('invalid configured API address disables request copying and hides pricing 
     )
     assert.ok(
       container.querySelector(
-        'a[href="https://api.lmm.best/.well-known/oauth-authorization-server"]'
+        'a[href="/.well-known/oauth-authorization-server"]'
       )
     )
   } finally {

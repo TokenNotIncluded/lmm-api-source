@@ -51,10 +51,7 @@ func validatePaymentSelection(cfg Config) error {
 	for _, name := range cfg.Selected {
 		selected = selected || name == "payments"
 	}
-	if !selected {
-		if paymentConfigured(cfg) {
-			return errors.New("payments configuration requires explicit module selection")
-		}
+	if !selected && !paymentConfigured(cfg) {
 		return nil
 	}
 	if cfg.PaymentTokenFile == "" || cfg.PaymentConfigFile == "" {

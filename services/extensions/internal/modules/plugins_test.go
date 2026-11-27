@@ -709,3 +709,54 @@ func TestPluginDependencyGraphRejectsCyclesAndMissingNodes(t *testing.T) {
 		})
 	}
 }
+
+func TestCorePaymentAdapterSurvivesLegacyStateAndMarketplaceReload(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "plugins.json")
+	entries := []Module{pluginTestModule{"payments", "1.0.0"}, pluginTestModule{"store", "1.0.0"}}
+	historical := pluginStateFile{FormatVersion: 1}
+	for _, name := range []string{"payments", "store"} {
+		historical.Plugins = append(historical.Plugins, pluginState{Name: name, Version: "1.0.0", APIVersion: 1, RegistrationSHA256: RegistrationSHA256(name, "1.0.0"), Installed: name == "store", Enabled: name == "store"})
+	}
+	raw, err := json.Marshal(historical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	host := &pluginTestReloader{}
+	manager, err := NewPluginManager(host, entries, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list := manager.List(); len(list) != 1 || list[0].Name != "store" || list[0].LoadOrder != 1 {
+		t.Fatal(list)
+	}
+	if !reflect.DeepEqual(host.last, []string{"store", "payments"}) {
+		t.Fatal("configured routes", host.last)
+	}
+	for _, op := range []func(string) (PluginInfo, error){manager.Enable, manager.Disable, manager.Uninstall} {
+		if _, err := op("payments"); !errors.Is(err, ErrPluginNotFound) {
+			t.Fatal(err)
+		}
+	}
+	if _, err := manager.Install(PluginInstallRequest{Name: "payments"}); !errors.Is(err, ErrPluginNotFound) {
+		t.Fatal(err)
+	}
+	if _, err := manager.SetLoadOrder([]string{"payments", "store"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Disable("store"); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(host.last, []string{"payments"}) {
+		t.Fatal("adapter lost during plugin reload", host.last)
+	}
+	if _, err := NewPluginManager(host, entries, path); err != nil || !reflect.DeepEqual(host.last, []string{"payments"}) {
+		t.Fatal("restart", host.last, err)
+	}
+}

@@ -124,6 +124,13 @@ test('repository edits preserve the read revision and pull only the saved config
       '#scripts-repository-branch'
     )
     assert.ok(input)
+    const credential = container.querySelector<HTMLInputElement>(
+      '#scripts-github-key'
+    )
+    assert.ok(input.form)
+    assert.equal(credential?.form, input.form)
+    assert.equal(button('Save repository').type, 'submit')
+    assert.equal(button('Pull updates').type, 'button')
     const setter = Object.getOwnPropertyDescriptor(
       HTMLInputElement.prototype,
       'value'
@@ -382,7 +389,7 @@ test('private repository controls require L6 and preserve credential CAS without
   }
 })
 
-test('the embedded scripts panel keeps a 503 local and only retries on request', async () => {
+test('the embedded and admin scripts panels share a 503 and its explicit retry', async () => {
   const originalAdapter = api.defaults.adapter
   const originalToast = toast.error
   const toasts: unknown[] = []
@@ -417,6 +424,16 @@ test('the embedded scripts panel keeps a 503 local and only retries on request',
         )
       }
       data = { success: true, data: [{ name: 'menu.sh' }] }
+    } else if (config.url === '/api/scripts/repository') {
+      data = {
+        success: true,
+        data: {
+          revision: 1,
+          repository_url: '',
+          branch: 'main',
+          github_key_set: false,
+        },
+      }
     } else if (config.url === '/api/site/navigation') {
       data = {
         success: true,
@@ -450,6 +467,7 @@ test('the embedded scripts panel keeps a 503 local and only retries on request',
         <I18nextProvider i18n={i18n}>
           <QueryClientProvider client={client}>
             <PublicScriptsPanel />
+            <ScriptsAdminSection />
           </QueryClientProvider>
         </I18nextProvider>
       )
@@ -459,15 +477,18 @@ test('the embedded scripts panel keeps a 503 local and only retries on request',
     assert.equal(listRequests, 1)
     assert.equal(client.getQueryState(['public-scripts'])?.status, 'error')
     assert.equal(client.getQueryData(['public-scripts']), undefined)
-    assert.match(
-      container.querySelector('[role="alert"]')?.textContent ?? '',
-      /Unable to load scripts/
+    const alerts = container.querySelectorAll('[role="alert"]')
+    assert.equal(alerts.length, 2)
+    for (const alert of alerts) {
+      assert.match(alert.textContent ?? '', /Unable to load scripts/)
+    }
+    assert.doesNotMatch(
+      container.textContent ?? '',
+      /Pull a repository to publish scripts/
     )
     assert.deepEqual(toasts, [])
 
-    const retry = [...container.querySelectorAll('button')].find(
-      (button) => button.textContent?.trim() === 'Retry'
-    )
+    const retry = alerts[1].querySelector('button')
     assert.ok(retry)
     available = true
     await act(async () => {

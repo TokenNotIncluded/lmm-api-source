@@ -90,10 +90,32 @@ function isMissingSubscriptionRoute(error: unknown) {
 export async function getAdminPlans(
   includeArchived = false
 ): Promise<ApiResponse<PlanRecord[]>> {
-  const res = await api.get('/api/subscription/admin/plans', {
-    params: includeArchived ? { include_archived: '1' } : undefined,
-  })
-  return res.data
+  const owner = subscriptionOwner()
+  const scope = commerceScope()
+  try {
+    const res = await api.get('/api/subscription/admin/plans', {
+      params: includeArchived ? { include_archived: '1' } : undefined,
+      ...(scope
+        ? { authScope: scope, skipErrorHandler: true, skipAuthRefresh: true }
+        : {}),
+    })
+    requireSubscriptionOwner(owner)
+    if (!isClassicSubscriptionPayload<PlanRecord[]>(res.data)) {
+      throw new CommerceFailure('INVALID_RESPONSE')
+    }
+    return res.data
+  } catch (error) {
+    requireSubscriptionOwner(owner)
+    if (!scope || !isMissingSubscriptionRoute(error)) throw error
+  }
+  const plans = await listNativePlans(scope, true)
+  requireSubscriptionOwner(owner)
+  return {
+    success: true,
+    data: plans
+      .filter((plan) => includeArchived || !plan.archived)
+      .map(nativePlanToRecord),
+  }
 }
 
 export async function getSubscriptionResetEligible(

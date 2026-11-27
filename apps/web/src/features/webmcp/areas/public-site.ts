@@ -7,10 +7,7 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 import { getAboutContent } from '@/features/about/api'
-import {
-  LMM_ISSUER,
-  LMM_SOURCE,
-} from '@/features/developers/integration-prompts'
+import { LMM_SOURCE } from '@/features/developers/integration-prompts'
 import {
   buildRequestBody,
   buildRequestSnippet,
@@ -26,6 +23,7 @@ import {
   isCurrentReleaseNoteScope,
 } from '@/features/release-notes/api'
 import { getStatus } from '@/lib/api'
+import { readPublicOAuthMetadata } from '@/lib/public-oauth-metadata'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
@@ -105,7 +103,7 @@ type ProtocolKey = keyof typeof PROTOCOL_PATHS
 const LANGUAGES = ['curl', 'javascript', 'python'] as const
 
 function siteOrigin() {
-  return typeof window === 'undefined' ? LMM_ISSUER : window.location.origin
+  return typeof window === 'undefined' ? '' : window.location.origin
 }
 
 async function readLegalDocument(
@@ -248,10 +246,12 @@ export const publicSiteTools: WebMcpToolFactory = () => [
     execute: async (_rawInput, options) => {
       ensureNotAborted(options.signal)
       const origin = siteOrigin()
+      const oauth = await readPublicOAuthMetadata(options.signal)
+      ensureNotAborted(options.signal)
       return {
         page: '/developers',
         base_url: `${origin}/v1`,
-        issuer: origin,
+        issuer: oauth?.issuer ?? null,
         sections: DEVELOPER_SECTIONS.map((section) => ({
           id: section.id,
           title: section.title,
@@ -314,9 +314,8 @@ export const publicSiteTools: WebMcpToolFactory = () => [
           flow: 'Authorization Code with PKCE (S256)',
           clients:
             'Use only clients advertised by discovery: lmm, optionally enabled lmm-pi, and matching client/application entries in lmm_managed_clients. Missing capability means unavailable.',
-          openid_connect: false,
-          limitation:
-            'No userinfo endpoint, ID token or public client registration.',
+          openid_connect: oauth?.oidc ?? null,
+          limitation: 'Public dynamic client registration is unavailable.',
         },
       }
     },

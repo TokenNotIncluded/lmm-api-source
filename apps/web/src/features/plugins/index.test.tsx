@@ -839,55 +839,24 @@ const reviewSettings = {
 }
 const reviewPath = '/api/security/market-ai-review/settings'
 
-test('the registered payments adapter exposes only owner configuration and reads the wallet on opening', async () => {
+test('platform payment settings have no marketplace card even when an old host advertises the adapter', async () => {
   login(100)
   const requests: string[] = []
   api.defaults.adapter = async (config) => {
-    requests.push(`${config.method} ${config.url}`)
-    assert.equal(config.method, 'get')
-    if (config.url === '/api/extensions/plugins') {
-      return response(config, [
-        { ...plugin, name: 'payments', load_order: 1 },
-        { ...plugin, load_order: 2 },
-      ])
-    }
-    assert.equal(config.url, '/api/user/payments/channels')
-    return response(config, { available: false, channels: [] })
+    requests.push(config.url!)
+    return response(config, [
+      { ...plugin, name: 'payments', load_order: 1 },
+      { ...plugin, load_order: 2 },
+    ])
   }
   const container = await mount()
-  await until(() =>
-    Boolean(container.querySelector('[data-plugin="payments"]'))
-  )
+  await until(() => Boolean(container.querySelector('[data-plugin="store"]')))
+  assert.equal(container.querySelector('[data-plugin="payments"]'), null)
   assert.equal(
     container.querySelector('p[aria-live="polite"]')?.textContent,
-    'Showing 2 of 2 modules'
+    'Showing 1 of 1 modules'
   )
-  const card = container.querySelector<HTMLElement>('[data-plugin="payments"]')!
-  assert.equal(
-    [...card.querySelectorAll('button')].some((item) =>
-      [
-        'Install',
-        'Uninstall',
-        'Disable',
-        'Enable',
-        'Move up',
-        'Move down',
-      ].includes(item.textContent ?? '')
-    ),
-    false
-  )
-  assert.deepEqual(requests, ['get /api/extensions/plugins'])
-  await act(async () => button('Configure', card).click())
-  await until(() => requests.includes('get /api/user/payments/channels'))
-  assert.equal(card.querySelectorAll('[role="tab"]').length, 7)
-  assert.equal(
-    card.querySelector('[role="tab"][aria-selected="true"]')?.textContent,
-    'Wallet payment methods'
-  )
-  assert.deepEqual(requests, [
-    'get /api/extensions/plugins',
-    'get /api/user/payments/channels',
-  ])
+  assert.deepEqual(requests, ['/api/extensions/plugins'])
 })
 
 test('a standard administrator cannot discover or mount platform gateway credentials', async () => {
@@ -1028,16 +997,6 @@ test('disabled gateways and two disabled market owners do not probe or mutate co
     () =>
       container.textContent?.includes('AI first review is disabled') === true
   )
-  const payments = container.querySelector('[data-plugin="payments"]')!
-  await act(async () => button('Configure', payments).click())
-  await until(() => Boolean(payments.querySelector('#plugin-config-payments')))
-  assert.equal(payments.querySelector('[role="tab"]'), null)
-  assert.equal(
-    [...payments.querySelectorAll('button')].some(
-      (item) =>
-        item.textContent === 'Uninstall' || item.textContent === 'Enable'
-    ),
-    false
-  )
+  assert.equal(container.querySelector('[data-plugin="payments"]'), null)
   assert.deepEqual(calls, ['/api/extensions/plugins'])
 })

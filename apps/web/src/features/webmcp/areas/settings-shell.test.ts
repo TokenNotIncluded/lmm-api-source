@@ -231,27 +231,28 @@ test('cancellation prevents navigation and root access is rechecked after a fetc
   )
 })
 
-for (const [keyword, panel] of [
-  ['atom', 'rss'],
-  ['coinbase', 'payments'],
-  ['classifier', 'toolmarket'],
+for (const [keyword, canonical] of [
+  ['atom', '/extensions/plugins?configure=rss'],
+  ['coinbase', '/system-settings/billing/payment'],
+  ['classifier', '/extensions/plugins?configure=toolmarket'],
 ]) {
-  test(`settings discovery opens the canonical ${panel} editor`, async () => {
+  test(`settings discovery opens the canonical ${keyword} editor`, async () => {
     signIn(ROLE.SUPER_ADMIN)
     const result = (await tool('lmm_settings_search').execute(
       { query: keyword },
       { signal: signal() }
     )) as { sections: Array<{ path: string }> }
-    const canonical = `/extensions/plugins?configure=${panel}`
     assert.ok(result.sections.some((entry) => entry.path === canonical))
     await tool('lmm_settings_open').execute(
       { path: canonical },
       { signal: signal() }
     )
-    assert.deepEqual(calls.at(-1), {
-      to: '/extensions/plugins',
-      search: { configure: panel },
-    })
+    const destination = new URL(canonical, 'https://settings.example')
+    assert.equal(calls.at(-1)?.to, destination.pathname)
+    assert.deepEqual(
+      calls.at(-1)?.search ?? {},
+      Object.fromEntries(destination.searchParams)
+    )
   })
 }
 

@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import { nanoid } from 'nanoid'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
@@ -34,6 +35,11 @@ import {
   type AssistantSupportInput,
   type AssistantSupportRequest,
 } from './assistant-support-api'
+
+// A missing route or conversation can recover on reopen or manual retry.
+function supportPollInterval(error: unknown) {
+  return isAxiosError(error) && error.response?.status === 404 ? false : 3000
+}
 
 export function useAssistantSupport(
   conversationId: number | null,
@@ -97,7 +103,8 @@ export function useAssistantSupport(
     enabled,
     retry: false,
     staleTime: 0,
-    refetchInterval: enabled ? 3000 : false,
+    refetchInterval: (query) =>
+      enabled ? supportPollInterval(query.state.error) : false,
     refetchIntervalInBackground: false,
   })
   const eligibility = useQuery({
@@ -118,8 +125,10 @@ export function useAssistantSupport(
     enabled: enabled && Boolean(request),
     retry: false,
     staleTime: 0,
-    refetchInterval:
-      enabled && isAssistantSupportActive(request) ? 3000 : false,
+    refetchInterval: (query) =>
+      enabled && isAssistantSupportActive(request)
+        ? supportPollInterval(query.state.error)
+        : false,
     refetchIntervalInBackground: false,
   })
   // The detail response includes the latest status alongside the messages.
@@ -128,7 +137,14 @@ export function useAssistantSupport(
       ? detail.data.request
       : request
   const refresh = () =>
-    client.invalidateQueries({ queryKey: ['assistant-support'] })
+    Promise.all([
+      client.invalidateQueries({ queryKey: key, exact: true }),
+      client.invalidateQueries({ queryKey: detailKey, exact: true }),
+      client.invalidateQueries({
+        queryKey: ['assistant-support-eligibility', userId, sessionId],
+        exact: true,
+      }),
+    ])
   async function mutate<T>(
     operation: () => Promise<T>,
     apply: (value: T) => void
@@ -184,7 +200,7 @@ export function useAssistantSupport(
     busy,
     active: isAssistantSupportActive(current),
     aiPaused: isAssistantSupportAIPaused(current),
-    error: self.error || detail.error,
+    error: self.error || detail.error || eligibility.error,
     refresh,
     create: (input: AssistantSupportInput) =>
       mutate(

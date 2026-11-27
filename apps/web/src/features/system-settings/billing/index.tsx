@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useParams } from '@tanstack/react-router'
+import { useLocation, useParams } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
 import { SettingsPage, SettingsPageFrame } from '../components/settings-page'
@@ -132,6 +132,7 @@ export function BillingSettings() {
   const { section } = useParams({
     from: '/_authenticated/system-settings/billing/$section',
   })
+  const hash = useLocation({ select: (location) => location.hash })
   // Published prices have their own capability and versioned management API.
   if (section === 'model-pricing' || section === 'group-pricing') {
     return (
@@ -167,8 +168,8 @@ export function BillingSettings() {
   }
   if (section === 'payment') {
     return (
-      <SettingsPageFrame title={t('Payment Gateway')}>
-        <NativePaymentGateways />
+      <SettingsPageFrame title={t('Payment')}>
+        <NativePaymentGateways initialHash={hash} />
       </SettingsPageFrame>
     )
   }

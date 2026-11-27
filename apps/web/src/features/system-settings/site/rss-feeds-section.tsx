@@ -17,6 +17,7 @@ import {
   RSS_MAX_FEEDS,
   safeRSSFeedUrl,
   type RSSFeedConfig,
+  type RSSSettings,
 } from '@/features/rss/api'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
@@ -88,33 +89,46 @@ function RSSFeedsEditor({
   })
   const feedback = useRef<HTMLDivElement>(null)
   const saveTrigger = useRef<Element | null>(null)
-  const initialFeeds = settings.data?.feeds
+  const [draft, setDraft] = useState<{
+    baseline: RSSSettings
+    feeds: RSSFeedConfig[]
+  } | null>(null)
+  const [activeID, setActiveID] = useState<string | null>(null)
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const feeds = draft?.feeds ?? settings.data?.feeds ?? []
+  const dirty = draft !== null
+
+  const editFeeds = (update: (current: RSSFeedConfig[]) => RSSFeedConfig[]) => {
+    setDraft((current) => {
+      const baseline = current?.baseline ?? settings.data
+      if (!baseline) return null
+      const edited = update(current?.feeds ?? baseline.feeds)
+      return JSON.stringify(edited) === JSON.stringify(baseline.feeds)
+        ? null
+        : { baseline, feeds: edited }
+    })
+  }
   const saveSettings = useMutation({
-    mutationFn: (next: RSSFeedConfig[]) => {
-      if (!settings.data) throw new Error('RSS settings unavailable')
-      return saveRSSSettings(
-        { revision: settings.data.revision, feeds: next },
-        {
-          authScope: { userId, sessionId },
-          skipBusinessError: true,
-          skipErrorHandler: true,
-        }
-      )
-    },
+    mutationFn: (next: RSSSettings) =>
+      saveRSSSettings(next, {
+        authScope: { userId, sessionId },
+        skipBusinessError: true,
+        skipErrorHandler: true,
+      }),
     onSuccess: (saved) => {
       queryClient.setQueryData(queryKey, saved)
+      setDraft(null)
+      setErrors({})
       void queryClient.invalidateQueries({ queryKey: ['rss'] })
     },
   })
-  const [feeds, setFeeds] = useState<RSSFeedConfig[]>(initialFeeds ?? [])
-  const [activeID, setActiveID] = useState<string | null>(null)
-  const [errors, setErrors] = useState<Record<string, string>>({})
-  const dirty = JSON.stringify(feeds) !== JSON.stringify(initialFeeds ?? [])
 
-  useEffect(() => {
-    setFeeds(initialFeeds ?? [])
+  const discardDraft = () => {
+    setDraft(null)
     setErrors({})
-  }, [initialFeeds])
+    setActiveID(null)
+    saveSettings.reset()
+  }
 
   useEffect(() => {
     if (!saveTrigger.current || !feedback.current) return
@@ -129,7 +143,7 @@ function RSSFeedsEditor({
   }, [saveSettings.isError, saveSettings.isSuccess, dirty])
 
   const updateFeed = (id: string, patch: Partial<RSSFeedConfig>) => {
-    setFeeds((current) =>
+    editFeeds((current) =>
       current.map((feed) => (feed.id === id ? { ...feed, ...patch } : feed))
     )
     setErrors((current) => {
@@ -141,7 +155,7 @@ function RSSFeedsEditor({
   }
 
   const moveFeed = (index: number, direction: -1 | 1) => {
-    setFeeds((current) => {
+    editFeeds((current) => {
       const next = [...current]
       const target = index + direction
       if (target < 0 || target >= next.length) return current
@@ -153,7 +167,7 @@ function RSSFeedsEditor({
   const addFeed = () => {
     if (feeds.length >= RSS_MAX_FEEDS) return
     const id = crypto.randomUUID()
-    setFeeds((current) => [
+    editFeeds((current) => [
       ...current,
       { id, name: '', url: 'https://', enabled: true },
     ])
@@ -161,6 +175,7 @@ function RSSFeedsEditor({
   }
 
   const save = () => {
+    if (!draft) return
     const next = feeds.map((feed) => ({
       ...feed,
       name: feed.name.trim(),
@@ -174,13 +189,13 @@ function RSSFeedsEditor({
       return
     }
     saveTrigger.current = document.activeElement
-    saveSettings.mutate(next)
+    saveSettings.mutate({ revision: draft.baseline.revision, feeds: next })
   }
 
   if (settings.isLoading) {
     return <LoadingState message={t('Loading settings...')} />
   }
-  if (settings.isError || !settings.data) {
+  if (!settings.data) {
     return (
       <ErrorState
         title={t('Unable to load settings')}
@@ -189,20 +204,17 @@ function RSSFeedsEditor({
     )
   }
   const readOnly = role !== ROLE.SUPER_ADMIN
+  const reloading = saveSettings.isError && settings.isFetching
 
   return (
     <SettingsSection title='RSS'>
       <FormNavigationGuard when={dirty} />
       <SettingsPageFormActions
         onSave={() => void save()}
-        onReset={() => {
-          setFeeds(initialFeeds ?? [])
-          setErrors({})
-          setActiveID(null)
-        }}
+        onReset={discardDraft}
         isSaving={saveSettings.isPending}
-        isSaveDisabled={!dirty || readOnly}
-        isResetDisabled={!dirty}
+        isSaveDisabled={!dirty || readOnly || reloading}
+        isResetDisabled={!dirty || reloading}
         saveLabel='Save feeds'
       />
       {saveSettings.isSuccess && !dirty && (
@@ -218,13 +230,20 @@ function RSSFeedsEditor({
           className='flex items-center justify-between gap-4 text-sm'
         >
           <span>{t('Save failed')}</span>
-          <Button variant='outline' onClick={() => void settings.refetch()}>
-            {t('Refresh')}
+          <Button
+            variant='outline'
+            disabled={settings.isFetching}
+            onClick={async () => {
+              const refreshed = await settings.refetch()
+              if (refreshed.isSuccess) discardDraft()
+            }}
+          >
+            {t('Discard changes and reload')}
           </Button>
         </div>
       )}
       <fieldset
-        disabled={readOnly || saveSettings.isPending}
+        disabled={readOnly || saveSettings.isPending || reloading}
         className='space-y-6 border-0 p-0'
       >
         <div className='flex flex-wrap items-start justify-between gap-4'>
@@ -311,7 +330,7 @@ function RSSFeedsEditor({
                     variant='ghost'
                     size='icon-sm'
                     onClick={() => {
-                      setFeeds((current) =>
+                      editFeeds((current) =>
                         current.filter((item) => item.id !== feed.id)
                       )
                       if (activeID === feed.id) setActiveID(null)

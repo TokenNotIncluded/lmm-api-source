@@ -24,7 +24,6 @@ const legacyPanels = new Map([
   ['/system-settings/site/header-navigation', 'header-navigation'],
   ['/system-settings/models/model-deployment', 'model-deployment'],
   ['/system-settings/security/market-ai-review', 'toolmarket'],
-  ['/system-settings/billing/payment', 'payments'],
 ])
 
 export function legacyPluginPanel(path: string, hash = '') {
@@ -44,12 +43,7 @@ export function configurationOwner(panel: string | undefined) {
     return 'community'
   }
   if (panel === 'store-review') return 'store'
-  if (
-    panel === 'community' ||
-    panel === 'store' ||
-    panel === 'payments' ||
-    panel === 'toolmarket'
-  ) {
+  if (panel === 'community' || panel === 'store' || panel === 'toolmarket') {
     return panel
   }
   return panel && pluginHostFields(panel) ? panel : undefined
@@ -67,7 +61,6 @@ export function canOpenConfiguration(
       panel !== 'checkins' &&
       panel !== 'hero-sms' &&
       panel !== 'store' &&
-      panel !== 'payments' &&
       panel !== 'rss' &&
       panel !== 'model-deployment')
   )

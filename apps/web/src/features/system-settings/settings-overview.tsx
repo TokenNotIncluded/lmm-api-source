@@ -1,13 +1,12 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { Link } from '@tanstack/react-router'
-import { ArrowUpRight, ChevronRight } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
 import { getSystemSettingsNavGroups } from '@/components/layout/config/system-settings.config'
 import { useCapabilityFreshness } from '@/hooks/use-capability-freshness'
 import { ROLE } from '@/lib/roles'
-import { getSettingsBoundary } from '@/lib/system-settings-access'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { SettingsSearch } from './components/settings-search'
@@ -24,17 +23,8 @@ export function SettingsOverview() {
     t,
     role,
     'core',
-    false,
     isRoot && phase === 'fresh' ? options.data : undefined
   ).flatMap((group) => group.items)
-
-  const adminShortcuts =
-    role === ROLE.ADMIN
-      ? [
-          { panel: 'assistant', title: t('AI assistant settings') },
-          { panel: 'toolmarket', title: t('Market AI first review') },
-        ]
-      : []
 
   return (
     <SectionPageLayout>
@@ -62,12 +52,10 @@ export function SettingsOverview() {
                     <ul>
                       {group.items?.map((item) => {
                         if (!item.url) return null
-                        const url =
-                          getSettingsBoundary(item.url)?.canonical ?? item.url
                         return (
                           <li key={item.url}>
                             <Link
-                              {...settingsDestination(url)}
+                              {...settingsDestination(item.url)}
                               className='hover:bg-muted focus-visible:ring-ring flex min-h-11 items-center justify-between gap-3 rounded-md px-2 py-2 text-sm focus-visible:ring-2'
                             >
                               <span>{item.title}</span>
@@ -85,26 +73,11 @@ export function SettingsOverview() {
               })}
             </div>
           )}
-          <div className='flex flex-wrap gap-x-6 border-t pt-3'>
-            <Link
-              to='/extensions/plugins'
-              className='text-primary inline-flex min-h-11 items-center gap-2 text-sm font-medium hover:underline'
-            >
-              {t('Plugin management')}
-              <ArrowUpRight aria-hidden='true' className='size-4' />
-            </Link>
-            {adminShortcuts.map(({ panel, title }) => (
-              <Link
-                key={panel}
-                to='/extensions/plugins'
-                search={{ configure: panel }}
-                className='text-primary inline-flex min-h-11 items-center gap-2 text-sm font-medium hover:underline'
-              >
-                {title}
-                <ArrowUpRight aria-hidden='true' className='size-4' />
-              </Link>
-            ))}
-          </div>
+          {groups.length === 0 && (
+            <p role='status' className='text-muted-foreground text-sm'>
+              {t('No settings found')}
+            </p>
+          )}
         </div>
       </SectionPageLayout.Content>
     </SectionPageLayout>
