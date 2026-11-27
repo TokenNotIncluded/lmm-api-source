@@ -191,3 +191,97 @@ func TestSettingsPersistAndSerializeWithCompletion(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+type settingsAuthority struct {
+	Classifier
+	route Route
+}
+
+func (a settingsAuthority) Route(context.Context) (Route, error) { return a.route, nil }
+func (a settingsAuthority) Authorize(_ context.Context, credential string, root bool) (int64, error) {
+	if credential == "root" || credential == "admin" && !root {
+		return 1, nil
+	}
+	return 0, ErrForbidden
+}
+
+func TestSettingsPatchUsesCurrentModesAndRootAuthority(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "review.toml")
+	open := func() *Engine {
+		t.Helper()
+		p, err := NewFilePolicy(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &Engine{Policy: p, Classifier: settingsAuthority{route: reviewRoute()}}
+	}
+	first, second := open(), open()
+	start := make(chan struct{})
+	done := make(chan error, 2)
+	for _, update := range []struct {
+		engine *Engine
+		body   string
+	}{
+		{first, `{"tool_mode":"auto"}`},
+		{second, `{"store_mode":"assist"}`},
+	} {
+		go func(e *Engine, body string) {
+			<-start
+			_, err := e.PatchSettings(ctx, "root", []byte(body))
+			done <- err
+		}(update.engine, update.body)
+	}
+	close(start)
+	for i := 0; i < 2; i++ {
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+	}
+	check := func(want Modes) {
+		t.Helper()
+		got, err := second.Settings(ctx, "admin")
+		if err != nil || got.Modes != want {
+			t.Fatalf("persisted settings = %+v, %v; want %+v", got.Modes, err, want)
+		}
+	}
+	check(Modes{Auto, Assist})
+	for _, body := range []string{`{}`, `null`, `{"store_mode":null}`, `{"tool_mode":"off","store_mode":null}`, `{"tool_mode":"unknown"}`, `{"store_mode":"off","review_model":"other"}`, `{"store_mode":"off"} {}`} {
+		if _, err := first.PatchSettings(ctx, "root", []byte(body)); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("PATCH %s: %v", body, err)
+		}
+	}
+	partial := []byte(`{"store_mode":"off"}`)
+	if _, err := first.PatchSettings(ctx, "admin", partial); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("administrator PATCH: %v", err)
+	}
+	if _, err := first.SaveSettings(ctx, "root", partial); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("partial PUT: %v", err)
+	}
+	check(Modes{Auto, Assist})
+	first.Classifier = settingsAuthority{}
+	if _, err := first.PatchSettings(ctx, "root", partial); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("invalid classifier with tool mode still enabled: %v", err)
+	}
+	check(Modes{Auto, Assist})
+	bothOff := []byte(`{"tool_mode":"off","store_mode":"off"}`)
+	if out, err := first.PatchSettings(ctx, "root", bothOff); err != nil || out.Modes != (Modes{Off, Off}) || out.Route.Valid() {
+		t.Fatal(out, err)
+	}
+	check(Modes{Off, Off})
+	first.Classifier = nil
+	if _, err := first.PatchSettings(ctx, "root", bothOff); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("missing classifier: %v", err)
+	}
+	if out, err := second.SaveSettings(ctx, "root", []byte(`{"tool_mode":"assist","store_mode":"auto"}`)); err != nil || out.Modes != (Modes{Assist, Auto}) || !out.Route.Valid() {
+		t.Fatal(out, err)
+	}
+	if out, err := second.PatchSettings(ctx, "root", partial); err != nil || out.Modes != (Modes{Assist, Off}) || !out.Route.Valid() {
+		t.Fatal(out, err)
+	}
+	check(Modes{Assist, Off})
+}

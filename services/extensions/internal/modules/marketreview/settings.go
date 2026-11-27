@@ -1,7 +1,10 @@
 // Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later.
 package marketreview
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 type Administrator interface {
 	Authorize(context.Context, string, bool) (int64, error)
@@ -42,19 +45,59 @@ func (e *Engine) Settings(ctx context.Context, credential string) (Settings, err
 	return out, err
 }
 func (e *Engine) SaveSettings(ctx context.Context, credential string, raw []byte) (Settings, error) {
+	return e.saveSettings(ctx, credential, raw, DecodeModes)
+}
+
+func (e *Engine) PatchSettings(ctx context.Context, credential string, raw []byte) (Settings, error) {
+	return e.saveSettings(ctx, credential, raw, decodeModePatch)
+}
+
+func decodeModePatch(raw []byte) (Modes, error) {
+	var fields map[string]Mode
+	if err := json.Unmarshal(raw, &fields); err != nil || len(fields) == 0 {
+		return Modes{}, ErrInvalid
+	}
+	var changes Modes
+	for field, mode := range fields {
+		if !validMode(mode) {
+			return Modes{}, ErrInvalid
+		}
+		switch field {
+		case "tool_mode":
+			changes.Tool = mode
+		case "store_mode":
+			changes.Store = mode
+		default:
+			return Modes{}, ErrInvalid
+		}
+	}
+	return changes, nil
+}
+
+func (e *Engine) saveSettings(ctx context.Context, credential string, raw []byte, decode func([]byte) (Modes, error)) (Settings, error) {
 	if err := e.authorize(ctx, credential, true); err != nil {
 		return Settings{}, err
 	}
-	m, err := DecodeModes(raw)
+	changes, err := decode(raw)
 	if err != nil {
 		return Settings{}, err
 	}
-	r := e.route(ctx)
-	if (m.Tool != Off || m.Store != Off) && !r.Valid() {
-		return Settings{}, ErrUnavailable
-	}
-	if err = e.Policy.Save(ctx, m); err != nil {
+	out := Settings{Route: e.route(ctx)}
+	err = e.Policy.Update(ctx, func(current Modes) (Modes, error) {
+		if changes.Tool != "" {
+			current.Tool = changes.Tool
+		}
+		if changes.Store != "" {
+			current.Store = changes.Store
+		}
+		if (current.Tool != Off || current.Store != Off) && !out.Route.Valid() {
+			return Modes{}, ErrUnavailable
+		}
+		out.Modes = current
+		return current, nil
+	})
+	if err != nil {
 		return Settings{}, err
 	}
-	return Settings{m, r}, nil
+	return out, nil
 }

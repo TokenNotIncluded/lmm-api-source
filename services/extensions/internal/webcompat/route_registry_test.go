@@ -142,21 +142,23 @@ func TestMountMarketReviewRoutesUseTheirRegisteredOwners(t *testing.T) {
 	} {
 		manager.enabled = enabled
 		for _, request := range []struct {
-			path    string
-			allowed bool
+			method, path string
+			allowed      bool
 		}{
-			{"/api/security/market-ai-review/settings", enabled["store"] || enabled["toolmarket"]},
-			{"/api/store/products/product-1/ai-reviews", enabled["store"]},
-			{"/api/tool-market/services/tool-1/ai-reviews", enabled["toolmarket"]},
+			{http.MethodGet, "/api/security/market-ai-review/settings", enabled["store"] || enabled["toolmarket"]},
+			{http.MethodPut, "/api/security/market-ai-review/settings", enabled["store"] || enabled["toolmarket"]},
+			{http.MethodPatch, "/api/security/market-ai-review/settings", enabled["store"] || enabled["toolmarket"]},
+			{http.MethodGet, "/api/store/products/product-1/ai-reviews", enabled["store"]},
+			{http.MethodGet, "/api/tool-market/services/tool-1/ai-reviews", enabled["toolmarket"]},
 		} {
 			before := core.calls
-			response := pluginRequest(handler, http.MethodGet, request.path, "", webToken)
+			response := pluginRequest(handler, request.method, request.path, `{"store_mode":"assist","tool_mode":"off"}`, webToken)
 			wantCalls := before
 			if request.allowed {
 				wantCalls++
 			}
 			if response.Code != http.StatusServiceUnavailable || core.calls != wantCalls {
-				t.Fatalf("owners=%v path=%s: status=%d auth calls=%d want=%d", enabled, request.path, response.Code, core.calls, wantCalls)
+				t.Fatalf("owners=%v method=%s path=%s: status=%d auth calls=%d want=%d", enabled, request.method, request.path, response.Code, core.calls, wantCalls)
 			}
 		}
 	}

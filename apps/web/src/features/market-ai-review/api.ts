@@ -1,4 +1,8 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
+import {
+  nativeUsersOptions,
+  type NativeUsersScope,
+} from '@/features/native-users/access'
 import { api } from '@/lib/api'
 
 import type { MarketAIReviewMode } from './mode-fields'
@@ -53,8 +57,17 @@ async function unwrap<T>(request: Promise<{ data: Envelope<T> }>): Promise<T> {
 const options = { skipErrorHandler: true, skipBusinessError: true }
 const settingsPath = '/api/security/market-ai-review/settings'
 export const marketAIReviewAPI = {
-  settings: () =>
-    unwrap<MarketAIReviewSettings>(api.get(settingsPath, options)),
+  settings: (scope?: NativeUsersScope, signal?: AbortSignal) =>
+    unwrap<MarketAIReviewSettings>(
+      api.get(settingsPath, scope ? nativeUsersOptions(scope, signal) : options)
+    ),
+  updateModes: (
+    modes: Partial<Pick<MarketAIReviewSettings, 'tool_mode' | 'store_mode'>>,
+    scope: NativeUsersScope
+  ) =>
+    unwrap<MarketAIReviewSettings>(
+      api.patch(settingsPath, modes, nativeUsersOptions(scope))
+    ),
   saveSettings: (
     modes: Pick<MarketAIReviewSettings, 'tool_mode' | 'store_mode'>
   ) => unwrap<MarketAIReviewSettings>(api.put(settingsPath, modes, options)),

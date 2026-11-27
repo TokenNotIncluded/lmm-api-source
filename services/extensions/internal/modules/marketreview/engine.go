@@ -53,7 +53,7 @@ func (m Modes) For(source string) Mode {
 // lock, so switching away from auto cannot race a terminal module transaction.
 type Policy interface {
 	With(context.Context, func(Modes) error) error
-	Save(context.Context, Modes) error
+	Update(context.Context, func(Modes) (Modes, error)) error
 }
 
 type Route struct {

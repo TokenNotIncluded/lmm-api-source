@@ -17,7 +17,9 @@ export function MarketAIReviewSettingsForm({
   onSave,
 }: {
   defaultValues: MarketAIReviewModes
-  onSave: (updates: Partial<MarketAIReviewModes>) => Promise<void>
+  onSave: (
+    updates: Partial<MarketAIReviewModes>
+  ) => Promise<MarketAIReviewModes | void>
 }) {
   const { t } = useTranslation()
   const baseline = useRef(defaultValues)
@@ -51,8 +53,8 @@ export function MarketAIReviewSettingsForm({
     setBusy(true)
     setError(null)
     try {
-      await onSave(updates)
-      const saved = { ...baseline.current, ...updates }
+      const confirmed = await onSave(updates)
+      const saved = confirmed ?? { ...baseline.current, ...updates }
       baseline.current = saved
       setDraft(saved)
     } catch (issue) {

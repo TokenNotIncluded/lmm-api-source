@@ -4,8 +4,11 @@ import { ROLE } from './roles'
 export const ASSISTANT_PRESET_SETTINGS_PATH =
   '/system-settings/content/assistant'
 
-// Assistant publication allows administrator reads and super-administrator writes. Other settings
-// retain their existing super-administrator route and navigation restriction.
+// These settings support administrator reads and owner writes.
+const adminReadablePaths = new Set([
+  ASSISTANT_PRESET_SETTINGS_PATH,
+  '/system-settings/security/market-ai-review',
+])
 export function canReadSystemSettingsPath(
   role: number | undefined,
   pathname: string
@@ -13,7 +16,7 @@ export function canReadSystemSettingsPath(
   return (
     role === ROLE.SUPER_ADMIN ||
     (role === ROLE.ADMIN &&
-      pathname.replace(/\/+$/, '') === ASSISTANT_PRESET_SETTINGS_PATH)
+      adminReadablePaths.has(pathname.replace(/\/+$/, '')))
   )
 }
 
@@ -31,7 +34,6 @@ const corePaths = new Set([
   CORE_SETTINGS_HOME,
   '/users',
   '/keys',
-  '/system-settings/billing/payment',
   '/system-settings/models/global',
   '/system-settings/models/routing-reliability',
   '/system-settings/models/channel-affinity',

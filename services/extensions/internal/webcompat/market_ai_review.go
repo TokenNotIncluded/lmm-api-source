@@ -33,7 +33,7 @@ func reviewError(err error) error {
 }
 
 func RegisterMarketAIReview(mux RouteRegistrar, auth *Authenticator, engine *marketreview.Engine) {
-	for _, method := range []string{"GET", "PUT"} {
+	for _, method := range []string{"GET", "PUT", "PATCH"} {
 		mux.HandleFunc(method+" /api/security/market-ai-review/settings", func(w http.ResponseWriter, r *http.Request) {
 			if _, err := auth.Verify(r.Context(), r); err != nil {
 				Respond(w, nil, err)
@@ -50,7 +50,11 @@ func RegisterMarketAIReview(mux RouteRegistrar, auth *Authenticator, engine *mar
 				Respond(w, nil, err)
 				return
 			}
-			out, err := engine.SaveSettings(r.Context(), credential, body)
+			save := engine.SaveSettings
+			if r.Method == http.MethodPatch {
+				save = engine.PatchSettings
+			}
+			out, err := save(r.Context(), credential, body)
 			Respond(w, out, reviewError(err))
 		})
 	}

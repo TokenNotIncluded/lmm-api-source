@@ -258,8 +258,23 @@ async function install(context, state, theme) {
       })
     } else if (p === '/api/site/navigation') {
       result = json({ value: '{}', revision: 1 })
-    } else if (p === '/api/extensions/plugins') result = json([])
-    else if (p === '/api/channel/ops') {
+    } else if (p === '/api/extensions/plugins') {
+      assert.equal(method, 'GET')
+      result = json(
+        ['payments', 'operations', 'hero-sms', 'checkins'].map(
+          (name, index) => ({
+            name,
+            version: '1.0.0',
+            api_version: 1,
+            registration_sha256: 'a'.repeat(64),
+            available: true,
+            installed: true,
+            enabled: true,
+            load_order: index + 1,
+          })
+        )
+      )
+    } else if (p === '/api/channel/ops') {
       result = json({ native_configuration: true, native_secrets: false })
     } else if (p === '/api/option/') {
       result = json([], {
@@ -635,10 +650,17 @@ try {
         const start = state.requests.length
         state.pancakeReadProblem = 'route'
         await go('/system-settings/billing/payment')
-        const overview = page.getByRole('tabpanel', {
-          name: t('Wallet payment methods'),
-          exact: true,
-        })
+        await page.waitForURL(
+          (url) =>
+            url.pathname.replace(/\/+$/, '') === '/extensions/plugins' &&
+            url.searchParams.get('configure') === 'payments'
+        )
+        const overview = page
+          .locator('article[data-plugin="payments"]')
+          .getByRole('tabpanel', {
+            name: t('Wallet payment methods'),
+            exact: true,
+          })
         const method = (name) =>
           overview.locator('dl > div').filter({
             has: page.getByText(t(name), { exact: true }),
@@ -769,7 +791,12 @@ try {
         )
         await capture(page, `${label}-hero-purchases-unavailable`)
         await go('/system-settings/operations/hero-sms')
-        const heroTitle = page.locator('h1 .settings-page-title')
+        const heroTitle = page
+          .locator('article[data-plugin="hero-sms"]')
+          .getByRole('heading', {
+            name: t('HeroSMS temporary activations'),
+            exact: true,
+          })
         await heroTitle.waitFor()
         assert.equal(
           await heroTitle.innerText(),

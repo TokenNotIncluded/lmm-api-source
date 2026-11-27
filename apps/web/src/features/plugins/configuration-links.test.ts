@@ -43,13 +43,25 @@ describe('plugin configuration links', () => {
     })
   }
   for (const hash of ['', 'stripe', 'merchant-store-other']) {
-    it(`keeps payment anchor ${hash} in billing`, () => {
+    it(`opens payment gateways for payment anchor ${hash}`, () => {
       assert.equal(
         legacyPluginPanel('/system-settings/billing/payment', hash),
-        undefined
+        'payments'
       )
     })
   }
+  it('routes both markets to a shared editor while keeping owner settings protected', () => {
+    assert.equal(
+      legacyPluginPanel('/system-settings/security/market-ai-review/'),
+      'toolmarket'
+    )
+    assert.equal(configurationOwner('store-review'), 'store')
+    assert.equal(configurationOwner('toolmarket'), 'toolmarket')
+    assert.equal(canOpenConfiguration('store-review', false), true)
+    assert.equal(canOpenConfiguration('toolmarket', false), true)
+    assert.equal(canOpenConfiguration('payments', false), false)
+    assert.equal(canOpenConfiguration('payments', true), true)
+  })
   it('retains the old root-only boundary for new plugin editors', () => {
     for (const panel of [
       'rss',

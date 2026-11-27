@@ -73,11 +73,7 @@ export function getSystemSettingsNavGroups(
         {
           title: t('Billing & Payment'),
           icon: CreditCard,
-          items: getBillingSectionNavItems(t).sort(
-            (a, b) =>
-              Number(b.url === '/system-settings/billing/payment') -
-              Number(a.url === '/system-settings/billing/payment')
-          ),
+          items: getBillingSectionNavItems(t),
         },
         {
           title: t('Models & Routing'),

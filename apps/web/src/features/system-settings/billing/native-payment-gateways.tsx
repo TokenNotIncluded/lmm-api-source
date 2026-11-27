@@ -19,6 +19,22 @@ import { NativeEPaySettings } from './native-epay-settings'
 import { NativePaymentSettings } from './native-payment-settings'
 import { NativeProviderGatewaySettings } from './native-provider-gateway-settings'
 
+const paymentGatewayTabs = [
+  'wallet',
+  'pancake',
+  'epay',
+  'stripe',
+  'creem',
+  'waffo',
+  'coinbase',
+] as const
+type PaymentGatewayTab = (typeof paymentGatewayTabs)[number]
+function parsePaymentGatewayTab(hash: string): PaymentGatewayTab {
+  const value = hash.replace(/^#/, '')
+  if (value === 'waffo-pancake') return 'pancake'
+  return paymentGatewayTabs.find((tab) => tab === value) ?? 'wallet'
+}
+
 function methodKey(channel: NativeChannel): string {
   if (channel.provider !== 'epay') return channel.provider
   if (channel.payment_type === 'epay' && channel.currency !== 'LDC') {
@@ -115,7 +131,9 @@ function WalletMethods({ userId, sessionId }: Scope) {
   )
 }
 
-export function NativePaymentGateways() {
+export function NativePaymentGateways({
+  initialHash = '',
+}: { initialHash?: string } = {}) {
   const auth = useAuthStore((state) => state.auth)
   const scope = readNativeUsersScope(auth)
   const { t } = useTranslation()
@@ -129,12 +147,23 @@ export function NativePaymentGateways() {
       />
     )
   }
+  const initialTab = parsePaymentGatewayTab(initialHash)
   return (
-    <GatewayPanels key={`${scope.userId}:${scope.sessionId}`} scope={scope} />
+    <GatewayPanels
+      key={`${scope.userId}:${scope.sessionId}:${initialTab}`}
+      scope={scope}
+      initialTab={initialTab}
+    />
   )
 }
 
-function GatewayPanels({ scope }: { scope: NativeUsersScope }) {
+function GatewayPanels({
+  scope,
+  initialTab,
+}: {
+  scope: NativeUsersScope
+  initialTab: PaymentGatewayTab
+}) {
   const { t } = useTranslation()
   const providers = [
     { id: 'stripe', label: t('Stripe') },
@@ -142,10 +171,13 @@ function GatewayPanels({ scope }: { scope: NativeUsersScope }) {
     { id: 'waffo', label: t('Waffo Global') },
     { id: 'coinbase', label: t('Coinbase Business Checkout') },
   ] as const
-  const [opened, setOpened] = useState({ pancake: false, epay: false })
+  const [opened, setOpened] = useState({
+    pancake: initialTab === 'pancake',
+    epay: initialTab === 'epay',
+  })
   return (
     <Tabs
-      defaultValue='wallet'
+      defaultValue={initialTab}
       className='gap-8'
       onValueChange={(tab: unknown) => {
         if (tab === 'epay' || tab === 'pancake') {

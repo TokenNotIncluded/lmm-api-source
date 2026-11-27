@@ -117,9 +117,24 @@ func (p *FilePolicy) Save(ctx context.Context, m Modes) error {
 	if !m.Valid() {
 		return ErrInvalid
 	}
+	return p.Update(ctx, func(Modes) (Modes, error) { return m, nil })
+}
+
+func (p *FilePolicy) Update(ctx context.Context, change func(Modes) (Modes, error)) error {
+	if change == nil {
+		return ErrInvalid
+	}
 	return p.locked(ctx, true, func() error {
-		if _, err := p.read(); err != nil {
+		current, err := p.read()
+		if err != nil {
 			return err
+		}
+		m, err := change(current)
+		if err != nil {
+			return err
+		}
+		if !m.Valid() {
+			return ErrInvalid
 		}
 		f, err := os.CreateTemp(filepath.Dir(p.path), ".market-review-*")
 		if err != nil {

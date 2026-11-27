@@ -37,7 +37,7 @@ Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
   value: true,
 })
 
-const { act } = await import('react')
+const { act, useState } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { QueryClient, QueryClientProvider, notifyManager } =
   await import('@tanstack/react-query')
@@ -1012,4 +1012,50 @@ test('owner gateway tabs load their actual provider bindings separately from wal
   )
   assert.doesNotMatch(container.textContent ?? '', /acct_test/)
   assert.ok(requests.every((request) => request.method === 'get'))
+})
+
+test('gateway links select only known tabs and reload the active panel on navigation', async () => {
+  const endpoint = '/api/option/payment-gateways/config'
+  let navigate: (hash: string) => void
+  function LinkedGateway() {
+    const [hash, setHash] = useState('#stripe')
+    navigate = setHash
+    return <NativePaymentGateways initialHash={hash} />
+  }
+  const { container, requests } = await mount(
+    (request) => {
+      assert.equal(request.method, 'get')
+      if (request.url === endpoint) {
+        return success({
+          contract: 'extensions.provider-gateways.v1',
+          callbacks_enabled: true,
+          bindings: [],
+        })
+      }
+      if (request.url === '/api/option/waffo-pancake/config') {
+        return success(configuration())
+      }
+      assert.equal(request.url, '/api/user/payments/channels')
+      return success({ available: false, channels: [] })
+    },
+    100,
+    LinkedGateway
+  )
+  const selected = () =>
+    container.querySelector('[role="tab"][aria-selected="true"]')?.textContent
+  await until(() => selected() === 'Stripe' && requests.length === 1)
+  await act(async () => navigate('waffo-pancake'))
+  await until(() => selected() === 'Waffo Pancake' && requests.length === 2)
+  await act(async () => navigate('#unknown-provider'))
+  await until(
+    () => selected() === 'Wallet payment methods' && requests.length === 3
+  )
+  assert.deepEqual(
+    requests.map((request) => request.url),
+    [
+      endpoint,
+      '/api/option/waffo-pancake/config',
+      '/api/user/payments/channels',
+    ]
+  )
 })

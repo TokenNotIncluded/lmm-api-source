@@ -51,12 +51,14 @@ type Selection =
 // @context-fold begin plugin-inventory
 type ConfigurationProps = {
   panel?: string
+  paymentHash?: string
   onPanelChange?: (panel: string | undefined) => void
 }
 
 function PluginInventory({
   scope,
   panel,
+  paymentHash,
   onPanelChange,
 }: { scope: NativeUsersScope } & ConfigurationProps) {
   const { t } = useTranslation()
@@ -248,7 +250,16 @@ function PluginInventory({
     return valid ? names : null
   }
 
-  const visible = extensions.filter(
+  // Payment adapters expose owner-only configuration without extension lifecycle controls.
+  const configurationCards = root
+    ? registry.filter((plugin) => plugin.name !== 'identity')
+    : extensions
+  const marketReviewEnabled = registry.some(
+    (plugin) =>
+      (plugin.name === 'store' || plugin.name === 'toolmarket') &&
+      plugin.enabled
+  )
+  const visible = configurationCards.filter(
     (plugin) =>
       [plugin.name, ...Object.values(pluginPresentation(plugin.name, t))]
         .join(' ')
@@ -344,7 +355,7 @@ function PluginInventory({
       )}
       {phase === 'fresh' &&
         activePanel &&
-        !extensions.some(
+        !configurationCards.some(
           (plugin) => plugin.name === configurationOwner(activePanel)
         ) && <p role='status'>{t('No results found.')}</p>}
       {notice && (
@@ -498,13 +509,19 @@ function PluginInventory({
           const dependents = pluginDependents(plugin, registry)
           const presentation = pluginPresentation(plugin.name, t)
           const hostFields = pluginHostFields(plugin.name)
+          const gateways = plugin.name === 'payments'
+          const defaultPanel =
+            plugin.name === 'store' && !root ? 'store-review' : plugin.name
           const configOpen = configurationOwner(activePanel) === plugin.name
           const configId = `plugin-config-${plugin.name}`
-          // Only the installed check-in settings endpoint is host-owned and
-          // remains available when its business module is switched off.
+          const sharedReview =
+            activePanel === 'store-review' || activePanel === 'toolmarket'
           const configReady =
-            plugin.enabled || (plugin.name === 'checkins' && plugin.installed)
-          const lifecycleControl = plugin.available && (
+            gateways ||
+            plugin.enabled ||
+            (plugin.name === 'checkins' && plugin.installed) ||
+            sharedReview
+          const lifecycleControl = !gateways && plugin.available && (
             <Button
               variant={action === 'disable' ? 'outline' : 'default'}
               className='min-h-11'
@@ -566,7 +583,7 @@ function PluginInventory({
                       })}
                     </p>
                   )}
-                {plugin.enabled && dependents.length > 0 && (
+                {!gateways && plugin.enabled && dependents.length > 0 && (
                   <p className='text-muted-foreground text-xs [overflow-wrap:anywhere]'>
                     {t('Disable dependent modules first: {{names}}.', {
                       names: dependents.join(', '),
@@ -646,7 +663,7 @@ function PluginInventory({
               </div>
               <div className='flex flex-wrap items-center gap-2'>
                 {(!configOpen || configReady) && lifecycleControl}
-                {canOpenConfiguration(plugin.name, root) && (
+                {canOpenConfiguration(defaultPanel, root) && (
                   <Button
                     type='button'
                     variant={plugin.available ? 'ghost' : 'outline'}
@@ -658,13 +675,13 @@ function PluginInventory({
                       openingTrigger.current = configOpen
                         ? null
                         : event.currentTarget
-                      changePanel(configOpen ? undefined : plugin.name)
+                      changePanel(configOpen ? undefined : defaultPanel)
                     }}
                   >
                     {t('Configure')}
                   </Button>
                 )}
-                {plugin.installed && !plugin.enabled && (
+                {!gateways && plugin.installed && !plugin.enabled && (
                   <Button
                     variant='ghost'
                     className='text-muted-foreground min-h-11'
@@ -688,6 +705,9 @@ function PluginInventory({
                   {configReady ? (
                     <PluginConfiguration
                       name={activePanel}
+                      paymentHash={paymentHash}
+                      paymentsEnabled={gateways && plugin.enabled}
+                      marketReviewEnabled={marketReviewEnabled}
                       writable={writable}
                       onSelect={changePanel}
                     />

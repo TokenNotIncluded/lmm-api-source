@@ -604,7 +604,7 @@ test('actual parent guard rejects other L5 settings and revoked sessions', async
   }
 })
 
-test('L5 discovers only the assistant settings destination while L6 retains access to all searchable settings', async () => {
+test('L5 finds assistant and market review settings while L6 retains the full catalog', async () => {
   useAuthStore.getState().auth.setBundle(bundle(10))
   const page = await renderRoute('/dashboard/overview', true)
   try {
@@ -630,7 +630,10 @@ test('L5 discovers only the assistant settings destination while L6 retains acce
       buildSettingsSearchIndex(t, undefined, 10).flatMap((group) =>
         group.entries.map((entry) => entry.url)
       ),
-      ['/extensions/plugins?configure=assistant']
+      [
+        '/extensions/plugins?configure=toolmarket',
+        '/extensions/plugins?configure=assistant',
+      ]
     )
     const full = buildSettingsSearchIndex(t, undefined, 100).flatMap(
       (group) => group.entries

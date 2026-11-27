@@ -73,13 +73,30 @@ const MerchantStoreSettingsSection = lazy(() =>
   )
 )
 
+const NativePaymentGateways = lazy(() =>
+  import('@/features/system-settings/billing/native-payment-gateways').then(
+    (module) => ({ default: module.NativePaymentGateways })
+  )
+)
+const MarketAIReviewSettingsSection = lazy(() =>
+  import('@/features/market-ai-review/settings').then((module) => ({
+    default: module.MarketAIReviewSettingsSection,
+  }))
+)
+
 export function PluginConfiguration({
   name,
   writable,
+  paymentHash,
+  paymentsEnabled,
+  marketReviewEnabled,
   onSelect,
 }: {
   name: string
   writable: boolean
+  paymentHash?: string
+  paymentsEnabled: boolean
+  marketReviewEnabled: boolean
   onSelect: (name: string) => void
 }) {
   const { t } = useTranslation()
@@ -89,6 +106,11 @@ export function PluginConfiguration({
   )
   const root = useAuthStore(
     (state) => state.auth.user?.role === ROLE.SUPER_ADMIN
+  )
+  const marketReview = marketReviewEnabled ? (
+    <MarketAIReviewSettingsSection />
+  ) : (
+    <p role='status'>{t('AI first review is disabled')}</p>
   )
   const content = {
     acquisition: <PromotionLinks canWrite={canWriteAcquisition && writable} />,
@@ -102,6 +124,17 @@ export function PluginConfiguration({
     'directory-ads': root && <AIDirectoryAdsSection />,
     'header-navigation': root && <HeaderNavigationPluginSettings />,
     store: root && <MerchantStoreSettingsSection />,
+    'store-review': marketReview,
+    toolmarket: marketReview,
+    payments:
+      root &&
+      (paymentsEnabled ? (
+        <NativePaymentGateways initialHash={paymentHash} />
+      ) : (
+        <p role='status'>
+          {t('Payment Gateway')} · {t('Disabled')}
+        </p>
+      )),
   }
   if (!Object.hasOwn(content, name)) return null
 
@@ -119,7 +152,12 @@ export function PluginConfiguration({
             ['header-navigation', t('Header navigation')],
             ['directory-ads', t('Advertisement moderation')],
           ]
-        : undefined
+        : owner === 'store'
+          ? [
+              ['store', t('Merchant store settings')],
+              ['store-review', t('Market AI first review')],
+            ]
+          : undefined
   return (
     <>
       {root && panels && (

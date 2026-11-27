@@ -292,7 +292,8 @@ test('settings leaves activate the corresponding root entry and location title',
   const plugins = { url: '/extensions/settings', title: 'Plugin Settings' }
   const navigation = [{ title: 'Admin', items: [core, plugins] }]
   for (const [path, active, inactive] of [
-    ['/system-settings/billing/payment?tab=current', core, plugins],
+    ['/system-settings/billing/quota', core, plugins],
+    ['/system-settings/billing/payment?tab=current', plugins, core],
     ['/system-settings/operations/scripts/', plugins, core],
     ['/extensions/settings/', plugins, core],
   ] as const) {

@@ -23,6 +23,8 @@ const legacyPanels = new Map([
   ['/system-settings/site/ai-directory', 'community'],
   ['/system-settings/site/header-navigation', 'header-navigation'],
   ['/system-settings/models/model-deployment', 'model-deployment'],
+  ['/system-settings/security/market-ai-review', 'toolmarket'],
+  ['/system-settings/billing/payment', 'payments'],
 ])
 
 export function legacyPluginPanel(path: string, hash = '') {
@@ -41,7 +43,15 @@ export function configurationOwner(panel: string | undefined) {
   if (panel === 'directory-ads' || panel === 'header-navigation') {
     return 'community'
   }
-  if (panel === 'community' || panel === 'store') return panel
+  if (panel === 'store-review') return 'store'
+  if (
+    panel === 'community' ||
+    panel === 'store' ||
+    panel === 'payments' ||
+    panel === 'toolmarket'
+  ) {
+    return panel
+  }
   return panel && pluginHostFields(panel) ? panel : undefined
 }
 
@@ -54,7 +64,8 @@ export function canOpenConfiguration(
   return (
     root ||
     (owner !== 'community' &&
-      owner !== 'store' &&
+      panel !== 'store' &&
+      panel !== 'payments' &&
       panel !== 'rss' &&
       panel !== 'model-deployment')
   )

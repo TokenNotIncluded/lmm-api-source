@@ -25,6 +25,7 @@ export function canChangePlugin(
   plugin: PluginInfo,
   registry: PluginInfo[]
 ) {
+  if (plugin.name === 'payments') return false
   switch (action) {
     case 'install':
       return plugin.available && !plugin.installed

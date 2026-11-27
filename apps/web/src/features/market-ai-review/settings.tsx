@@ -3,7 +3,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { readNativeUsersScope } from '@/features/native-users/access'
 import { getSettingsErrorMessage } from '@/features/system-settings/utils/settings-error-message'
+import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { marketAIReviewAPI } from './api'
@@ -14,14 +16,21 @@ import { MarketAIReviewSettingsForm } from './settings-form'
 export function MarketAIReviewSettingsSection() {
   const { t } = useTranslation()
   const client = useQueryClient()
-  const user = useAuthStore((state) => state.auth.user)
+  const auth = useAuthStore((state) => state.auth)
+  const scope = readNativeUsersScope(auth)
+  const queryKey = [
+    'market-ai-review-settings',
+    scope?.userId,
+    scope?.sessionId,
+    scope?.role,
+  ]
   const query = useQuery({
-    queryKey: ['market-ai-review-settings', user?.id],
-    queryFn: marketAIReviewAPI.settings,
-    enabled: (user?.role ?? 0) >= 10,
+    queryKey,
+    queryFn: ({ signal }) => marketAIReviewAPI.settings(scope, signal),
+    enabled: Boolean(scope),
     retry: false,
   })
-  if ((user?.role ?? 0) < 10) return null
+  if (!scope) return null
   if (query.isPending) return <p role='status'>{t('Loading...')}</p>
   if (query.isError) {
     return (
@@ -39,33 +48,42 @@ export function MarketAIReviewSettingsSection() {
   const modes = { tool: settings.tool_mode, product: settings.store_mode }
   return (
     <div className='space-y-5'>
-      <p className='text-muted-foreground text-sm'>
-        {t('Group')}: {settings.review_group} · {t('Model')}:{' '}
-        {settings.review_model}
-      </p>
-      {(user?.role ?? 0) >= 100 ? (
+      {settings.review_group && settings.review_model ? (
+        <p className='text-muted-foreground text-sm'>
+          {t('Group')}: {settings.review_group} · {t('Model')}:{' '}
+          {settings.review_model}
+        </p>
+      ) : (
+        <p role='status'>{t(copy.routeError)}</p>
+      )}
+      {scope.role === ROLE.SUPER_ADMIN ? (
         <MarketAIReviewSettingsForm
           defaultValues={modes}
           onSave={async (updates) => {
-            const saved = await marketAIReviewAPI.saveSettings({
-              tool_mode: updates.tool ?? settings.tool_mode,
-              store_mode: updates.product ?? settings.store_mode,
-            })
-            client.setQueryData(['market-ai-review-settings', user?.id], saved)
-            await client.invalidateQueries({
-              queryKey: ['market-ai-review-settings'],
-            })
+            const saved = await marketAIReviewAPI.updateModes(
+              {
+                ...(updates.tool !== undefined && { tool_mode: updates.tool }),
+                ...(updates.product !== undefined && {
+                  store_mode: updates.product,
+                }),
+              },
+              scope
+            )
+            client.setQueryData(queryKey, saved)
+            return { tool: saved.tool_mode, product: saved.store_mode }
           }}
         />
       ) : (
         <MarketAIReviewModeFields value={modes} onChange={() => {}} disabled />
       )}
-      <a
-        className='text-primary text-sm underline'
-        href='/system-settings/security/moderation'
-      >
-        {t(copy.routing)}
-      </a>
+      {scope.role === ROLE.SUPER_ADMIN && (
+        <a
+          className='text-primary text-sm underline'
+          href='/system-settings/security/moderation'
+        >
+          {t(copy.routing)}
+        </a>
+      )}
     </div>
   )
 }

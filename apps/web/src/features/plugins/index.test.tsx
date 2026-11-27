@@ -722,12 +722,8 @@ test('a standard administrator cannot mount a root-only configuration from the U
   const container = await mount('store')
   await until(() => Boolean(container.querySelector('[data-plugin="store"]')))
   assert.equal(container.querySelector('#plugin-config-store'), null)
-  assert.equal(
-    [...container.querySelectorAll('button')].some(
-      (element) => element.textContent === 'Configure'
-    ),
-    false
-  )
+  assert.ok(container.querySelector('[data-configure-plugin="store"]'))
+  assert.equal(container.querySelector('#merchant-store'), null)
 })
 
 test('community navigation validates the scoped value before acknowledging a write', async () => {
@@ -822,4 +818,210 @@ test('an installed disabled check-in plugin still opens its host-owned reward en
   await mount('checkins')
   await until(() => reads.includes('/api/option/checkin'))
   assert.deepEqual(reads, ['/api/extensions/plugins', '/api/option/checkin'])
+})
+
+const reviewSettings = {
+  tool_mode: 'off',
+  store_mode: 'off',
+  review_group: 'test-group',
+  review_model: 'test-model',
+  engine: 'openai_moderation',
+  supported_inputs: ['text'],
+  categories: ['violence'],
+}
+const reviewPath = '/api/security/market-ai-review/settings'
+
+test('the registered payments adapter exposes only owner configuration and reads the wallet on opening', async () => {
+  login(100)
+  const requests: string[] = []
+  api.defaults.adapter = async (config) => {
+    requests.push(`${config.method} ${config.url}`)
+    assert.equal(config.method, 'get')
+    if (config.url === '/api/extensions/plugins') {
+      return response(config, [
+        { ...plugin, name: 'payments', load_order: 1 },
+        { ...plugin, load_order: 2 },
+      ])
+    }
+    assert.equal(config.url, '/api/user/payments/channels')
+    return response(config, { available: false, channels: [] })
+  }
+  const container = await mount()
+  await until(() =>
+    Boolean(container.querySelector('[data-plugin="payments"]'))
+  )
+  const card = container.querySelector<HTMLElement>('[data-plugin="payments"]')!
+  assert.equal(
+    [...card.querySelectorAll('button')].some((item) =>
+      [
+        'Install',
+        'Uninstall',
+        'Disable',
+        'Enable',
+        'Move up',
+        'Move down',
+      ].includes(item.textContent ?? '')
+    ),
+    false
+  )
+  assert.deepEqual(requests, ['get /api/extensions/plugins'])
+  await act(async () => button('Configure', card).click())
+  await until(() => requests.includes('get /api/user/payments/channels'))
+  assert.equal(card.querySelectorAll('[role="tab"]').length, 7)
+  assert.equal(
+    card.querySelector('[role="tab"][aria-selected="true"]')?.textContent,
+    'Wallet payment methods'
+  )
+  assert.deepEqual(requests, [
+    'get /api/extensions/plugins',
+    'get /api/user/payments/channels',
+  ])
+})
+
+test('a standard administrator cannot discover or mount platform gateway credentials', async () => {
+  login(10)
+  const requests: string[] = []
+  api.defaults.adapter = async (config) => {
+    requests.push(config.url!)
+    return response(config, [{ ...plugin, name: 'payments' }, plugin])
+  }
+  const container = await mount('payments')
+  await until(() => Boolean(container.querySelector('[data-plugin="store"]')))
+  assert.equal(container.querySelector('[data-plugin="payments"]'), null)
+  assert.deepEqual(requests, ['/api/extensions/plugins'])
+})
+
+for (const [panel, owner] of [
+  ['store-review', 'store'],
+  ['toolmarket', 'toolmarket'],
+]) {
+  test(`${owner} opens the same administrator-readable review policy`, async () => {
+    login(10)
+    const calls: string[] = []
+    api.defaults.adapter = async (config) => {
+      assert.equal(config.method, 'get')
+      calls.push(config.url!)
+      if (config.url === '/api/extensions/plugins') {
+        return response(config, [plugin, { ...plugin, name: 'toolmarket' }])
+      }
+      assert.equal(config.url, reviewPath)
+      assert.deepEqual(config.authScope, {
+        userId: 901,
+        sessionId: 'synthetic-session',
+      })
+      return response(config, reviewSettings)
+    }
+    const container = await mount(panel)
+    const selector = `[data-plugin="${owner}"]`
+    await until(() =>
+      Boolean(container.querySelector(selector + ' #market-ai-mode-product'))
+    )
+    const card = container.querySelector(selector)!
+    assert.equal(
+      card.querySelector<HTMLSelectElement>('#market-ai-mode-product')!
+        .disabled,
+      true
+    )
+    assert.equal(
+      card.querySelector<HTMLSelectElement>('#market-ai-mode-tool')!.disabled,
+      true
+    )
+    assert.equal(card.querySelector('form'), null)
+    assert.equal(
+      card.querySelector('a[href="/system-settings/security/moderation"]'),
+      null
+    )
+    assert.deepEqual(calls, ['/api/extensions/plugins', reviewPath])
+  })
+}
+
+test('a market edit sends only dirty fields and uses both modes confirmed by the server', async () => {
+  login(100)
+  const writes: unknown[] = []
+  let canSave = false
+  api.defaults.adapter = async (config) => {
+    if (config.url === '/api/extensions/plugins') {
+      return response(config, [plugin, { ...plugin, name: 'toolmarket' }])
+    }
+    assert.equal(config.url, reviewPath)
+    if (config.method === 'get') {
+      return response(config, {
+        ...reviewSettings,
+        review_group: '',
+        review_model: '',
+      })
+    }
+    assert.equal(config.method, 'patch')
+    assert.deepEqual(config.authScope, {
+      userId: 901,
+      sessionId: 'synthetic-session',
+    })
+    writes.push(JSON.parse(config.data))
+    if (!canSave) throw new Error('Classifier unavailable')
+    return response(config, {
+      ...reviewSettings,
+      tool_mode: 'auto',
+      store_mode: 'assist',
+    })
+  }
+  const container = await mount('store-review')
+  await until(() => Boolean(container.querySelector('#market-ai-mode-product')))
+  const card = container.querySelector('[data-plugin="store"]')!
+  assert.match(card.textContent ?? '', /shared AI review route is unavailable/i)
+  const product = card.querySelector<HTMLSelectElement>(
+    '#market-ai-mode-product'
+  )!
+  const tool = card.querySelector<HTMLSelectElement>('#market-ai-mode-tool')!
+  await act(async () => {
+    product.value = 'assist'
+    product.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  const submit = async () =>
+    act(async () => {
+      card
+        .querySelector('form')!
+        .dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))
+    })
+  await submit()
+  await until(
+    () => card.textContent?.includes('Classifier unavailable') === true
+  )
+  assert.equal(product.value, 'assist')
+  canSave = true
+  await submit()
+  await until(() => tool.value === 'auto' && product.value === 'assist')
+  assert.deepEqual(writes, [{ store_mode: 'assist' }, { store_mode: 'assist' }])
+})
+
+test('disabled gateways and two disabled market owners do not probe or mutate configuration', async () => {
+  login(100)
+  const calls: string[] = []
+  api.defaults.adapter = async (config) => {
+    calls.push(config.url!)
+    return response(
+      config,
+      ['store', 'toolmarket', 'payments'].map((name) => ({
+        ...plugin,
+        name,
+        enabled: false,
+      }))
+    )
+  }
+  const container = await mount('toolmarket')
+  await until(
+    () =>
+      container.textContent?.includes('AI first review is disabled') === true
+  )
+  const payments = container.querySelector('[data-plugin="payments"]')!
+  await act(async () => button('Configure', payments).click())
+  await until(() => Boolean(payments.querySelector('#plugin-config-payments')))
+  assert.equal(payments.querySelector('[role="tab"]'), null)
+  assert.equal(
+    [...payments.querySelectorAll('button')].some(
+      (item) =>
+        item.textContent === 'Uninstall' || item.textContent === 'Enable'
+    ),
+    false
+  )
+  assert.deepEqual(calls, ['/api/extensions/plugins'])
 })

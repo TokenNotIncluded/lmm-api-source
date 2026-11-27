@@ -67,6 +67,10 @@ const SETTINGS_SYNONYMS: Record<string, readonly string[]> = {
   'billing/payment': [
     'stripe',
     'epay',
+    'pancake',
+    'waffo',
+    'creem',
+    'coinbase',
     'alipay',
     'wechat',
     'top up',
@@ -82,6 +86,12 @@ const SETTINGS_SYNONYMS: Record<string, readonly string[]> = {
   'models/channel-affinity': ['sticky', 'session', 'load balance'],
   'models/model-deployment': ['deploy', 'publish', 'endpoint'],
   // Security & Limits
+  'security/market-ai-review': [
+    'toolmarket',
+    'store',
+    'classifier',
+    'market review',
+  ],
   'security/rate-limit': ['throttle', 'rpm', 'tpm', 'request limit', 'burst'],
   'security/sensitive-words': [
     'blocklist',

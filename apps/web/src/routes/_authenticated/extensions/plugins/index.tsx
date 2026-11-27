@@ -1,5 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { createFileRoute, redirect, useLocation } from '@tanstack/react-router'
 
 import { PluginsPage } from '@/features/plugins'
 import {
@@ -35,10 +35,12 @@ export const Route = createFileRoute('/_authenticated/extensions/plugins/')({
   },
   component: function PluginSettingsRoute() {
     const { configure } = Route.useSearch()
+    const hash = useLocation({ select: (location) => location.hash })
     const navigate = Route.useNavigate()
     return (
       <PluginsPage
         panel={configure}
+        paymentHash={hash}
         onPanelChange={(panel) => {
           void navigate({
             search: (previous) => ({ ...previous, configure: panel }),
