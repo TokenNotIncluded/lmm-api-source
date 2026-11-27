@@ -1184,7 +1184,7 @@ impl Worker {
                     if let Some(frame) = parser.feed(byte)? {
                         frame_ordinal += 1;
                         let event = diagnostics::safe_event(frame.event.as_deref());
-                        let events = decoder.frame(frame).map_err(|error| {
+                        let events = decoder.frame(frame).inspect_err(|error| {
                             let channel_id = route.model_attempt.as_ref().map(|a| a.upstream_id());
                             let converter = decoder.last_converter_error;
                             eprintln!(
@@ -1199,7 +1199,6 @@ impl Worker {
                                 event: event.to_owned(),
                                 converter,
                             });
-                            error
                         })?;
                         self.events(events).await?;
                         if decoder.is_done() {
