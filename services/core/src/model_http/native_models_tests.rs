@@ -240,8 +240,22 @@ async fn native_models_pg_anthropic_header_dispatch_preserves_openai_and_checks_
         1,
         false,
     );
-    let (_, native) = get(&chat, &f.key, "/v1/models", true).await;
-    assert_eq!(native["data"], json!([]));
+    let (status, native) = get(&chat, &f.key, "/v1/models", true).await;
+    assert_eq!(status, StatusCode::OK);
+    let page = AnthropicPage::parse(None).unwrap();
+    assert_eq!(native, page.render(&models()).unwrap());
+
+    let gemini = super::super::text_request_tests::gateway(
+        &f.pool,
+        "http://127.0.0.1:4999/v1beta",
+        Protocol::Gemini,
+        &["a", "b", "c"],
+        1,
+        false,
+    );
+    let (status, native) = get(&gemini, &f.key, "/v1/models", true).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(native, page.render(&[]).unwrap());
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM core_charging.requests")
             .fetch_one(&f.pool)

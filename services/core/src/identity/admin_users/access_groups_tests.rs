@@ -407,6 +407,7 @@ async fn admin_user_access_http_conflicts_and_audit_failure_are_atomic(pool: PgP
 #[sqlx::test(migrations = false)]
 async fn group_options_show_published_names_and_actual_inheritance(pool: PgPool) {
     let f = fresh(&pool).await;
+    f.role.optional("web_identity").await;
     let user = person(&f, &pool, 10, 0, "group_options").await;
     sqlx::query(r#"SELECT public.routing_stage_prices('{"version":1,"rules":[]}')"#)
         .execute(&pool)

@@ -46,7 +46,7 @@ async fn dispatch_retry_pg_case(pool: PgPool, failures: u8) {
             IF stored_worker <> TG_ARGV[2] OR NEW.detail IS DISTINCT FROM
                 jsonb_build_object('kind','model_route_dispatch','number',1,
                     'route_id',proof->'binding'->>'route_id','actual_group',actual_group,
-                    'wire_sha256',proof->>'wire_sha256') THEN
+                    'wire_sha256',proof->>'wire_sha256','inbound_protocol','chat') THEN
                 RAISE EXCEPTION 'dispatch changed frozen worker or payload' USING ERRCODE='22023';
             END IF;
             IF attempt <= TG_ARGV[3]::BIGINT THEN

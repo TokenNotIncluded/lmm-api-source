@@ -116,7 +116,20 @@ async fn explorer_uses_identical_filters_for_list_summary_export_and_scoped_deta
     assert_eq!(values[0]["upstream_request_id"], "upstream-failed");
     assert_eq!(values[0]["status_code"], "503");
 
-    let detail = ok(&f, "/core/v1/usage/self/request?request_id=b-failed").await;
+    let mut detail = ok(&f, "/core/v1/usage/self/request?request_id=b-failed").await;
+    assert!(item.get("settlement_timeline").is_none());
+    let timeline = detail
+        .as_object_mut()
+        .unwrap()
+        .remove("settlement_timeline")
+        .unwrap();
+    let events = timeline["events"].as_array().unwrap();
+    assert_eq!(events.len(), 3);
+    for (kind, credits) in [("reserve_total", 100), ("captured", 49), ("released", 51)] {
+        let event = events.iter().find(|event| event["kind"] == kind).unwrap();
+        assert_eq!(event["credits"], credits);
+    }
+    assert_eq!(timeline["truncated"], false);
     assert_eq!(&detail, item);
     assert_eq!(
         ok(&f, "/api/log/self?status=refunded").await["items"][0]["request_id"],

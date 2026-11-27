@@ -1081,37 +1081,37 @@ fn decode_gemini(stream: bool, frames: &[Value]) -> Vec<Event> {
 fn gemini_long_decode_keeps_continuation_token_and_maps_finish_reasons() {
     let token = "CiQ4ZmQ3-token";
     let source = gemini_upstream("CONTINUATION", Some(token));
-    for stream in [false, true] {
+    for (stream, chunks) in [
+        (false, &["partial"][..]),
+        (true, &["partial"][..]),
+        (true, &["partial", "tail"][..]),
+    ] {
         let frames = if stream {
-            vec![
-                json!({"responseId":"g_1","candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"partial"}]}}]}),
-                json!({"responseId":"g_1","candidates":[{"index":0,"finishReason":"CONTINUATION","continuationToken":token}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":4}}),
-            ]
+            let mut frames: Vec<_> = chunks
+                .iter()
+                .map(|text| json!({"responseId":"g_1","candidates":[{"index":0,"content":{"role":"model","parts":[{"text":text}]}}]}))
+                .collect();
+            frames.push(json!({"responseId":"g_1","candidates":[{"index":0,"finishReason":"CONTINUATION","continuationToken":token}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":4}}));
+            frames
         } else {
             vec![source.clone()]
         };
         let events = decode_gemini(stream, &frames);
         let native = render_gemini(ClientProtocol::Gemini, stream, events.clone());
         let native_packets = json_packets(stream, &native);
-        let terminal = native_packets
-            .iter()
-            .rev()
-            .find(|packet| packet["candidates"][0].get("finishReason").is_some())
-            .unwrap();
+        assert_eq!(native_packets.len(), chunks.len());
+        for (packet, text) in native_packets.iter().zip(chunks) {
+            let candidate = &packet["candidates"][0];
+            assert_eq!(candidate["content"]["parts"], json!([{"text": text}]));
+        }
+        let (terminal, earlier) = native_packets.split_last().unwrap();
+        for packet in earlier {
+            let candidate = &packet["candidates"][0];
+            assert!(candidate.get("finishReason").is_none());
+            assert!(candidate.get("continuationToken").is_none());
+        }
         assert_eq!(terminal["candidates"][0]["finishReason"], "CONTINUATION");
         assert_eq!(terminal["candidates"][0]["continuationToken"], token);
-        assert!(native_packets.iter().any(|packet| {
-            packet["candidates"][0]["content"]["parts"]
-                .as_array()
-                .is_some_and(|parts| parts.iter().any(|part| part["text"] == "partial"))
-        }));
-        if stream {
-            assert!(native_packets.iter().any(|packet| {
-                packet["candidates"][0].get("finishReason").is_none()
-                    && packet["candidates"][0].get("continuationToken").is_none()
-                    && packet["candidates"][0]["content"]["parts"][0]["text"] == "partial"
-            }));
-        }
         let chat = render_gemini(ClientProtocol::Chat, stream, events);
         let finish = json_packets(stream, &chat)
             .into_iter()

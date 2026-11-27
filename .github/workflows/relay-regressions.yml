@@ -58,6 +58,11 @@ jobs:
             responses_input_id_requires_a_complete_message_and_never_resolves_references
             pure_provider_errors_remain_eligible_for_configured_failover
             ambiguous_errors_never_authorize_redispatch
+            route_dispatch_retry_pg_first_rollback_sends_once
+            route_dispatch_retry_pg_two_rollbacks_send_once
+            route_dispatch_retry_pg_exhaustion_never_sends
+            native_models_pg_anthropic_header_dispatch_preserves_openai_and_checks_protocol
+            gemini_long_decode_keeps_continuation_token_and_maps_finish_reasons
             route_failover_pg_safe_failures_keep_one_frozen_bill
             route_failover_pg_unknown_and_partial_tool_results_never_replay
             ws06_official_exact_rejects_before_handshake_and_unknown_usage_holds
