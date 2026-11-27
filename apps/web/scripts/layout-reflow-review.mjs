@@ -562,6 +562,7 @@ try {
       })
       for (const origin of [consoleOrigin, publicOrigin]) {
         await context.addCookies([
+          { name: 'lmm_ui_locale', value: 'zh-CN', url: origin },
           {
             name: 'vite-ui-theme',
             value: scenario.theme ?? 'light',

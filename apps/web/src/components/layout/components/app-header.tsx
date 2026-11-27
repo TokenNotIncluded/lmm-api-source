@@ -201,7 +201,7 @@ export function AppHeader({
         </div>
       )}
       {rightContent ?? (
-        <div className='ms-auto flex shrink-0 items-center gap-1 md:gap-2'>
+        <div className='ms-auto flex max-w-full min-w-0 flex-wrap items-center justify-end gap-1 md:gap-2'>
           {showTopNav && (
             <div className='lg:hidden'>
               <TopNav links={links} aria-label={t('Header navigation')} />
