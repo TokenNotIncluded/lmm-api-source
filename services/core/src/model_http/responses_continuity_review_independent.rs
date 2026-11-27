@@ -61,6 +61,7 @@ struct Supplier {
     counts: Arc<AtomicUsize>,
     default_store: Arc<Mutex<bool>>,
     reviewed_cache_receipt: Arc<Mutex<bool>>,
+    stream_item_events: Arc<std::sync::atomic::AtomicBool>,
     cache_usage: Arc<Mutex<Option<Value>>>,
     retained_parents: Arc<Mutex<BTreeMap<String, Value>>>,
     unexpected: Arc<Mutex<Vec<String>>>,
@@ -124,6 +125,28 @@ async fn provider(
     if body["stream"] == true {
         let created = json!({"type":"response.created","response":{"id":response["id"],"status":"in_progress"}});
         let terminal = json!({"type":"response.completed","response":response});
+        if s.stream_item_events.load(Ordering::SeqCst) {
+            let events = [
+                created,
+                json!({"type":"response.output_item.added","output_index":0,"item":{"type":"message","role":"assistant","id":"msg_review","status":"in_progress","content":[]}}),
+                json!({"type":"response.content_part.added","output_index":0,"item_id":"msg_review","content_index":0,"part":{"type":"output_text","text":"","annotations":[]}}),
+                json!({"type":"response.output_text.delta","output_index":0,"item_id":"msg_review","content_index":0,"delta":"ok"}),
+                json!({"type":"response.output_text.done","output_index":0,"item_id":"msg_review","content_index":0,"text":"ok"}),
+                json!({"type":"response.content_part.done","output_index":0,"item_id":"msg_review","content_index":0,"part":response["output"][0]["content"][0]}),
+                json!({"type":"response.output_item.done","output_index":0,"item":response["output"][0]}),
+                terminal,
+            ];
+            let bytes = events
+                .iter()
+                .map(|event| {
+                    format!(
+                        "event: {}\ndata: {event}\n\n",
+                        event["type"].as_str().unwrap()
+                    )
+                })
+                .collect::<String>();
+            return ([(header::CONTENT_TYPE, "text/event-stream")], bytes).into_response();
+        }
         return ([(header::CONTENT_TYPE,"text/event-stream")],
             format!("event: response.created\ndata: {created}\n\nevent: response.completed\ndata: {terminal}\n\n")).into_response();
     }
@@ -137,6 +160,7 @@ async fn supplier() -> Server {
         counts: Arc::new(AtomicUsize::new(0)),
         default_store: Arc::new(Mutex::new(true)),
         reviewed_cache_receipt: Arc::new(Mutex::new(false)),
+        stream_item_events: Default::default(),
         cache_usage: Arc::new(Mutex::new(None)),
         retained_parents: Arc::new(Mutex::new(BTreeMap::new())),
         unexpected: Default::default(),
@@ -1639,6 +1663,110 @@ async fn responses_continuity_review_independent_oauth_scope_denied(pool: PgPool
         assert!(ids(&lab.fixture.pool).await.is_empty());assert_eq!(lab.calls(),0);assert_eq!(lab.counts(),0);assert_eq!(lab.unexpected(),0);
         let balance=lab.fixture.ledger.balance(lab.fixture.account).await.unwrap();assert_eq!((balance.available_units,balance.reserved_units),(FUNDS,0));
     })).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn pi_responses_oauth_streams_and_replays_output_without_creating_continuations(
+    pool: PgPool,
+) {
+    run(pool, |lab| {
+        Box::pin(async move {
+            let fixture = super::responses_continuity_review_support::oauth_fixture(
+                fixture_gateway,
+                &lab.fixture,
+                &lab.runtime.pool,
+                &bases(lab),
+            )
+            .await;
+            for provider in &lab.servers {
+                provider
+                    .supplier
+                    .stream_item_events
+                    .store(true, Ordering::SeqCst);
+            }
+            let gateway = host(fixture.gateway).await;
+            let mut body = json!({
+                "model": PUBLIC, "stream": true, "store": false, "max_output_tokens": 50,
+                "input": [{"role":"user","content":[{"type":"input_text","text":"hi"}]}],
+                "reasoning": {"effort":"medium","summary":"auto"},
+                "include": ["reasoning.encrypted_content"], "prompt_cache_key":"pi-session",
+            });
+            let denied = post(
+                &gateway.base,
+                &fixture.denied_scope_token,
+                "pi-scope",
+                &body,
+            )
+            .await
+            .unwrap();
+            assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+            assert_eq!(lab.calls(), 0);
+            for turn in 1..=2 {
+                let nonce = format!("pi-oauth-turn-{turn}");
+                let response = post(&gateway.base, &fixture.first.token, &nonce, &body)
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::OK);
+                let id = oauth_id(&fixture.first, &nonce);
+                assert_eq!(response.headers()["x-request-id"].to_str().unwrap(), id);
+                let wire = response.text().await.unwrap();
+                let packets: Vec<Value> = wire
+                    .lines()
+                    .filter_map(|line| line.strip_prefix("data: "))
+                    .filter_map(|data| serde_json::from_str(data).ok())
+                    .collect();
+                assert!(
+                    packets
+                        .iter()
+                        .any(|p| p["type"] == "response.output_text.delta" && p["delta"] == "ok"),
+                    "{wire}"
+                );
+                let completed: Vec<_> = packets
+                    .iter()
+                    .filter(|p| p["type"] == "response.completed")
+                    .collect();
+                assert_eq!(completed.len(), 1, "{wire}");
+                let answer = &completed[0]["response"]["output"][0];
+                assert_eq!(answer["role"], "assistant");
+                assert_eq!(answer["content"][0]["text"], "ok");
+                assert_eq!(
+                    charge(&lab.fixture.pool, &id).await,
+                    ("settled".into(), HOLD, COST)
+                );
+                let input = body["input"].as_array_mut().unwrap();
+                input.push(answer.clone());
+                input.push(json!({"role":"user","content":[{"type":"input_text","text":"next"}]}));
+            }
+            let balance = lab
+                .fixture
+                .ledger
+                .balance(lab.fixture.account)
+                .await
+                .unwrap();
+            assert_eq!(
+                (balance.available_units, balance.reserved_units),
+                (FUNDS - 2 * COST, 0)
+            );
+            let maps: i64 =
+                sqlx::query_scalar("SELECT count(*) FROM core_model.responses_continuations")
+                    .fetch_one(&lab.fixture.pool)
+                    .await
+                    .unwrap();
+            assert_eq!(maps, 0);
+            assert_eq!(lab.calls(), 2);
+            for server in &lab.servers {
+                for wire in server.supplier.seen.lock().unwrap().iter() {
+                    assert_eq!(wire["store"], false);
+                    assert_eq!(wire["reasoning"], body["reasoning"]);
+                    assert_eq!(wire["prompt_cache_key"], "pi-session");
+                    assert!(
+                        wire.get("include").is_none() && wire.get("previous_response_id").is_none()
+                    );
+                }
+            }
+        })
+    })
+    .await;
 }
 
 fn assert_retry_layout(gateway: &ModelGateway, layout: RetryLayout) {

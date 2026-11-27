@@ -17,6 +17,8 @@ pub(crate) mod native_gemini;
 mod openrouter_tests;
 pub(crate) mod provider_network;
 mod request;
+#[cfg(test)]
+mod responses_client_tests;
 pub(crate) mod responses_ws;
 mod schema_order;
 mod sse;

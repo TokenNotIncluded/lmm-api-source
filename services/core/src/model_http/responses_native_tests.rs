@@ -475,7 +475,7 @@ async fn compact_pg_sse_tools_stream_live_and_terminal_waits_for_real_settlement
     let g = gateway(&f.pool, &p, true, Protocol::OpenAiResponses);
     let body = json!({"model":"compact-public","input":compact["output"],"stream":true,
         "tools":[{"type":"function","name":"lookup","parameters":{"type":"object","properties":{"q":{"type":"string"}},"required":["q"],"additionalProperties":false}}],
-        "reasoning":{"effort":"low"},"include":["reasoning.encrypted_content"]});
+        "reasoning":{"effort":"low","summary":"auto"},"prompt_cache_key":"pi-native","include":["reasoning.encrypted_content"]});
     let r = g
         .router()
         .oneshot(
@@ -508,6 +508,10 @@ async fn compact_pg_sse_tools_stream_live_and_terminal_waits_for_real_settlement
     while let Some(chunk) = body.next().await {
         wire.push_str(std::str::from_utf8(&chunk.unwrap()).unwrap());
     }
+    let seen = p.seen.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(seen["reasoning"], json!({"effort":"low","summary":"auto"}));
+    assert_eq!(seen["prompt_cache_key"], "pi-native");
+    assert_eq!(seen["include"], json!(["reasoning.encrypted_content"]));
     assert!(wire.contains("response.output_text.delta"), "{wire}");
     assert!(wire.contains("response.completed"), "{wire}");
     assert!(wire.contains("function_call"), "{wire}");

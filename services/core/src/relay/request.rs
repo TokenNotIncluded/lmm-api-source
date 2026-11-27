@@ -110,6 +110,12 @@ pub struct Request {
     pub tool_choice: ToolChoice,
     pub parallel_tool_calls: Option<bool>,
     pub reasoning_effort: Option<String>,
+    responses_summary: Option<String>,
+    responses_assistant_phases: Vec<Option<&'static str>>,
+    has_display_summary: bool,
+    // The stateless decoder cannot return provider-owned ciphertext.
+    // A raw pass-through route cannot omit this projection from the request.
+    requests_encrypted_output: bool,
     /// Native Google Search only; its supplier contract is selected by Core.
     pub(crate) google_search: bool,
     /// Bounded Responses cache controls; never evidence of actual billed writes.
@@ -548,6 +554,21 @@ fn signature(v: Option<&Value>) -> Result<Option<(UpstreamProtocol, String)>, Re
     };
     Ok(Some((protocol, string(&v["signature"])?)))
 }
+fn validate_replayed_output(item: &Value) -> Result<(), RelayError> {
+    if let Some(id) = item.get("id").filter(|value| !value.is_null()) {
+        name(id)?;
+    }
+    if item
+        .get("status")
+        .is_some_and(|s| !s.is_null() && s != "completed")
+    {
+        return Err(RelayError::Unsupported(
+            "only completed Responses history can be replayed",
+        ));
+    }
+    Ok(())
+}
+
 fn arguments(v: &Value, limit: usize) -> Result<String, RelayError> {
     let text = string(v)?;
     if text.len() > limit {
@@ -615,6 +636,8 @@ impl Request {
             || self.prompt_cache_options.is_some()
             || self.anthropic_cached_prompt.is_some()
             || self.reasoning_effort.is_some()
+            || self.responses_summary.is_some()
+            || self.requests_encrypted_output
             || self.google_search
             || self.temperature.is_some()
             || self.top_p.is_some()
@@ -798,6 +821,7 @@ impl Request {
                     "tool_choice",
                     "parallel_tool_calls",
                     "reasoning",
+                    "include",
                     "store",
                     "prompt_cache_options",
                     "prompt_cache_key",
@@ -941,12 +965,36 @@ impl Request {
                 .transpose()?,
             ClientProtocol::Responses => {
                 if let Some(r) = v.get("reasoning").filter(|v| !v.is_null()) {
-                    keys(r, &["effort"])?;
+                    keys(r, &["effort", "summary"])?;
                     r.get("effort").map(string).transpose()?
                 } else {
                     None
                 }
             }
+        };
+        let (responses_summary, requests_encrypted_output) = if client == ClientProtocol::Responses
+        {
+            let summary = match v["reasoning"]["summary"].as_str() {
+                Some(mode @ ("auto" | "concise" | "detailed")) => Some(mode.to_owned()),
+                None if v["reasoning"]["summary"].is_null() => None,
+                _ => return Err(RelayError::Invalid("invalid reasoning.summary")),
+            };
+            let encrypted = match v.get("include").filter(|value| !value.is_null()) {
+                None => false,
+                Some(Value::Array(fields)) => {
+                    if fields
+                        .iter()
+                        .any(|field| field != "reasoning.encrypted_content")
+                    {
+                        return Err(RelayError::Unsupported("unsupported Responses include"));
+                    }
+                    !fields.is_empty()
+                }
+                Some(_) => return Err(RelayError::Invalid("Responses include must be an array")),
+            };
+            (summary, encrypted)
+        } else {
+            (None, false)
         };
         if reasoning_effort.as_ref().is_some_and(|s| {
             !["none", "minimal", "low", "medium", "high", "xhigh", "max"].contains(&s.as_str())
@@ -957,6 +1005,8 @@ impl Request {
         // xhigh, but other OpenAI-compatible providers give them distinct
         // meanings. The selected provider interprets its own vocabulary.
         let mut messages = Vec::new();
+        let mut responses_assistant_phases = Vec::new();
+        let mut has_display_summary = false;
         if let Some(s) = v.get("instructions").filter(|v| !v.is_null()) {
             messages.push(Message {
                 role: Role::System,
@@ -1058,6 +1108,9 @@ impl Request {
                             .as_array()
                             .ok_or(RelayError::Invalid("input must be a string or array"))?
                     };
+                    if items.len() > 1024 {
+                        return Err(RelayError::Limit("message count"));
+                    }
                     for i in items {
                         let kind = match i.get("type") {
                             None => "message",
@@ -1067,21 +1120,47 @@ impl Request {
                         };
                         match kind {
                             "message" => {
-                                keys(i, &["type", "role", "content"])?;
                                 let role = Role::parse(&i["role"])?;
+                                let phase = if role == Role::Assistant {
+                                    keys(i, &["type", "role", "content", "id", "status", "phase"])?;
+                                    validate_replayed_output(i)?;
+                                    match i.get("phase").filter(|p| !p.is_null()) {
+                                        None => None,
+                                        Some(p) if p == "final_answer" => Some("final_answer"),
+                                        Some(p) if p == "commentary" => Some("commentary"),
+                                        Some(_) => {
+                                            return Err(RelayError::Invalid(
+                                                "invalid assistant message phase",
+                                            ));
+                                        }
+                                    }
+                                } else {
+                                    keys(i, &["type", "role", "content"])?;
+                                    None
+                                };
                                 if role == Role::Tool {
                                     return Err(RelayError::Invalid("use function_call_output"));
                                 }
-                                messages.push(Message {
-                                    role,
-                                    content: text_blocks(&i["content"], role, client)?,
-                                });
+                                let content = text_blocks(&i["content"], role, client)?;
+                                if role == Role::Assistant && !content.is_empty() {
+                                    responses_assistant_phases.push(phase);
+                                }
+                                messages.push(Message { role, content });
                             }
                             "function_call" => {
                                 keys(
                                     i,
-                                    &["type", "call_id", "name", "arguments", "provider_metadata"],
+                                    &[
+                                        "type",
+                                        "call_id",
+                                        "name",
+                                        "arguments",
+                                        "provider_metadata",
+                                        "id",
+                                        "status",
+                                    ],
                                 )?;
+                                validate_replayed_output(i)?;
                                 messages.push(Message {
                                     role: Role::Assistant,
                                     content: vec![InputBlock::ToolCall {
@@ -1094,6 +1173,55 @@ impl Request {
                                         signature: signature(i.get("provider_metadata"))?,
                                     }],
                                 });
+                            }
+                            "reasoning" => {
+                                // A stateless client may echo the visible summary from our
+                                // last response. It is display metadata, never model input
+                                // or a reference to stored or encrypted provider state.
+                                keys(
+                                    i,
+                                    &[
+                                        "type",
+                                        "id",
+                                        "status",
+                                        "summary",
+                                        "content",
+                                        "encrypted_content",
+                                    ],
+                                )?;
+                                validate_replayed_output(i)?;
+                                let local_id = i["id"]
+                                    .as_str()
+                                    .and_then(|id| id.strip_prefix("rs_resp_"))
+                                    .and_then(|id| id.rsplit_once('_'))
+                                    .is_some_and(|(request, block)| {
+                                        request.len() == 64
+                                            && request.bytes().all(|c| {
+                                                c.is_ascii_hexdigit() && !c.is_ascii_uppercase()
+                                            })
+                                            && block.parse::<usize>().is_ok()
+                                    });
+                                if !local_id
+                                    || !i["encrypted_content"].is_null()
+                                    || !(i["content"].is_null()
+                                        || i["content"].as_array().is_some_and(Vec::is_empty))
+                                {
+                                    return Err(RelayError::Unsupported(
+                                        "provider reasoning history requires native Responses context",
+                                    ));
+                                }
+                                has_display_summary = true;
+                                let parts = i["summary"].as_array().ok_or(RelayError::Invalid(
+                                    "expected a Responses reasoning summary array",
+                                ))?;
+                                for part in parts {
+                                    keys(part, &["type", "text"])?;
+                                    if part["type"] != "summary_text" || !part["text"].is_string() {
+                                        return Err(RelayError::Invalid(
+                                            "invalid Responses reasoning summary",
+                                        ));
+                                    }
+                                }
                             }
                             "function_call_output" => {
                                 keys(i, &["type", "call_id", "output"])?;
@@ -1187,6 +1315,10 @@ impl Request {
             top_p: number(v.get("top_p"), 1.0)?,
             parallel_tool_calls: boolean(v.get("parallel_tool_calls"))?,
             reasoning_effort,
+            responses_summary,
+            responses_assistant_phases,
+            has_display_summary,
+            requests_encrypted_output,
             google_search: false,
             prompt_cache_options,
             prompt_cache_key: v
@@ -1271,6 +1403,8 @@ impl Request {
         if !same_protocol
             || self.model != route.model
             || !self.compatibility.is_empty()
+            || self.requests_encrypted_output
+            || self.has_display_summary
             || self.explicit_max_output_tokens.is_none()
             || (self.client == ClientProtocol::Chat && self.stream && !self.include_usage)
             || route
@@ -1512,6 +1646,15 @@ impl Request {
                 "Google Search requires a native Gemini request without mixed tools or continuation",
             ));
         }
+        if protocol != UpstreamProtocol::Responses
+            && self
+                .responses_assistant_phases
+                .contains(&Some("commentary"))
+        {
+            return Err(RelayError::Unsupported(
+                "assistant commentary phase requires a Responses route",
+            ));
+        }
         if self.prompt_cache_options.is_some() && protocol != UpstreamProtocol::Responses {
             return Err(RelayError::Unsupported(
                 "cache lifetime controls require a Responses route",
@@ -1669,6 +1812,28 @@ impl Request {
             }
         }
         if protocol == UpstreamProtocol::Responses {
+            if let Some(summary) = &self.responses_summary {
+                converted["reasoning"]["summary"] = json!(summary);
+            }
+            if self.responses_assistant_phases.iter().any(Option::is_some) {
+                // Each admitted Responses message has only ordinary content
+                // blocks; separately encoded function calls have no role field.
+                let mut assistant = converted["input"]
+                    .as_array_mut()
+                    .ok_or(RelayError::Protocol("missing projected Responses input"))?
+                    .iter_mut()
+                    .filter(|item| item["role"] == "assistant");
+                for phase in &self.responses_assistant_phases {
+                    let item = assistant
+                        .next()
+                        .ok_or(RelayError::Protocol("missing projected assistant message"))?;
+                    if let Some(phase) = phase {
+                        item["phase"] = json!(phase);
+                    }
+                }
+            }
+            // The native continuity path forwards encrypted_content on its bound
+            // provider. The stateless relay can only return visible summaries.
             if let Some(format) = &self.response_format {
                 converted["text"] = json!({"format": format.to_responses_value()});
             }
