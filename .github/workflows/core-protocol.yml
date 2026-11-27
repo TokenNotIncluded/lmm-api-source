@@ -18,14 +18,13 @@ concurrency:
   cancel-in-progress: true
 jobs:
   protocol:
-    name: ${{ matrix.targets == 'integration' && 'Rust integration targets' ||
-      matrix.targets == 'integration-extra' && 'Rust integration targets (second shard)' ||
+    name: ${{ startsWith(matrix.targets, 'integration-') && format('Rust targets ({0})', matrix.targets) ||
       matrix.targets == 'model-unit' && 'Rust model unit tests' ||
       matrix.targets == 'schema-identity' && 'Rust schema and identity tests' || 'protocol' }}
     strategy:
       fail-fast: false
       matrix:
-        targets: ${{ fromJSON(inputs.split_rust_targets && '["unit","model-unit","schema-identity","integration","integration-extra"]' || '["all"]') }}
+        targets: ${{ fromJSON(inputs.split_rust_targets && '["unit","model-unit","schema-identity","integration-1","integration-2","integration-3","integration-4"]' || '["all"]') }}
     runs-on: ubuntu-24.04
     # Budget for cold builds, serial real PostgreSQL tests, and the following
     # payment, Go, and RPC checks while keeping the complete job bounded.
@@ -265,14 +264,13 @@ jobs:
               run_tests --lib -- model_http:: ;;
             schema-identity)
               run_tests --lib -- core_schema:: identity:: --skip model_http:: ;;
-            integration|integration-extra)
-              shard=0
-              if [[ "$RUST_TARGET_GROUP" == integration-extra ]]; then shard=1; fi
+            integration-[1-4])
+              shard=$(("${RUST_TARGET_GROUP#integration-}" - 1))
               selected=$(cargo metadata --locked --no-deps --format-version 1 |
                 jq -er --argjson shard "$shard" '
                   [.packages[] | select(.name == "lmm-core") | .targets[]
                    | select(.kind | index("test")) | .name]
-                  | sort | to_entries[] | select(.key % 2 == $shard) | .value')
+                  | sort | to_entries[] | select(.key % 4 == $shard) | .value')
               mapfile -t names <<<"$selected"
               targets=()
               for target in "${names[@]}"; do
@@ -290,7 +288,7 @@ jobs:
             cargo test --locked --lib events::tests::service_scope_and_consumer_backlog_limit_cannot_be_bypassed -- --exact 2>&1 | tee -a "$RUNNER_TEMP/core-events-repeated.log"
           done
       - name: Synthetic payment live process through owning runner
-        if: ${{ !cancelled() && (matrix.targets == 'integration' || matrix.targets == 'all') }}
+        if: ${{ !cancelled() && (matrix.targets == 'integration-1' || matrix.targets == 'all') }}
         run: python3 -B scripts/ci-payment-live.py --output "$(realpath -m "$RUNNER_TEMP/payment-live")" 2>&1 | tee "$RUNNER_TEMP/payment-live-build.log"
       - name: Go contract and race tests
         if: ${{ !cancelled() && (matrix.targets == 'unit' || matrix.targets == 'all') }}

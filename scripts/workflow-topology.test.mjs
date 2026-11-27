@@ -500,7 +500,7 @@ test('automatic Core checks partition every Rust target across independent runne
   const source = workflow('core-protocol');
   assert.match(workflow('ci'), /uses: \.\/\.github\/workflows\/core-protocol\.yml\n    with:\n      split_rust_targets: true/);
   assert.match(source, /split_rust_targets:[\s\S]*?type: boolean\n        default: false/);
-  assert.match(source, /fail-fast: false\n      matrix:\n        targets: .*inputs\.split_rust_targets && '\["unit","model-unit","schema-identity","integration","integration-extra"\]' \|\| '\["all"\]'/);
+  assert.match(source, /fail-fast: false\n      matrix:\n        targets: .*inputs\.split_rust_targets && '\["unit","model-unit","schema-identity","integration-1","integration-2","integration-3","integration-4"\]' \|\| '\["all"\]'/);
   assert.ok(source.includes('RUST_TARGET_GROUP: ${{ matrix.targets }}'));
   assert.match(source, /timeout-minutes: 150/);
   assert.doesNotMatch(source, /continue-on-error:/);
@@ -532,8 +532,10 @@ test('automatic Core checks partition every Rust target across independent runne
     [runner + '--bins --examples --']);
   assert.deepEqual(calls('model-unit'), [runner + '--lib -- model_http::']);
   assert.deepEqual(calls('schema-identity'), [runner + '--lib -- core_schema:: identity:: --skip model_http::']);
-  assert.deepEqual(calls('integration'), [runner + '--test alpha --test delta --test gamma --']);
-  assert.deepEqual(calls('integration-extra'), [runner + '--test beta --test epsilon --']);
+  assert.deepEqual(calls('integration-1'), [runner + '--test alpha --test gamma --']);
+  assert.deepEqual(calls('integration-2'), [runner + '--test beta --']);
+  assert.deepEqual(calls('integration-3'), [runner + '--test delta --']);
+  assert.deepEqual(calls('integration-4'), [runner + '--test epsilon --']);
   assert.throws(() => calls('unknown'), { status: 1 });
 });
 
@@ -598,14 +600,14 @@ test('Core CI isolates independent process evidence and cluster-wide role snapsh
 test('preserved migration executors build only on integration or full test hosts', () => {
   const source = workflow('core-protocol');
   assert.match(source, /name: Build the preserved migration executors\n        if: \$\{\{ !cancelled\(\) && \(startsWith\(matrix.targets, 'integration'\) \|\| matrix.targets == 'all'\) \}\}/);
-  assert.match(source, /integration\|integration-extra\)/);
+  assert.match(source, /integration-\[1-4\]\)/);
   assert.match(source, /run_tests --all-targets --/);
 });
 
 test('externally owned payment live case remains required through its real runner', () => {
   const source = workflow('core-protocol');
   assert.match(source, /--skip synthetic_live_proof_crosses_core_go_processes_and_posts_once/);
-  assert.match(source, /name: Synthetic payment live process through owning runner\n        if: \$\{\{ !cancelled\(\) && \(matrix.targets == 'integration' \|\| matrix.targets == 'all'\) \}\}\n        run: python3 -B scripts\/ci-payment-live.py/);
+  assert.match(source, /name: Synthetic payment live process through owning runner\n        if: \$\{\{ !cancelled\(\) && \(matrix.targets == 'integration-1' \|\| matrix.targets == 'all'\) \}\}\n        run: python3 -B scripts\/ci-payment-live.py/);
   assert.match(source, /payment-live\/evidence\/result.json/);
   const script = read('scripts/ci-payment-live.py');
   assert.ok(script.indexOf('frozen = live.v.sources()') < script.indexOf('build = subprocess.run('));
