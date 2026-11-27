@@ -6,6 +6,154 @@ use std::{
     process::{Command, Stdio},
 };
 
+// Only protocol vocabulary is observable. Paths inside message text, custom
+// schemas, arbitrary function arguments and metadata never leave this fixture.
+fn schema_name(name: &str) -> &str {
+    match name {
+        "request"
+        | "model"
+        | "input"
+        | "instructions"
+        | "messages"
+        | "system"
+        | "role"
+        | "content"
+        | "type"
+        | "text"
+        | "verbosity"
+        | "format"
+        | "tools"
+        | "name"
+        | "description"
+        | "parameters"
+        | "input_schema"
+        | "strict"
+        | "function"
+        | "tool_choice"
+        | "tool_use_id"
+        | "stream"
+        | "stream_options"
+        | "include_usage"
+        | "include_obfuscation"
+        | "include"
+        | "parallel_tool_calls"
+        | "store"
+        | "reasoning"
+        | "effort"
+        | "summary"
+        | "thinking"
+        | "metadata"
+        | "user_id"
+        | "client_metadata"
+        | "access_programs"
+        | "prompt_cache_key"
+        | "prompt_cache_options"
+        | "safety_identifier"
+        | "previous_response_id"
+        | "truncation"
+        | "service_tier"
+        | "cache_control"
+        | "ttl"
+        | "context_management"
+        | "output_config"
+        | "output_format"
+        | "max_tokens"
+        | "max_output_tokens"
+        | "temperature"
+        | "top_p"
+        | "top_k"
+        | "stop_sequences"
+        | "betas"
+        | "anthropic_version"
+        | "container"
+        | "speed"
+        | "mcp_servers"
+        | "defer_loading"
+        | "allowed_callers"
+        | "input_examples"
+        | "id"
+        | "phase"
+        | "status"
+        | "external_web_access"
+        | "filters"
+        | "allowed_domains"
+        | "user_location"
+        | "namespace"
+        | "tool_search"
+        | "cache_creation"
+        | "sequence_number" => name,
+        _ => "other",
+    }
+}
+
+fn request_shape(value: &Value) -> std::collections::BTreeSet<String> {
+    fn walk(
+        value: &Value,
+        prefix: &str,
+        depth: usize,
+        out: &mut std::collections::BTreeSet<String>,
+    ) {
+        if depth > 4 || out.len() >= 96 {
+            return;
+        }
+        if let Some(items) = value.as_array() {
+            for item in items.iter().take(12) {
+                walk(item, &format!("{prefix}[]"), depth + 1, out);
+            }
+        } else if let Some(fields) = value.as_object() {
+            for (key, field) in fields {
+                if out.len() >= 96 {
+                    break;
+                }
+                let key = schema_name(key);
+                let path = format!("{prefix}.{key}");
+                out.insert(path.clone());
+                if key == "type"
+                    && let Some(kind) = field.as_str()
+                {
+                    let kind = match kind {
+                        "function"
+                        | "custom"
+                        | "namespace"
+                        | "tool_search"
+                        | "web_search"
+                        | "web_search_preview"
+                        | "message"
+                        | "input_text"
+                        | "output_text"
+                        | "text"
+                        | "function_call"
+                        | "function_call_output"
+                        | "reasoning"
+                        | "compaction"
+                        | "tool_use"
+                        | "tool_result"
+                        | "thinking"
+                        | "ephemeral" => kind,
+                        _ => "other",
+                    };
+                    out.insert(format!("{path}={kind}"));
+                }
+                if !matches!(
+                    key,
+                    "other"
+                        | "parameters"
+                        | "input_schema"
+                        | "metadata"
+                        | "client_metadata"
+                        | "description"
+                ) && (field.is_array() || field.is_object())
+                {
+                    walk(field, &path, depth + 1, out);
+                }
+            }
+        }
+    }
+    let mut out = std::collections::BTreeSet::new();
+    walk(value, "request", 0, &mut out);
+    out
+}
+
 // The Core returns fixed rejection reasons, except for UnsupportedField which can
 // contain an arbitrary client-supplied path. Never print the raw response or that path.
 fn rejection_summary(body: &[u8]) -> String {
@@ -25,34 +173,13 @@ fn rejection_summary(body: &[u8]) -> String {
         return "unclassified".into();
     }
     if let Some(path) = detail.strip_prefix("unsupported field ") {
-        let root = path
+        let label = path
             .trim_start_matches("$.")
-            .split(['.', '['])
-            .next()
-            .unwrap_or("");
-        let label = match root {
-            "tools"
-            | "tool_choice"
-            | "parallel_tool_calls"
-            | "input"
-            | "messages"
-            | "system"
-            | "metadata"
-            | "output_config"
-            | "context_management"
-            | "thinking"
-            | "reasoning"
-            | "text"
-            | "include"
-            | "store"
-            | "stream_options"
-            | "service_tier"
-            | "truncation"
-            | "prompt_cache_key"
-            | "safety_identifier"
-            | "previous_response_id" => root,
-            _ => "other",
-        };
+            .split('.')
+            .take(4)
+            .map(|segment| schema_name(segment.trim_end_matches("[]")))
+            .collect::<Vec<_>>()
+            .join(".");
         return format!("{code}:field:{label}");
     }
     // Only a digest of the bounded reason is retained. It can be matched against
@@ -103,8 +230,17 @@ async fn client_case(pool: PgPool, protocol: Protocol, client: &'static str) {
             async move {
                 let inference =
                     req.method() == axum::http::Method::POST && req.uri().path() == path;
+                if !inference {
+                    return next.run(req).await;
+                }
+                let (request_parts, body) = req.into_parts();
+                let wire = to_bytes(body, 4 * 1024 * 1024)
+                    .await
+                    .expect("bounded local CLI request");
+                let value: Value = serde_json::from_slice(&wire).unwrap_or(Value::Null);
+                let req = axum::extract::Request::from_parts(request_parts, Body::from(wire));
                 let mut response = next.run(req).await;
-                if inference {
+                {
                     let id = response
                         .headers()
                         .get("x-request-id")
@@ -118,7 +254,7 @@ async fn client_case(pool: PgPool, protocol: Protocol, client: &'static str) {
                             .expect("bounded Core rejection");
                         let summary = rejection_summary(&bytes);
                         response = Response::from_parts(parts, Body::from(bytes));
-                        Some(summary)
+                        Some(format!("{summary}; schema={:?}", request_shape(&value)))
                     } else {
                         None
                     };
