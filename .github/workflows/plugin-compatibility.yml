@@ -2,6 +2,10 @@ name: Plugin compatibility
 on:
   workflow_dispatch:
     inputs:
+      cc_switch_desktop_only:
+        description: Run just the LMM adapter and official Linux CC Switch desktop
+        type: boolean
+        default: false
       google_sdk_only:
         description: Run just the Google Gen AI SDK and public HTTP protocol matrix
         type: boolean
@@ -10,11 +14,11 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: plugin-compatibility-${{ github.ref }}${{ inputs.google_sdk_only && '-google-sdk' || '' }}
+  group: plugin-compatibility-${{ github.ref }}${{ inputs.cc_switch_desktop_only && '-cc-switch' || inputs.google_sdk_only && '-google-sdk' || '' }}
   cancel-in-progress: true
 jobs:
   plugin:
-    if: ${{ !inputs.google_sdk_only }}
+    if: ${{ !inputs.google_sdk_only && !inputs.cc_switch_desktop_only }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
@@ -79,7 +83,7 @@ jobs:
               ;;
           esac
   pi-core-wallet:
-    if: ${{ !inputs.google_sdk_only }}
+    if: ${{ !inputs.google_sdk_only && !inputs.cc_switch_desktop_only }}
     name: Real Pi host and Core OAuth wallet
     runs-on: ubuntu-24.04
     timeout-minutes: 75
@@ -141,6 +145,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   google-genai-sdk:
+    if: ${{ !inputs.cc_switch_desktop_only }}
     name: Google Gen AI SDK history and Core wallet
     runs-on: ubuntu-24.04
     timeout-minutes: 75
@@ -190,7 +195,7 @@ jobs:
           cargo +1.100.0 test --locked --test native_model_http "$gate" -- --exact --show-output | tee "$RUNNER_TEMP/public-protocol-matrix"
           grep -Fqx "test $gate ... ok" "$RUNNER_TEMP/public-protocol-matrix"
   cc-switch-cli:
-    if: ${{ !inputs.google_sdk_only }}
+    if: ${{ !inputs.google_sdk_only || inputs.cc_switch_desktop_only }}
     name: LMM CLI and native CC Switch configuration
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -217,8 +222,41 @@ jobs:
             cargo +1.100.0 test --locked --lib "$gate" -- --exact | tee "$RUNNER_TEMP/cc-switch-binding-test"
             grep -Fqx "test $gate ... ok" "$RUNNER_TEMP/cc-switch-binding-test"
           done
+      - name: Install the reviewed CC Switch desktop and native accessibility tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends xvfb xauth at-spi2-core dbus-x11 python3-pyatspi libwebkit2gtk-4.1-0 libayatana-appindicator3-1 imagemagick
+          mkdir "$RUNNER_TEMP/official-cc-switch"
+          cd "$RUNNER_TEMP/official-cc-switch"
+          curl --fail --silent --show-error --location --proto '=https' --retry 2 --max-time 180 \
+            https://github.com/farion1231/cc-switch/releases/download/v4.0.22/CC-Switch-v4.0.22-Linux-x86_64.AppImage -o cc-switch.AppImage
+          test "$(stat -c %s cc-switch.AppImage)" = 97339896
+          echo '9090a1bc5f58ccbc72444302c1a3d8001dd1b00fbff7b0d6b64bd1be58077313  cc-switch.AppImage' | sha256sum -c -
+          chmod 755 cc-switch.AppImage
+          ./cc-switch.AppImage --appimage-extract > /dev/null
+      - name: Read the inactive provider in the actual Linux desktop after reopening
+        run: |
+          set -euo pipefail
+          lib_test=$(cd apps/cli && cargo +1.100.0 test --locked --lib --no-run --message-format=json |
+            jq -rs '[.[] | select(.reason == "compiler-artifact" and .profile.test and .target.kind == ["lib"] and .executable != null) | .executable] | if length == 1 then .[0] else error("expected one LMM library test binary") end')
+          private_home=$(mktemp -d "$RUNNER_TEMP/cc-switch-home.XXXXXXXX")
+          install -dm700 "$private_home/runtime"
+          sudo unshare --net bash -c '
+            set -euo pipefail
+            ip link set lo up
+            exec setpriv --reuid="$1" --regid="$2" --init-groups env HOME="$3" XDG_RUNTIME_DIR="$3/runtime" RUNNER_TEMP="$4" \
+              dbus-run-session -- xvfb-run -a -s "-screen 0 1440x960x24" /usr/bin/python3 "$5" "$6" "$7" "$8"
+          ' _ "$(id -u)" "$(id -g)" "$private_home" "$RUNNER_TEMP" "$PWD/scripts/ci/cc-switch-desktop.py" \
+            "$RUNNER_TEMP/official-cc-switch/squashfs-root/AppRun" "$PWD/apps/cli/target/debug/lmm" "$lib_test"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: cc-switch-desktop-${{ github.sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/cc-switch-desktop-output/
+          if-no-files-found: error
+          retention-days: 7
   native-cli-wallet:
-    if: ${{ !inputs.google_sdk_only }}
+    if: ${{ !inputs.google_sdk_only && !inputs.cc_switch_desktop_only }}
     name: Native ${{ matrix.client }} CLI and Core wallet
     runs-on: ubuntu-24.04
     timeout-minutes: 75
@@ -285,7 +323,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   installer:
-    if: ${{ !inputs.google_sdk_only }}
+    if: ${{ !inputs.google_sdk_only && !inputs.cc_switch_desktop_only }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -303,7 +341,7 @@ jobs:
           for script in *.sh; do bash -n "$script"; done
           node --test test-codewhale.mjs test-opencode.mjs test-opencode-entry.mjs
   magpie:
-    if: ${{ !inputs.google_sdk_only }}
+    if: ${{ !inputs.google_sdk_only && !inputs.cc_switch_desktop_only }}
     runs-on: ubuntu-24.04
     timeout-minutes: 65
     services:
