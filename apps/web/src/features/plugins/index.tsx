@@ -415,7 +415,7 @@ function PluginInventory({
       >
         {t('Showing {{visible}} of {{total}} modules', {
           visible: visible.length,
-          total: extensions.length,
+          total: configurationCards.length,
         })}
       </p>
       {orderReady && orderedExtensions.length > 0 && (

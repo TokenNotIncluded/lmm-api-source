@@ -492,6 +492,10 @@ test('plugin search matches its purpose and unavailable filter keeps lifecycle g
     input.dispatchEvent(new Event('input', { bubbles: true }))
   })
   await until(() => container.querySelectorAll('[data-plugin]').length === 1)
+  assert.equal(
+    container.querySelector('p[aria-live="polite"]')?.textContent,
+    'Showing 1 of 2 modules'
+  )
   assert.ok(container.querySelector('[data-plugin="store"]'))
   await act(async () => {
     setter.call(input, '')
@@ -850,6 +854,10 @@ test('the registered payments adapter exposes only owner configuration and reads
   await until(() =>
     Boolean(container.querySelector('[data-plugin="payments"]'))
   )
+  assert.equal(
+    container.querySelector('p[aria-live="polite"]')?.textContent,
+    'Showing 2 of 2 modules'
+  )
   const card = container.querySelector<HTMLElement>('[data-plugin="payments"]')!
   assert.equal(
     [...card.querySelectorAll('button')].some((item) =>
@@ -887,6 +895,10 @@ test('a standard administrator cannot discover or mount platform gateway credent
   }
   const container = await mount('payments')
   await until(() => Boolean(container.querySelector('[data-plugin="store"]')))
+  assert.equal(
+    container.querySelector('p[aria-live="polite"]')?.textContent,
+    'Showing 1 of 1 modules'
+  )
   assert.equal(container.querySelector('[data-plugin="payments"]'), null)
   assert.deepEqual(requests, ['/api/extensions/plugins'])
 })
