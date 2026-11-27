@@ -46,6 +46,7 @@ import './user-list.css'
 export type NativeUserColumn = 'email' | 'teams' | 'groups' | 'role' | 'created'
 
 type Props = {
+  initialExpandedId?: string
   users: NativeUser[]
   scope: NativeUsersScope
   query: NativeUsersQuery
@@ -63,6 +64,7 @@ type Props = {
 function UserRecord({
   user,
   scope,
+  initialExpandedId,
   checked,
   columns,
   onGroupSelect,
@@ -73,6 +75,7 @@ function UserRecord({
 }: Pick<
   Props,
   | 'scope'
+  | 'initialExpandedId'
   | 'onSelect'
   | 'onUpdated'
   | 'onAccessDenied'
@@ -84,7 +87,7 @@ function UserRecord({
   columns: ReadonlySet<NativeUserColumn>
 }) {
   const { t, i18n } = useTranslation()
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(initialExpandedId === user.id)
   const profile = (value: string | null) =>
     value === null ? t('Unavailable') : value || '—'
   const time = (value: number | null) =>
@@ -115,6 +118,7 @@ function UserRecord({
       >
         <TableCell className='native-user-select'>
           <Checkbox
+            title={t('Select for CSV export')}
             checked={checked}
             onCheckedChange={(value) => onSelect(user.id, value)}
             aria-label={t('Select user {{name}}', { name })}
@@ -395,6 +399,7 @@ function UserRecord({
                       <NativeBalanceAdjustment
                         scope={scope}
                         userId={user.id}
+                        wallet={wallet}
                         onUpdated={onUpdated}
                         onAccessDenied={onAccessDenied}
                       />
@@ -688,7 +693,7 @@ export function NativeUserList({
           indeterminate={someSelected && !allSelected}
           onCheckedChange={onSelectPage}
         />
-        {t('Select current page')}
+        {t('Select current page')} · {t('CSV export')}
       </label>
       <Table className='native-users-table'>
         <TableHeader className='native-users-heading'>
@@ -698,6 +703,7 @@ export function NativeUserList({
                 checked={allSelected}
                 indeterminate={someSelected && !allSelected}
                 onCheckedChange={onSelectPage}
+                title={t('Select for CSV export')}
                 aria-label={t('Select current page')}
               />
             </TableHead>

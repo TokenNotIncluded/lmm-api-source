@@ -405,6 +405,70 @@ async fn admin_user_access_http_conflicts_and_audit_failure_are_atomic(pool: PgP
 }
 
 #[sqlx::test(migrations = false)]
+async fn group_options_show_published_names_and_actual_inheritance(pool: PgPool) {
+    let f = fresh(&pool).await;
+    let user = person(&f, &pool, 10, 0, "group_options").await;
+    sqlx::query(r#"SELECT public.routing_stage_prices('{"version":1,"rules":[]}')"#)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let config = json!({
+        "version": 1, "upstreams": [], "routes": [], "aliases": [],
+        "groups": [
+            {"name":"default","enabled":true},
+            {"name":"unassigned","enabled":true},
+            {"name":"disabled","enabled":false}
+        ]
+    });
+    sqlx::query("SELECT public.routing_publish_config($1,1,NULL,NULL)")
+        .bind(config)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let url = "/core/v1/admin/user-access/10/group-options";
+    assert_eq!(
+        http_json(&f, "GET", url, None, None).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        http_json(&f, "GET", url, Some(&user.secret), None).await.0,
+        StatusCode::FORBIDDEN
+    );
+    let (status, options) = http_json(&f, "GET", url, Some(&f.admin), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(options["available"], json!(["default", "unassigned"]));
+    assert_eq!(options["access"]["groups"], json!([]));
+    assert_eq!(options["effective"], json!(["default"]));
+    assert_eq!(options["inherited"], json!(["default"]));
+    let edit = "/core/v1/admin/user-access/10";
+    let (status, saved) = http_json(
+        &f,
+        "PATCH",
+        edit,
+        Some(&f.admin),
+        Some(change(&options["access"], &["unassigned"])),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, options) = http_json(&f, "GET", url, Some(&f.admin), None).await;
+    assert_eq!(options["effective"], json!(["unassigned"]));
+    assert_eq!(options["inherited"], json!([]));
+    let (status, _) = http_json(
+        &f,
+        "PATCH",
+        edit,
+        Some(&f.admin),
+        Some(change(&saved["user"], &[])),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, options) = http_json(&f, "GET", url, Some(&f.admin), None).await;
+    assert_eq!(options["effective"], json!([]));
+    assert_eq!(options["inherited"], json!([]));
+    f.role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
 async fn admin_user_access_runtime_requires_only_membership_columns(pool: PgPool) {
     let f = fresh(&pool).await;
     runtime_database::check(&f.role.pool, Default::default())

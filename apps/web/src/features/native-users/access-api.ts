@@ -8,6 +8,7 @@ import {
 } from './access'
 import {
   accessValues,
+  groupOptionsSchema,
   matchesAccessUpdate,
   userAccessSnapshotSchema,
   userAccessUpdateSchema,
@@ -73,6 +74,29 @@ export async function readUserAccess(
     current(scope, signal)
     const parsed = userAccessSnapshotSchema.safeParse(response.data)
     if (!parsed.success || parsed.data.user_id !== userId) {
+      throw new NativeProfileFailure('unavailable')
+    }
+    return parsed.data
+  } catch (error) {
+    current(scope, signal)
+    throw failure(error, false)
+  }
+}
+
+export async function readUserGroupOptions(
+  scope: NativeUsersScope,
+  userId: string,
+  signal: AbortSignal
+) {
+  current(scope, signal)
+  try {
+    const response = await api.get<unknown>(
+      `${path(userId)}/group-options`,
+      nativeUsersOptions(scope, signal)
+    )
+    current(scope, signal)
+    const parsed = groupOptionsSchema.safeParse(response.data)
+    if (!parsed.success || parsed.data.access.user_id !== userId) {
       throw new NativeProfileFailure('unavailable')
     }
     return parsed.data

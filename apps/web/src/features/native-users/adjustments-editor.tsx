@@ -20,21 +20,25 @@ import { useAuthStore } from '@/stores/auth-store'
 import { isCurrentNativeUsersScope, type NativeUsersScope } from './access'
 import {
   adjustmentDraftSchema,
+  adjustmentEstimate,
   adjustUserBalance,
   readAdjustmentReceipt,
   type AdjustmentDraft,
   type AdjustmentReceipt,
 } from './adjustments-api'
+import type { NativeUser } from './contract'
 import { NativeProfileFailure } from './profile-api'
 
 export function NativeBalanceAdjustment({
   scope,
   userId,
+  wallet,
   onUpdated,
   onAccessDenied,
 }: {
   scope: NativeUsersScope
   userId: string
+  wallet: Extract<NativeUser['wallet'], { status: 'available' }>
   onUpdated: () => void
   onAccessDenied: () => void
 }) {
@@ -42,6 +46,8 @@ export function NativeBalanceAdjustment({
   const auth = useAuthStore((state) => state.auth)
   const [open, setOpen] = useState(false)
   const [amount, setAmount] = useState('')
+  const [action, setAction] = useState<'grant' | 'deduct'>('grant')
+  const [review, setReview] = useState<AdjustmentDraft>()
   const [reason, setReason] = useState('')
   const [pending, setPending] = useState<AdjustmentDraft>()
   const [result, setResult] = useState<AdjustmentReceipt>()
@@ -63,7 +69,8 @@ export function NativeBalanceAdjustment({
       if (raw) {
         const saved = adjustmentDraftSchema.parse(JSON.parse(raw))
         setPending(saved)
-        setAmount(saved.delta_units)
+        setAction(saved.delta_units.startsWith('-') ? 'deduct' : 'grant')
+        setAmount(saved.delta_units.replace(/^-/, ''))
         setReason(saved.reason)
       }
       setOpen(true)
@@ -73,6 +80,16 @@ export function NativeBalanceAdjustment({
       setNotice(t('Request failed'))
     }
   }
+  const signed = /^[1-9][0-9]{0,18}$/.test(amount)
+    ? action === 'grant'
+      ? amount
+      : `-${amount}`
+    : ''
+  const estimate = adjustmentEstimate(
+    wallet.wallet_units,
+    wallet.debt_units,
+    signed
+  )
   async function execute(draft: AdjustmentDraft, read: boolean) {
     if (sending.current || !isCurrentNativeUsersScope(scope)) return
     sending.current = true
@@ -128,14 +145,22 @@ export function NativeBalanceAdjustment({
       return
     }
     try {
-      const draft = adjustmentDraftSchema.parse({
-        operation_key: crypto.randomUUID(),
-        delta_units: amount,
-        reason,
-      })
+      if (!estimate) return
+      const draft =
+        review ??
+        adjustmentDraftSchema.parse({
+          operation_key: crypto.randomUUID(),
+          delta_units: signed,
+          reason,
+        })
+      if (!review) {
+        setReview(draft)
+        return
+      }
       // Never dispatch an operation whose recovery record failed to persist.
       sessionStorage.setItem(storageKey, JSON.stringify(draft))
       setPending(draft)
+      setReview(undefined)
       void execute(draft, false)
     } catch {
       setNotice(t('Invalid input'))
@@ -145,7 +170,9 @@ export function NativeBalanceAdjustment({
     if (busy) return
     setOpen(false)
     if (!pending) {
+      setReview(undefined)
       setResult(undefined)
+      setAction('grant')
       setAmount('')
       setReason('')
     }
@@ -167,9 +194,7 @@ export function NativeBalanceAdjustment({
               {t('Adjust funds')} · {userId}
             </DialogTitle>
             <DialogDescription>
-              {t(
-                'Positive values grant Core credits; negative values deduct available credits.'
-              )}
+              {t('Review the change to this personal wallet in Core credits.')}
             </DialogDescription>
           </DialogHeader>
           {notice && (
@@ -198,23 +223,48 @@ export function NativeBalanceAdjustment({
             </Alert>
           ) : (
             <form onSubmit={submit} className='space-y-4'>
+              <fieldset
+                disabled={busy || Boolean(pending || review)}
+                className='flex gap-4'
+              >
+                <legend className='sr-only'>{t('Adjustment type')}</legend>
+                <label>
+                  <input
+                    type='radio'
+                    name={`adjustment-type-${userId}`}
+                    checked={action === 'grant'}
+                    onChange={() => setAction('grant')}
+                  />{' '}
+                  {t('Grant credits')}
+                </label>
+                <label>
+                  <input
+                    type='radio'
+                    name={`adjustment-type-${userId}`}
+                    checked={action === 'deduct'}
+                    onChange={() => setAction('deduct')}
+                  />{' '}
+                  {t('Deduct credits')}
+                </label>
+              </fieldset>
               <div className='space-y-2'>
                 <Label htmlFor={`adjustment-amount-${userId}`}>
-                  {t('Signed adjustment (Core credits)')}
+                  {t('Amount (Core credits)')}
                 </Label>
                 <Input
                   id={`adjustment-amount-${userId}`}
                   value={amount}
                   onChange={(event) => setAmount(event.target.value)}
-                  pattern='-?[1-9][0-9]*'
+                  inputMode='numeric'
+                  pattern='[1-9][0-9]*'
                   required
-                  maxLength={20}
-                  disabled={busy || Boolean(pending)}
+                  maxLength={19}
+                  disabled={busy || Boolean(pending || review)}
                 />
               </div>
               <div className='space-y-2'>
                 <Label htmlFor={`adjustment-reason-${userId}`}>
-                  {t('Reason')}
+                  {t('Audit reason')}
                 </Label>
                 <Input
                   id={`adjustment-reason-${userId}`}
@@ -222,9 +272,59 @@ export function NativeBalanceAdjustment({
                   onChange={(event) => setReason(event.target.value)}
                   required
                   maxLength={250}
-                  disabled={busy || Boolean(pending)}
+                  disabled={busy || Boolean(pending || review)}
                 />
               </div>
+              {!pending && (
+                <div className='space-y-2 text-sm'>
+                  <p>
+                    {action === 'grant'
+                      ? t(
+                          'Funding source: platform clearing account. Grants repay wallet debt first.'
+                        )
+                      : t(
+                          'Funding source: personal spendable wallet. Deductions post to platform revenue.'
+                        )}
+                  </p>
+                  <dl className='grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 tabular-nums'>
+                    <dt>{t('Spendable wallet')}</dt>
+                    <dd>{wallet.wallet_units}</dd>
+                    {signed && (
+                      <>
+                        <dt>{t('Adjustment')}</dt>
+                        <dd>
+                          {action === 'grant' ? '+' : ''}
+                          {signed}
+                        </dd>
+                      </>
+                    )}
+                    {estimate && (
+                      <>
+                        <dt>{t('Estimated spendable balance')}</dt>
+                        <dd>{estimate.wallet}</dd>
+                        <dt>{t('Debt before / after')}</dt>
+                        <dd>
+                          {wallet.debt_units} → {estimate.debt}
+                        </dd>
+                        <dt>{t('Economic position')}</dt>
+                        <dd>
+                          {wallet.available_units} →{' '}
+                          {(
+                            BigInt(wallet.available_units) + BigInt(signed)
+                          ).toString()}
+                        </dd>
+                      </>
+                    )}
+                  </dl>
+                  {amount && !estimate && (
+                    <p role='alert'>
+                      {signed
+                        ? t('This amount exceeds the wallet or ledger limit.')
+                        : t('Invalid input')}
+                    </p>
+                  )}
+                </div>
+              )}
               {pending && (
                 <p className='font-mono text-sm break-all'>
                   {pending.operation_key}
@@ -239,6 +339,16 @@ export function NativeBalanceAdjustment({
                 >
                   {t('Close')}
                 </Button>
+                {review && (
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    disabled={busy}
+                    onClick={() => setReview(undefined)}
+                  >
+                    {t('Back to editing')}
+                  </Button>
+                )}
                 {pending ? (
                   <>
                     <Button
@@ -261,10 +371,10 @@ export function NativeBalanceAdjustment({
                   <Button
                     type='submit'
                     disabled={
-                      busy || storageBlocked || !amount || !reason.trim()
+                      busy || storageBlocked || !estimate || !reason.trim()
                     }
                   >
-                    {t('Confirm')}
+                    {review ? t('Confirm') : t('Review changes')}
                   </Button>
                 )}
               </DialogFooter>

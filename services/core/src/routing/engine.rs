@@ -497,6 +497,18 @@ impl Router {
             .map_err(|_| RoutingError::LockPoisoned)
     }
 
+    pub(crate) fn enabled_group_names(&self) -> Result<Vec<String>, RoutingError> {
+        let snapshot = self.snapshot()?;
+        let mut names: Vec<_> = snapshot
+            .groups
+            .iter()
+            .filter(|(_, group)| group.enabled)
+            .map(|(name, _)| name.clone())
+            .collect();
+        names.sort_unstable();
+        Ok(names)
+    }
+
     /// Internal metadata input captured from the same immutable serving snapshot.
     /// This document contains internal destinations/references and is never an
     /// HTTP DTO. CatalogSurface alone projects safe metadata from this input.

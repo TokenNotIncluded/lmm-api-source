@@ -127,6 +127,7 @@ class NativeManagementRoutes(unittest.TestCase):
             ('GET', '/api/rankings/users?period=week', 'go'),
             ('GET', '/core/v1/admin/user-access/17?view=current', 'core'),
             ('PATCH', '/core/v1/admin/user-access/17', 'core'),
+            ('GET', '/core/v1/admin/user-access/17/group-options', 'core'),
             ('GET', '/core/v1/payment-gateways/epay', 'core'),
             ('PUT', '/core/v1/payment-gateways/epay/5004', 'core'),
         ):
@@ -261,6 +262,8 @@ class NativeManagementRoutes(unittest.TestCase):
             ('POST', '/api/option/assistant-model', 405),
             ('GET', '/core/v1/admin/user-access', 404),
             ('POST', '/core/v1/admin/user-access/17', 405),
+            ('PATCH', '/core/v1/admin/user-access/17/group-options', 405),
+            ('GET', '/core/v1/admin/user-access/017/group-options', 404),
             ('GET', '/core/v1/admin/user-access/0', 404),
             ('GET', '/core/v1/admin/user-access/017', 404),
             ('GET', '/core/v1/admin/user-access/%31', 404),

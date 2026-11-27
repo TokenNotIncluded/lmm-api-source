@@ -127,17 +127,16 @@ async function waitFor(condition: () => boolean) {
 }
 
 async function edit(group: string, reason: string) {
-  const textarea = document.getElementById(`access-groups-${userId}`)
   const input = document.getElementById(`access-reason-${userId}`)
-  if (!textarea || !(input instanceof HTMLInputElement)) {
-    throw new Error('Missing access inputs')
-  }
+  if (!(input instanceof HTMLInputElement))
+    throw new Error('Missing access reason')
   await act(async () => {
-    Object.getOwnPropertyDescriptor(
-      dom.HTMLTextAreaElement.prototype,
-      'value'
-    )?.set?.call(textarea, group)
-    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    for (const checkbox of document.querySelectorAll<HTMLInputElement>(
+      'input[type=checkbox]'
+    )) {
+      if (checkbox.checked !== (checkbox.getAttribute('aria-label') === group))
+        checkbox.click()
+    }
     Object.getOwnPropertyDescriptor(
       dom.HTMLInputElement.prototype,
       'value'
@@ -157,7 +156,15 @@ function transport(
     let data: unknown
     if (config.method === 'get') {
       calls.reads++
-      data = await (options.read?.() ?? snapshot)
+      const access = await (options.read?.() ?? snapshot)
+      data = config.url?.endsWith('/group-options')
+        ? {
+            access,
+            available: ['2', '4', 'default'],
+            effective: [],
+            inherited: [],
+          }
+        : access
     } else {
       const body = JSON.parse(String(config.data)) as Record<string, unknown>
       calls.writes.push(body)
@@ -238,6 +245,12 @@ test('loading and the review step never PATCH before explicit confirmation', asy
   ).toContain('Synthetic approved account change')
   expect(document.getElementById(`access-level-${userId}`)).toBeNull()
   expect(calls.writes).toHaveLength(0)
+  expect(
+    document.querySelector('[aria-label="Review access changes"]')?.textContent
+  ).toContain('Added groups')
+  expect(
+    document.querySelector('[aria-label="Review access changes"]')?.textContent
+  ).toContain('Removed groups')
   await click('Confirm changes')
   await waitFor(() => updated === 1)
   expect(calls.writes).toHaveLength(1)

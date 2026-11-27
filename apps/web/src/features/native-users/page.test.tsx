@@ -1090,6 +1090,7 @@ test('copy uses applied filters and sorting a table heading sends an exact serve
 test('create user opens a focused dialog and submits one account without inline form clutter', async () => {
   login()
   const writes: Record<string, unknown>[] = []
+  const keywords: string[] = []
   api.defaults.adapter = async (config) => {
     if (config.method === 'post') {
       writes.push(JSON.parse(String(config.data)))
@@ -1101,12 +1102,17 @@ test('create user opens a focused dialog and submits one account without inline 
         statusText: 'Created',
       }
     }
+    if (config.url !== '/api/status') keywords.push(config.params.keyword)
     return {
       config,
       data:
         config.url === '/api/status'
           ? nativeStatusFixture
-          : nativeListFixture(),
+          : nativeListFixture([
+              nativeUserFixture({
+                id: config.params.keyword === '902' ? '902' : '901',
+              }),
+            ]),
       headers: {},
       status: 200,
       statusText: 'OK',
@@ -1152,7 +1158,8 @@ test('create user opens a focused dialog and submits one account without inline 
     },
   ])
   expect(document.getElementById('native-create-password')).toBeNull()
-  expect(container.querySelector('[data-native-user-id]')).not.toBeNull()
+  expect(keywords.at(-1)).toBe('902')
+  expect(container.querySelector('#native-user-details-902')).not.toBeNull()
 })
 
 test('status shortcuts apply the current search and keep team, role and sort filters', async () => {

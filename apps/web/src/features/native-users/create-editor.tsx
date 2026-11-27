@@ -31,7 +31,7 @@ export function NativeCreateUser({
   onAccessDenied,
 }: {
   scope: NativeUsersScope
-  onCreated: () => void
+  onCreated: (userId: string) => void
   onAccessDenied: () => void
 }) {
   const { t } = useTranslation()
@@ -70,13 +70,13 @@ export function NativeCreateUser({
     setPhase('saving')
     setNotice('none')
     try {
-      await createNativeUser(scope, draft)
+      const created = await createNativeUser(scope, draft)
       if (!isCurrentNativeUsersScope(scope)) return
       setDraft({ username: '', password: '', display_name: '' })
       setPhase('ready')
       setOpen(false)
       toast.success(t('User created successfully'))
-      onCreated()
+      onCreated(created)
     } catch (error) {
       if (!isCurrentNativeUsersScope(scope)) return
       const kind =

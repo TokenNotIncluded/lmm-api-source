@@ -8,6 +8,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { readNativeUsersScope } from './access'
 import {
   adjustmentDraftSchema,
+  adjustmentEstimate,
   adjustUserBalance,
   readAdjustmentReceipt,
 } from './adjustments-api'
@@ -139,4 +140,25 @@ test('lost responses never replay automatically and explicit recovery uses the o
     /session_changed/
   )
   assert.equal(writes.length, 2)
+})
+
+test('wallet estimates preserve exact integers, repay debt first and reject unaffordable charges', () => {
+  assert.deepEqual(adjustmentEstimate('30', '75', '100'), {
+    wallet: '55',
+    debt: '0',
+  })
+  assert.deepEqual(adjustmentEstimate('30', '75', '10'), {
+    wallet: '30',
+    debt: '65',
+  })
+  assert.deepEqual(adjustmentEstimate('30', '75', '-30'), {
+    wallet: '0',
+    debt: '75',
+  })
+  assert.equal(adjustmentEstimate('30', '0', '-31'), null)
+  assert.deepEqual(adjustmentEstimate('0', '0', '9007199254740993'), {
+    wallet: '9007199254740993',
+    debt: '0',
+  })
+  assert.equal(adjustmentEstimate('1', '0', '9223372036854775807'), null)
 })

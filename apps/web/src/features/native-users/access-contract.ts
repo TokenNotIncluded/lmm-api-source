@@ -57,6 +57,16 @@ export const userAccessUpdateSchema = z
   .object({ changed: z.boolean(), user: userAccessSnapshotSchema })
   .strict()
 
+export const groupOptionsSchema = z
+  .object({
+    access: userAccessSnapshotSchema,
+    available: z.array(group),
+    effective: z.array(group),
+    inherited: z.array(group),
+  })
+  .strict()
+export type GroupOptions = z.infer<typeof groupOptionsSchema>
+
 export type UserAccessValues = z.infer<typeof userAccessValuesSchema>
 export type UserAccessSnapshot = z.infer<typeof userAccessSnapshotSchema>
 export type UserAccessUpdate = z.infer<typeof userAccessUpdateSchema>

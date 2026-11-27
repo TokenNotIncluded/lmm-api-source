@@ -15,17 +15,16 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { isCurrentNativeUsersScope, type NativeUsersScope } from './access'
-import { readUserAccess, updateUserAccess } from './access-api'
+import { readUserGroupOptions, updateUserAccess } from './access-api'
 import {
   parseAccessGroups,
   sameAccess,
   userAccessValuesSchema,
   validAccessReason,
-  type UserAccessSnapshot,
+  type GroupOptions,
   type UserAccessValues,
 } from './access-contract'
 import { NativeProfileFailure } from './profile-api'
@@ -44,8 +43,11 @@ export function NativeUserAccess({
   const { t } = useTranslation()
   const auth = useAuthStore((state) => state.auth)
   const [open, setOpen] = useState(false)
-  const [snapshot, setSnapshot] = useState<UserAccessSnapshot>()
-  const [groups, setGroups] = useState('')
+  const [directory, setDirectory] = useState<GroupOptions>()
+  const snapshot = directory?.access
+  const [groups, setGroups] = useState<string[]>([])
+  const [search, setSearch] = useState('')
+  const [limit, setLimit] = useState(50)
   const [reason, setReason] = useState('')
   const [review, setReview] = useState<UserAccessValues>()
   const [notice, setNotice] = useState<
@@ -66,13 +68,13 @@ export function NativeUserAccess({
     const controller = new AbortController()
     const holder = operation.current
     const generation = ++holder.generation
-    void readUserAccess(captured, userId, controller.signal).then(
+    void readUserGroupOptions(captured, userId, controller.signal).then(
       (value) => {
         if (generation !== holder.generation || controller.signal.aborted) {
           return
         }
-        setSnapshot(value)
-        setGroups(value.groups.join('\n'))
+        setDirectory(value)
+        setGroups(value.access.groups)
       },
       (error: unknown) => {
         if (generation !== holder.generation || controller.signal.aborted) {
@@ -97,9 +99,11 @@ export function NativeUserAccess({
 
   function resetDraft() {
     operation.current.generation++
-    setSnapshot(undefined)
+    setDirectory(undefined)
     setReview(undefined)
     setReason('')
+    setSearch('')
+    setLimit(50)
     setNotice('')
   }
 
@@ -110,7 +114,7 @@ export function NativeUserAccess({
   }
 
   const values = {
-    groups: parseAccessGroups(groups),
+    groups: parseAccessGroups(groups.join('\n')),
   }
   const valid =
     userAccessValuesSchema.safeParse(values).success &&
@@ -157,7 +161,7 @@ export function NativeUserAccess({
       }
       const kind =
         error instanceof NativeProfileFailure ? error.kind : 'unknown'
-      setSnapshot(undefined)
+      setDirectory(undefined)
       setReview(undefined)
       if (kind === 'forbidden') {
         setOpen(false)
@@ -179,6 +183,11 @@ export function NativeUserAccess({
 
   const displayGroups = (names: string[]) =>
     names.length ? names.join(' · ') : t('No explicit group memberships')
+  const choices = [
+    ...new Set([...(snapshot?.groups ?? []), ...(directory?.available ?? [])]),
+  ].filter((name) => name.toLowerCase().includes(search.toLowerCase()))
+  const groupNames = (names: string[]) =>
+    names.length ? names.join(' · ') : t('None')
   const notices = {
     unavailable: t('Access settings are unavailable. Reload to try again.'),
     conflict: t(
@@ -244,20 +253,32 @@ export function NativeUserAccess({
                   className='space-y-4'
                 >
                   <h3 className='font-medium'>{t('Review access changes')}</h3>
-                  <div className='grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-3 text-sm'>
-                    <span />
-                    <span className='text-muted-foreground'>
-                      {t('Current')}
-                    </span>
-                    <span className='font-medium'>{t('After change')}</span>
-                    <span>{t('Routing groups')}</span>
-                    <span className='break-all'>
-                      {displayGroups(snapshot.groups)}
-                    </span>
-                    <span className='font-medium break-all'>
-                      {displayGroups(review.groups)}
-                    </span>
-                  </div>
+                  <dl className='grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm'>
+                    <dt>{t('Added groups')}</dt>
+                    <dd>
+                      {groupNames(
+                        review.groups.filter(
+                          (g) => !snapshot.groups.includes(g)
+                        )
+                      )}
+                    </dd>
+                    <dt>{t('Removed groups')}</dt>
+                    <dd>
+                      {groupNames(
+                        snapshot.groups.filter(
+                          (g) => !review.groups.includes(g)
+                        )
+                      )}
+                    </dd>
+                    <dt>{t('Effective groups after change')}</dt>
+                    <dd>
+                      {groupNames(
+                        review.groups.filter((g) =>
+                          directory!.available.includes(g)
+                        )
+                      )}
+                    </dd>
+                  </dl>
                   <div className='text-sm'>
                     <p className='text-muted-foreground'>{t('Reason')}</p>
                     <p className='break-words'>{reason}</p>
@@ -265,34 +286,68 @@ export function NativeUserAccess({
                 </section>
               ) : (
                 <>
-                  <div className='space-y-2'>
-                    <Label htmlFor={`access-groups-${userId}`}>
-                      {t('Routing groups')}
-                    </Label>
-                    <Textarea
+                  <fieldset
+                    className='space-y-2'
+                    disabled={!snapshot.account_active}
+                  >
+                    <legend className='text-sm font-medium'>
+                      {t('Explicit group memberships')}
+                    </legend>
+                    <dl className='grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm'>
+                      <dt>{t('Current')}</dt>
+                      <dd>{displayGroups(snapshot.groups)}</dd>
+                      <dt>{t('Inherited groups')}</dt>
+                      <dd>{groupNames(directory!.inherited)}</dd>
+                      <dt>{t('Effective routing groups')}</dt>
+                      <dd>{groupNames(directory!.effective)}</dd>
+                    </dl>
+                    <Input
                       id={`access-groups-${userId}`}
-                      className='min-h-28 font-mono'
-                      value={groups}
+                      type='search'
                       disabled={!snapshot.account_active}
-                      onChange={(event) => setGroups(event.target.value)}
-                      aria-describedby={`access-groups-help-${userId}`}
+                      aria-label={t('Search groups')}
+                      value={search}
+                      onChange={(event) => {
+                        setSearch(event.target.value)
+                        setLimit(50)
+                      }}
                     />
-                    <p
-                      id={`access-groups-help-${userId}`}
-                      className='text-muted-foreground text-xs'
-                    >
-                      {t(
-                        'One group per line, up to 100. Names are exact; auto is reserved. Leave empty to remove explicit memberships.'
+                    <div className='max-h-56 space-y-1 overflow-y-auto'>
+                      {choices.slice(0, limit).map((name) => (
+                        <label
+                          key={name}
+                          className='flex items-center gap-2 py-1'
+                        >
+                          <input
+                            type='checkbox'
+                            checked={groups.includes(name)}
+                            aria-label={name}
+                            disabled={
+                              !groups.includes(name) && groups.length >= 100
+                            }
+                            onChange={(event) =>
+                              setGroups(
+                                event.target.checked
+                                  ? [...groups, name]
+                                  : groups.filter((item) => item !== name)
+                              )
+                            }
+                          />
+                          <span className='break-all'>{name}</span>
+                        </label>
+                      ))}
+                      {!choices.length && <p>{t('No results found.')}</p>}
+                      {choices.length > limit && (
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          onClick={() => setLimit(limit + 50)}
+                        >
+                          {t('Show more')}
+                        </Button>
                       )}
-                    </p>
-                    {!userAccessValuesSchema.safeParse(values).success && (
-                      <p role='alert' className='text-destructive text-sm'>
-                        {t(
-                          'Use unique group names of 1–64 characters, without control characters or auto.'
-                        )}
-                      </p>
-                    )}
-                  </div>
+                    </div>
+                  </fieldset>
                   <div className='space-y-2'>
                     <Label htmlFor={`access-reason-${userId}`}>
                       {t('Reason')}

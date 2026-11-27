@@ -77,6 +77,22 @@ const receiptSchema = z.discriminatedUnion('status', [
 ])
 export type AdjustmentDraft = z.infer<typeof adjustmentDraftSchema>
 export type AdjustmentReceipt = z.infer<typeof receiptSchema>
+/** Estimate the ledger's Gift/Charge legs using exact Core credit units. */
+export function adjustmentEstimate(
+  wallet: string,
+  debt: string,
+  units: string
+) {
+  if (!delta.safeParse(units).success) return null
+  const adjustment = BigInt(units)
+  const spendable = BigInt(wallet)
+  const owed = BigInt(debt)
+  const repayment =
+    adjustment > 0n ? (adjustment < owed ? adjustment : owed) : 0n
+  const after = spendable + adjustment - repayment
+  if (after < 0n || after > 9223372036854775807n) return null
+  return { wallet: after.toString(), debt: (owed - repayment).toString() }
+}
 function current(scope: NativeUsersScope) {
   if (!isCurrentNativeUsersScope(scope)) {
     throw new NativeProfileFailure('session_changed')

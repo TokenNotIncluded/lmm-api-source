@@ -41,6 +41,13 @@ pub struct AccessUpdate {
     pub changed: bool,
     pub user: AccessSnapshot,
 }
+#[derive(Serialize)]
+pub(super) struct GroupOptions {
+    access: AccessSnapshot,
+    available: Vec<String>,
+    effective: Vec<String>,
+    inherited: Vec<String>,
+}
 fn valid_groups(groups: &[String]) -> bool {
     groups.len() <= 100
         && groups.iter().all(|g| {
@@ -157,7 +164,52 @@ impl AdminUsersStore {
 pub(super) fn routes() -> Router<AdminUsersStore> {
     Router::new()
         .route("/core/v1/admin/user-access/{id}", get(read).patch(update))
+        .route(
+            "/core/v1/admin/user-access/{id}/group-options",
+            get(options),
+        )
         .layer(DefaultBodyLimit::max(32 * 1024))
+}
+async fn options(
+    State(store): State<AdminUsersStore>,
+    headers: HeaderMap,
+    path: std::result::Result<Path<i64>, PathRejection>,
+) -> Result<Json<GroupOptions>> {
+    let Path(id) = path.map_err(|_| ProfileError::Invalid)?;
+    let mut tx = store.begin().await?;
+    AdminUsersStore::authorize(&mut tx, super::http::bearer(&headers)?).await?;
+    let access = snapshot(&mut tx, id, false).await?;
+    let mut available = if let Some(router) = &store.identity.dashboard_routing {
+        router
+            .enabled_group_names()
+            .map_err(|_| ProfileError::Unavailable)?
+    } else {
+        sqlx::query_scalar::<_, String>(
+            r#"SELECT g.name FROM public.routing_active_release a
+               JOIN public.routing_groups g ON g.version=a.config_version
+               WHERE a.singleton AND g.enabled ORDER BY g.name COLLATE "C""#,
+        )
+        .fetch_all(&mut *tx)
+        .await?
+    };
+    available.retain(|name| valid_groups(std::slice::from_ref(name)));
+    let effective: Vec<_> = identity::routing_group_names_in_transaction(&mut tx, id)
+        .await?
+        .into_iter()
+        .filter(|name| available.binary_search(name).is_ok())
+        .collect();
+    let inherited = effective
+        .iter()
+        .filter(|name| !access.groups.contains(name))
+        .cloned()
+        .collect();
+    tx.commit().await?;
+    Ok(Json(GroupOptions {
+        access,
+        available,
+        effective,
+        inherited,
+    }))
 }
 async fn read(
     State(store): State<AdminUsersStore>,

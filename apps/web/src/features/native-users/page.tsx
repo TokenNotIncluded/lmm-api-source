@@ -251,6 +251,7 @@ function UsersWorkspace({
   })
   const [invalidQuery, setInvalidQuery] = useState(false)
   const [groupsOpen, setGroupsOpen] = useState(false)
+  const [createdId, setCreatedId] = useState<string>()
   const [filtersOpen, setFiltersOpen] = useState(
     Boolean(initial.group || initial.team_id)
   )
@@ -521,7 +522,14 @@ function UsersWorkspace({
               <NativeCreateUser
                 key={`${scope.userId}:${scope.sessionId}`}
                 scope={scope}
-                onCreated={refresh}
+                onCreated={(id) => {
+                  setCreatedId(id)
+                  applyQuery({
+                    ...DEFAULT_NATIVE_USERS_QUERY,
+                    keyword: id,
+                    page: 1,
+                  })
+                }}
                 onAccessDenied={onAccessDenied}
               />
             )}
@@ -849,7 +857,8 @@ function UsersWorkspace({
                       className='text-muted-foreground text-sm'
                       aria-live='polite'
                     >
-                      {t('Selected: {{selected}}', { selected: selected.size })}
+                      {t('Selected: {{selected}}', { selected: selected.size })}{' '}
+                      · {t('CSV export')}
                     </span>
                     <Button
                       type='button'
@@ -893,6 +902,7 @@ function UsersWorkspace({
             ) : (
               <NativeUserList
                 users={state.data.items}
+                initialExpandedId={createdId}
                 scope={scope}
                 query={query}
                 selected={selected}
