@@ -5,13 +5,16 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { getAssistantStatus } from '@/features/assistant/api'
 import { requestAssistantOpen } from '@/features/assistant/assistant-events'
+import { readNativeUsersScope } from '@/features/native-users/access'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { AssistantModelSetting } from './assistant-model-setting'
 import { ConversationStarterSettings } from './conversation-starter-settings'
 
 export function AssistantPluginSettings() {
   const { t } = useTranslation()
-  const { user, session } = useAuthStore((state) => state.auth)
+  const auth = useAuthStore((state) => state.auth)
+  const { user, session } = auth
   const { data } = useQuery({
     queryKey: ['assistant-status', user?.id, session?.sid],
     queryFn: getAssistantStatus,
@@ -19,6 +22,7 @@ export function AssistantPluginSettings() {
     staleTime: 30_000,
     retry: false,
   })
+  const scope = readNativeUsersScope(auth)
   const modelEnabled = data?.route_available
   return (
     <>
@@ -38,6 +42,12 @@ export function AssistantPluginSettings() {
               ? t('Enabled')
               : t('Unknown')}
         </p>
+        {scope && (
+          <AssistantModelSetting
+            key={`${scope.userId}:${scope.sessionId}:${scope.role}`}
+            scope={scope}
+          />
+        )}
       </section>
       <ConversationStarterSettings embedded />
     </>

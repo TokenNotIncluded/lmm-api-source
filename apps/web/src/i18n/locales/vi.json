@@ -1168,6 +1168,7 @@
     "Assistant is thinking...": "Trợ lý đang suy nghĩ…",
     "Assistant is unavailable. Open the guide to continue.": "Trợ lý chưa khả dụng. Hãy mở hướng dẫn.",
     "Assistant model access is disabled on this host. Conversation starter settings are still available.": "Máy chủ này đã tắt quyền truy cập mô hình của trợ lý. Bạn vẫn có thể cấu hình gợi ý mở đầu cuộc trò chuyện.",
+    "Assistant model": "Mô hình trợ lý",
     "Assistant model ID": "Model ID của trợ lý",
     "Assistant output": "Đầu ra trợ lý",
     "Assistant persona": "Vai trò của trợ lý",

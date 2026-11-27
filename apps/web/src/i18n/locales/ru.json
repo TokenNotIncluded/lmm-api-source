@@ -1168,6 +1168,7 @@
     "Assistant is thinking...": "Помощник думает…",
     "Assistant is unavailable. Open the guide to continue.": "Помощник недоступен. Откройте руководство.",
     "Assistant model access is disabled on this host. Conversation starter settings are still available.": "На этом сервере доступ к модели ассистента отключён. Начальные подсказки по-прежнему можно настроить.",
+    "Assistant model": "Модель ассистента",
     "Assistant model ID": "Идентификатор модели помощника",
     "Assistant output": "Ответ помощника",
     "Assistant persona": "Роль ассистента",

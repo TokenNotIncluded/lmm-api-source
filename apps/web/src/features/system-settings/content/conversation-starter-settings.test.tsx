@@ -150,6 +150,25 @@ beforeEach(() => {
   const adapter: AxiosAdapter = async (config) => {
     const data = config.data ? JSON.parse(String(config.data)) : undefined
     requests.push({ method: config.method ?? '', url: config.url ?? '', data })
+    if (config.url === '/api/option/assistant-model') {
+      assert.equal(config.method, 'get')
+      return {
+        config,
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        data: {
+          success: true,
+          data: {
+            model: 'first',
+            default_model: 'first',
+            group: 'support',
+            models: ['first'],
+            version: { routing: 3, pricing: 7 },
+          },
+        },
+      }
+    }
     if (config.url === '/api/option/') {
       return {
         config,

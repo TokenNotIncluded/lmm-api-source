@@ -1168,6 +1168,7 @@
     "Assistant is thinking...": "助手正在思考…",
     "Assistant is unavailable. Open the guide to continue.": "助手暂不可用，可先查看指南。",
     "Assistant model access is disabled on this host. Conversation starter settings are still available.": "此服务器未启用助手推理，仍可配置开场提示词。",
+    "Assistant model": "助手模型",
     "Assistant model ID": "助手模型 ID",
     "Assistant output": "助手输出",
     "Assistant persona": "助手角色",
