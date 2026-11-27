@@ -128,11 +128,14 @@ impl Request {
         validation["input"] = "validate native controls".into();
         validation["store"] = false.into();
         validation["stream"] = false.into();
-        validation["max_output_tokens"] = 1.into();
+        // The selected route enforces its own upper bound in output_limit.
         relay::Request::parse_deferred_openai(
             relay::ClientProtocol::Responses,
             &serde_json::to_vec(&validation).map_err(|_| RelayError::Invalid("native controls"))?,
-            &Limits::default(),
+            &Limits {
+                max_output_tokens: u32::MAX,
+                ..Limits::default()
+            },
         )?;
         Ok(r)
     }

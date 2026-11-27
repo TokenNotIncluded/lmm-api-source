@@ -902,6 +902,11 @@ impl Request {
                     .ok_or(RelayError::Invalid("invalid output token limit"))
             })
             .transpose()?;
+        if client == ClientProtocol::Responses
+            && explicit_max_output_tokens.is_some_and(|limit| limit < 16)
+        {
+            return Err(RelayError::Invalid("max_output_tokens must be at least 16"));
+        }
         let max_output_tokens =
             explicit_max_output_tokens.unwrap_or(4096.min(limits.max_output_tokens));
         let mut stop = Vec::new();
@@ -2344,6 +2349,35 @@ mod affinity_input_tests {
 #[cfg(test)]
 mod output_limit_tests {
     use super::*;
+
+    #[test]
+    fn responses_reject_small_explicit_output_limits_before_dispatch() {
+        let limits = Limits::default();
+        for limit in [1, 15, 16] {
+            let body =
+                serde_json::to_vec(&json!({"model":"m","input":"hello","max_output_tokens":limit}))
+                    .unwrap();
+            let http = Request::parse_deferred_openai(ClientProtocol::Responses, &body, &limits);
+            let ws = Request::parse_responses_ws(&body, &limits, false, None);
+            for parsed in [http, ws] {
+                if limit < 16 {
+                    assert_eq!(
+                        parsed.unwrap_err(),
+                        RelayError::Invalid("max_output_tokens must be at least 16")
+                    );
+                } else {
+                    assert_eq!(parsed.unwrap().max_output_tokens, limit);
+                }
+            }
+        }
+        let chat = br#"{"model":"m","messages":[{"role":"user","content":"hi"}],"max_completion_tokens":1}"#;
+        assert_eq!(
+            Request::parse_deferred_openai(ClientProtocol::Chat, chat, &limits)
+                .unwrap()
+                .max_output_tokens,
+            1
+        );
+    }
 
     #[test]
     fn source_precharge_preserves_original_openai_bytes() {

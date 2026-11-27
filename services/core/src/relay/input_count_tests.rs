@@ -27,7 +27,7 @@ fn profile() -> ResponsesCountProfile {
 fn body() -> Value {
     json!({
         "model":"gpt-4.1-2025-04-14", "store":false, "stream":false,
-        "max_output_tokens":8, "instructions":"Complete instructions: \u{4e2d}\u{6587}\n",
+        "max_output_tokens":16, "instructions":"Complete instructions: \u{4e2d}\u{6587}\n",
         "input":[
             {"role":"system","content":"System text"},
             {"role":"developer","content":[{"type":"input_text","text":"Developer \u{1f980}"}]},
@@ -75,7 +75,7 @@ fn input_count_freezes_all_text_and_generation_bytes() {
         frozen.wire_sha256,
         <[u8; 32]>::from(Sha256::digest(&generation))
     );
-    assert_eq!(frozen.requested_output, 8);
+    assert_eq!(frozen.requested_output, 16);
     assert_eq!(serde_json::from_slice::<Value>(&generation).unwrap(), body);
 }
 
@@ -84,7 +84,7 @@ fn input_count_projects_final_encoder_output_including_full_history() {
     let request = Request::parse(
         ClientProtocol::Responses,
         &serde_json::to_vec(&json!({
-            "model":"public-alias", "max_output_tokens":8,
+            "model":"public-alias", "max_output_tokens":16,
             "instructions":"Complete instructions: 中\n",
             "input":[
                 {"role":"developer","content":"Developer 🦀"},
@@ -112,7 +112,7 @@ fn input_count_projects_final_encoder_output_including_full_history() {
     );
     assert_eq!(counted["input"][3]["content"][0]["text"], "Prior answer");
     assert_eq!(frozen.wire_sha256, <[u8; 32]>::from(Sha256::digest(&body)));
-    assert_eq!(encoded["max_output_tokens"], 8);
+    assert_eq!(encoded["max_output_tokens"], 16);
     assert_eq!(encoded["store"], false);
     assert_eq!(encoded["stream"], false);
 }
@@ -182,7 +182,7 @@ async fn input_count_legacy_billing_cannot_silently_discard_prepared_evidence() 
     let limits = Limits::default();
     let request = Request::parse(
         ClientProtocol::Responses,
-        br#"{"model":"alias","input":"hello","max_output_tokens":8}"#,
+        br#"{"model":"alias","input":"hello","max_output_tokens":16}"#,
         &limits,
     )
     .unwrap();
@@ -191,7 +191,7 @@ async fn input_count_legacy_billing_cannot_silently_discard_prepared_evidence() 
     let counted = observation(
         &profile(),
         Sha256::digest(&body).into(),
-        8,
+        16,
         [2; 32],
         br#"{"object":"response.input_tokens","input_tokens":24}"#,
     )
@@ -233,12 +233,12 @@ impl RouteProvider for ExactRoutes {
 async fn input_count_worker_rejects_before_reserve_or_generation_dispatch() {
     for (body, model, expected) in [
         (
-            json!({"model":"alias","input":"hello","max_output_tokens":8,"stream":true}),
+            json!({"model":"alias","input":"hello","max_output_tokens":16,"stream":true}),
             "gpt-4.1-2025-04-14",
             RelayError::Unsupported("exact input count requires stateless text"),
         ),
         (
-            json!({"model":"alias","input":"hello","max_output_tokens":8,"temperature":0}),
+            json!({"model":"alias","input":"hello","max_output_tokens":16,"temperature":0}),
             "gpt-4.1-2025-04-14",
             RelayError::Unsupported("exact input count requires stateless text"),
         ),
@@ -248,7 +248,7 @@ async fn input_count_worker_rejects_before_reserve_or_generation_dispatch() {
             RelayError::Invalid("exact count generation binding mismatch"),
         ),
         (
-            json!({"model":"alias","input":"hello","max_output_tokens":8}),
+            json!({"model":"alias","input":"hello","max_output_tokens":16}),
             "other-2025-04-14",
             RelayError::Invalid("exact count generation binding mismatch"),
         ),
@@ -359,14 +359,14 @@ fn input_count_response_requires_object_integer_and_original_ceiling() {
         r#"{"object":"response.input_tokens","input_tokens":1025}"#,
         r#"{"object":"response.input_tokens","input_tokens":18446744073709551616}"#,
     ] {
-        assert!(observation(&profile, [1; 32], 8, [2; 32], bytes.as_bytes()).is_err());
+        assert!(observation(&profile, [1; 32], 16, [2; 32], bytes.as_bytes()).is_err());
     }
     for input_tokens in [0, 1024] {
         let bytes = serde_json::to_vec(
             &json!({"object":"response.input_tokens","input_tokens":input_tokens}),
         )
         .unwrap();
-        let observed = observation(&profile, [1; 32], 8, [2; 32], &bytes).unwrap();
+        let observed = observation(&profile, [1; 32], 16, [2; 32], &bytes).unwrap();
         assert_eq!(observed.input_tokens, input_tokens);
         assert_eq!(observed.api, "responses.input_tokens");
         assert_eq!(
@@ -438,7 +438,7 @@ async fn input_count_real_local_exchange_binds_complete_projection_and_response(
         [expected_count_bytes.as_ref()]
     );
     assert_eq!(observed.input_tokens, 24);
-    assert_eq!(observed.requested_output, 8);
+    assert_eq!(observed.requested_output, 16);
     assert_eq!(observed.wire_sha256, expected_wire);
     assert_eq!(
         observed.request_sha256,
