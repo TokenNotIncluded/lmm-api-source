@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import assert from 'node:assert/strict'
 
-const target = 'browser-expensive-sibling'
-const incomplete = 'browser-supplier-new'
 const config = '/core/v1/admin/routing/configuration'
 
 async function run(page, name, args) {
@@ -20,13 +18,18 @@ async function run(page, name, args) {
   return JSON.parse(output)
 }
 
-export async function exerciseTerminal(browser, session, request) {
+export async function exerciseTerminal(browser, session, request, { sibling: target, model: incomplete }) {
   const { page, token } = await session(
     browser,
     'browseradmin',
     '/operations/terminal'
   )
   const read = async () => (await request(page, token, config)).json.data
+  const initial = await read()
+  assert.equal(initial.routing.upstreams.length, 1)
+  const channelId = initial.routing.upstreams[0].id
+  const existing = initial.prices.rules[0]?.model
+  assert.ok(existing && existing !== target && existing !== incomplete)
   // Stub the public price feed alone. Every account and Core route uses the
   // regular browser transport, and the supplier catalog comes from its TCP fixture.
   await page.route('https://models.dev/api.json', (route) =>
@@ -46,12 +49,12 @@ export async function exerciseTerminal(browser, session, request) {
     })
   )
   const sync = async () => {
-    const preview = await run(page, 'catalog.preview', { channels: [1, 9999] })
+    const preview = await run(page, 'catalog.preview', { channels: [channelId, channelId + 1] })
     assert.equal(preview.rows[1].status, 'blocked')
     assert.ok(preview.rows[0].missing_price.includes(target))
     const saved = await run(page, 'catalog.confirm', {
       preview: preview.preview,
-      channels: [1],
+      channels: [channelId],
     })
     assert.equal(saved.status, 'published')
     return saved
@@ -59,10 +62,10 @@ export async function exerciseTerminal(browser, session, request) {
   const synced = await sync()
   const before = await read()
   assert.deepEqual(synced.version, before.version)
-  assert.ok(before.bindings.discoveries['1'].models.includes(target))
+  assert.ok(before.bindings.discoveries[channelId].models.includes(target))
   const proposal = await run(page, 'prices.preview', {
     provider: 'fixture',
-    models: [target, incomplete, 'model-a'],
+    models: [target, incomplete, existing],
     request_rate: 0,
   })
   assert.deepEqual(
@@ -131,7 +134,7 @@ export async function exerciseTerminal(browser, session, request) {
     scope: saved.readback[0].scope,
     rejected_model: incomplete,
     missing_fields: proposal.rows[1].reason,
-    preserved: 'model-a',
+    preserved: existing,
     denied_status: denied,
     conflict: stale.status,
     real_provider_calls: 0,

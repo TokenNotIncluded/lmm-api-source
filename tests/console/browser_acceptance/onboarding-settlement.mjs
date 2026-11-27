@@ -278,7 +278,7 @@ await new Promise((ok, fail) => front.once('error', fail).listen(41781, '127.0.0
 let browser
 try {
   browser = await chromium.launch({ headless: true })
-  const terminal = await exerciseTerminal(browser,session,request)
+  const terminal = await exerciseTerminal(browser, session, request, { model, sibling })
   const publication = await onboard(browser)
   const payment = await settle(browser)
   terminal.log = await checkTerminalLog(browser,session,payment.request_id)
