@@ -276,7 +276,8 @@ impl ReceiptValidation {
                     let (billable, corrected) =
                         crate::billing::charging::corrected_observation(&raw, output_cap)
                             .map_err(|_| InvalidReceipt)?;
-                    let recorded: Usage = decode(final_event.as_ref().ok_or(InvalidReceipt)?["usage"].clone())?;
+                    let recorded: Usage =
+                        decode(final_event.as_ref().ok_or(InvalidReceipt)?["usage"].clone())?;
                     if recorded != billable {
                         return Err(InvalidReceipt);
                     }

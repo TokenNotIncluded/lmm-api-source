@@ -58,7 +58,6 @@ impl Operation {
             .map_err(approval_io)
     }
 
-
     pub fn plan_admin_key_continuity(input: impl Read) -> io::Result<Self> {
         admin_approval::read_bounded_json(input)
             .map(Self::PlanAdminKeyContinuity)

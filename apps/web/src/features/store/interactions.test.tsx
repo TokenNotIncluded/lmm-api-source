@@ -3580,10 +3580,13 @@ test('checkout does not create a guest or show a sign-in action until session bo
   owner(null)
   useAuthStore.getState().auth.setBootstrapState('checking')
   const writes: string[] = []
-  api.post = (async (url: string) => {
-    writes.push(url)
-    throw new Error('No guest session may be created during recovery')
-  }) as typeof api.post
+  const postAttempted = new Promise<void>((resolve) => {
+    api.post = (async (url: string) => {
+      writes.push(url)
+      resolve()
+      throw new Error('No guest session may be created during recovery')
+    }) as typeof api.post
+  })
   api.get = (async (url: string) => {
     if (url === '/api/store/config') {
       return result({ store_access_supported: true })
@@ -3603,10 +3606,8 @@ test('checkout does not create a guest or show a sign-in action until session bo
   assert.match(document.body.textContent || '', /Retry/)
   assert.doesNotMatch(document.body.textContent || '', /Sign in to buy/)
   assert.deepEqual(writes, [])
-  await act(async () => {
-    useAuthStore.getState().auth.setBootstrapState('complete')
-    await flush()
-  })
+  await act(() => useAuthStore.getState().auth.setBootstrapState('complete'))
+  await postAttempted
   assert.deepEqual(writes, ['/api/store/guest/session'])
 })
 

@@ -1209,7 +1209,8 @@ impl Charging {
             return Err(Error::Invalid);
         }
         let amount = Self::terminal_amount_in_transaction(c, &charge, usage).await?;
-        self.post_settlement(c, charge, usage, outcome, evidence, amount).await
+        self.post_settlement(c, charge, usage, outcome, evidence, amount)
+            .await
     }
 
     async fn post_settlement(

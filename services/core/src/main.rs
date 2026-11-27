@@ -248,7 +248,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "reconcile-model-usage requires explicit --config",
-                ).into());
+                )
+                .into());
             }
             Some(admin::Operation::reconcile_model_usage(io::stdin().lock())?)
         }
