@@ -1,5 +1,6 @@
 //! Two independently constructed gateways share only PostgreSQL and loopback suppliers.
 use super::*;
+use crate::model_http::{ModelIdentity, session_affinity};
 use axum::extract::OriginalUri;
 use serde_json::Value;
 use std::sync::{Mutex, atomic::AtomicBool};
