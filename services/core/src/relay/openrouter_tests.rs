@@ -168,6 +168,18 @@ fn openrouter_repeated_finish_carries_authoritative_usage_once() {
     assert_eq!(encoder.usage().output_tokens, Some(2));
     assert_eq!(encoder.usage().upstream_cost_atto_usd, Some(0));
 
+    for usage in [
+        json!({"prompt_tokens":7,"completion_tokens":2,"is_byok":"no"}),
+        json!({"prompt_tokens":7,"completion_tokens":2,"prompt_tokens_details":{"audio_tokens":1}}),
+    ] {
+        let mut decoder =
+            Decoder::new(UpstreamProtocol::Chat, &limits).with_openrouter_stream(true);
+        decoder.frame(frame(first.clone())).unwrap();
+        let mut invalid = finish.clone();
+        invalid["usage"] = usage;
+        assert!(decoder.frame(frame(invalid)).is_err());
+    }
+
     for (reason, delta) in [
         ("length", json!({})),
         ("stop", json!({"content":"unexpected"})),

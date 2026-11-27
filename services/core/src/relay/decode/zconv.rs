@@ -227,7 +227,49 @@ impl Decoder {
         {
             return Err(RelayError::Protocol("invalid OpenRouter provider metadata"));
         }
-        let has_usage = object.get("usage").is_some_and(Value::is_object);
+        if object
+            .remove("openrouter_metadata")
+            .is_some_and(|value| !value.is_object() && !value.is_null())
+        {
+            return Err(RelayError::Protocol("invalid OpenRouter routing metadata"));
+        }
+        object.retain(|key, value| {
+            !matches!(key.as_str(), "error" | "alignment" | "safeguard_results") || !value.is_null()
+        });
+        let usage = object.get_mut("usage").and_then(Value::as_object_mut);
+        let has_usage = usage.is_some();
+        if let Some(usage) = usage {
+            if usage
+                .remove("is_byok")
+                .is_some_and(|value| !value.is_boolean() && !value.is_null())
+            {
+                return Err(RelayError::Protocol("invalid OpenRouter BYOK metadata"));
+            }
+            // OpenRouter may include zero-valued counters for modalities and
+            // prediction fields absent from a text response. Nonzero counts
+            // still need an explicit usage contract.
+            for (group, counters) in [
+                (
+                    "prompt_tokens_details",
+                    &["audio_tokens", "video_tokens"][..],
+                ),
+                (
+                    "completion_tokens_details",
+                    &[
+                        "audio_tokens",
+                        "accepted_prediction_tokens",
+                        "rejected_prediction_tokens",
+                    ][..],
+                ),
+            ] {
+                if let Some(details) = usage.get_mut(group).and_then(Value::as_object_mut) {
+                    details.retain(|key, value| {
+                        !counters.contains(&key.as_str())
+                            || !(value.is_null() || value.as_u64() == Some(0))
+                    });
+                }
+            }
+        }
         let Some(choices) = object.get_mut("choices").and_then(Value::as_array_mut) else {
             return Ok(());
         };
@@ -244,6 +286,15 @@ impl Decoder {
             return Err(RelayError::Protocol(
                 "invalid OpenRouter native finish reason",
             ));
+        }
+        if let Some(delta) = choice.get_mut("delta").and_then(Value::as_object_mut) {
+            delta.retain(|key, value| match key.as_str() {
+                "audio" | "role" | "reasoning" | "reasoning_content" => !value.is_null(),
+                "reasoning_details" => {
+                    !value.is_null() && !value.as_array().is_some_and(Vec::is_empty)
+                }
+                _ => true,
+            });
         }
         // The documented final usage frame repeats the already observed finish.
         // Treat that exact content-free choice as usage-only. Contradictions,

@@ -72,10 +72,28 @@ impl CompatibilityProvider {
                 return Json(full).into_response();
             }
             let events = if chat && body["model"] == "compat-4" {
+                let usage = json!({
+                    "prompt_tokens": input,
+                    "completion_tokens": output,
+                    "total_tokens": input + output,
+                    "cost": 0,
+                    "is_byok": false,
+                    "cost_details": {"upstream_inference_cost": null},
+                    "prompt_tokens_details": {
+                        "cached_tokens": cached,
+                        "audio_tokens": 0,
+                        "video_tokens": 0
+                    },
+                    "completion_tokens_details": {
+                        "reasoning_tokens": 0,
+                        "audio_tokens": 0,
+                        "accepted_prediction_tokens": null
+                    }
+                });
                 vec![
-                    json!({"id":"synthetic-chat","provider":"Synthetic","choices":[{"index":0,"delta":{"role":"assistant","content":"synthetic answer"},"finish_reason":null}]}),
+                    json!({"id":"synthetic-chat","provider":"Synthetic","openrouter_metadata":{"strategy":"default"},"error":null,"choices":[{"index":0,"delta":{"role":"assistant","content":"synthetic answer","reasoning_details":[],"audio":null},"finish_reason":null}]}),
                     json!({"id":"synthetic-chat","provider":"Synthetic","choices":[{"index":0,"delta":{},"finish_reason":"stop","native_finish_reason":"stop"}]}),
-                    json!({"id":"synthetic-chat","provider":"Synthetic","choices":[{"index":0,"delta":{"content":""},"finish_reason":"stop","native_finish_reason":"stop"}],"usage":full["usage"]}),
+                    json!({"id":"synthetic-chat","provider":"Synthetic","choices":[{"index":0,"delta":{"content":""},"finish_reason":"stop","native_finish_reason":"stop"}],"usage":usage}),
                 ]
             } else if chat {
                 vec![
