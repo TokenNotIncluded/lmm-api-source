@@ -57,6 +57,8 @@ export interface CommonLogFilters extends CommonFilters {
   requestId?: string
   upstreamRequestId?: string
   status?: 'success' | 'error' | 'pending' | 'refunded'
+  requestResult?: 'success' | 'error' | 'disconnected'
+  settlementStatus?: 'pending' | 'settled' | 'released' | 'refunded'
   minDurationMs?: string
   maxDurationMs?: string
   sortOrder?: 'asc' | 'desc'
@@ -394,6 +396,8 @@ export interface GetLogsParams {
   request_id?: string
   upstream_request_id?: string
   status?: 'success' | 'error' | 'pending' | 'refunded'
+  request_result?: 'success' | 'error' | 'disconnected'
+  settlement_status?: 'pending' | 'settled' | 'released' | 'refunded'
   min_duration_ms?: number
   max_duration_ms?: number
   sort_order?: 'asc' | 'desc'
@@ -417,6 +421,8 @@ export interface GetLogStatsParams {
   request_id?: string
   upstream_request_id?: string
   status?: 'success' | 'error' | 'pending' | 'refunded'
+  request_result?: 'success' | 'error' | 'disconnected'
+  settlement_status?: 'pending' | 'settled' | 'released' | 'refunded'
   min_duration_ms?: number
   max_duration_ms?: number
   sort_order?: 'asc' | 'desc'

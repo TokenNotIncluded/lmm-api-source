@@ -157,7 +157,7 @@ test('opening a native log reads the current authorized receipt and its precise 
   }
 })
 
-test('shows the pending receipt message and confirmed HTTP status', async () => {
+test('shows a rejected upstream request and its still-pending settlement separately', async () => {
   const adapter = api.defaults.adapter
   api.defaults.adapter = async (config) => ({
     config,
@@ -172,8 +172,13 @@ test('shows the pending receipt message and confirmed HTTP status', async () => 
         billing_basis: 'incomplete',
         state: 'reconcile',
         outcome: null,
-        provider_http_status: 503,
-        content: 'Model request reconcile; no final usage receipt',
+        provider_http_status: 404,
+        content: JSON.stringify({
+          error: {
+            code: 'model_not_found',
+            message: 'Rejected user prompt secret-test',
+          },
+        }),
       },
     },
   })
@@ -187,7 +192,17 @@ test('shows the pending receipt message and confirmed HTTP status', async () => 
     )
     const details = document.body.textContent ?? ''
     assert.match(details, /Reconciling/)
-    assert.match(details, /503/)
+    assert.match(details, /404/)
+    assert.match(details, /model_not_found/)
+    assert.match(details, /Message withheld/)
+    assert.match(details, /Awaiting usage receipt/)
+    assert.match(details, /Request result · Error/)
+    assert.match(details, /Retry or stop reasonNot recorded/)
+    assert.ok(
+      details.indexOf('Upstream error') <
+        details.indexOf('Request and billing summary')
+    )
+    assert.doesNotMatch(details, /secret-test/)
     assert.doesNotMatch(details, /Model request reconcile/)
   } finally {
     await cleanup()

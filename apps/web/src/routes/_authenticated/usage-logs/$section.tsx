@@ -45,6 +45,14 @@ const usageLogsSearchSchema = z.object({
   type: logTypeSearchSchema.optional(),
   filter: z.string().optional().catch(''),
   status: z.string().optional().catch(''),
+  requestResult: z
+    .enum(['success', 'error', 'disconnected'])
+    .optional()
+    .catch(undefined),
+  settlementStatus: z
+    .enum(['pending', 'settled', 'released', 'refunded'])
+    .optional()
+    .catch(undefined),
   action: z.string().optional().catch(''),
   platform: z.string().optional().catch(''),
   model: z.string().optional().catch(''),

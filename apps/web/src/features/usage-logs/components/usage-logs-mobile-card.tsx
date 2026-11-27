@@ -46,7 +46,11 @@ import { cn } from '@/lib/utils'
 import { LOG_TYPE_ENUM } from '../constants'
 import type { UsageLog } from '../data/schema'
 import { parseLogOther } from '../lib/format'
-import { usageLogStatusCode, usageReceiptState } from '../lib/receipt-state'
+import {
+  nativeRequestStates,
+  usageLogStatusCode,
+  usageReceiptState,
+} from '../lib/receipt-state'
 import { getLogTiming } from '../lib/timing'
 import {
   getLogTypeConfig,
@@ -55,6 +59,7 @@ import {
 } from '../lib/utils'
 import type { LogCategory } from '../types'
 import { LogUsageDisplay } from './log-usage-display'
+import { NativeRequestBadges } from './native-request-badges'
 import { StreamTpsCell, TimingMetricsCell } from './timing-metrics-cell'
 import { useUsageLogsContext } from './usage-logs-provider'
 
@@ -175,6 +180,7 @@ function MobileLogTimeStatus({
   const config = getLogTypeConfig(logType ?? LOG_TYPE_ENUM.UNKNOWN)
   const other = log ? parseLogOther(log.other) : null
   const receipt = log ? usageReceiptState(log, other) : undefined
+  const states = log ? nativeRequestStates(log, other) : undefined
   const statusCode = log ? usageLogStatusCode(log, other) : undefined
   const variant = receipt?.variant ?? (config.color as StatusVariant)
 
@@ -189,11 +195,20 @@ function MobileLogTimeStatus({
           textColorMap[variant]
         )}
       >
-        <span
-          className={cn('size-1.5 shrink-0 rounded-full', dotColorMap[variant])}
-          aria-hidden='true'
-        />
-        <span>{t(receipt?.label ?? config.label)}</span>
+        {states ? (
+          <NativeRequestBadges states={states} />
+        ) : (
+          <>
+            <span
+              className={cn(
+                'size-1.5 shrink-0 rounded-full',
+                dotColorMap[variant]
+              )}
+              aria-hidden='true'
+            />
+            <span>{t(receipt?.label ?? config.label)}</span>
+          </>
+        )}
         {statusCode !== undefined && statusCode >= 400 && (
           <span className='text-destructive font-mono' title={t('Status Code')}>
             {statusCode}

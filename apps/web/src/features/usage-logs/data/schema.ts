@@ -43,6 +43,10 @@ export const usageLogSchema = z.object({
   billing_basis: z.string().optional(),
   state: z.string().optional(),
   outcome: z.string().nullish(),
+  request_result: z.enum(['success', 'error', 'disconnected']).nullish(),
+  settlement_status: z
+    .enum(['pending', 'settled', 'released', 'refunded'])
+    .optional(),
   gross_settled_credits: z.number().int().safe().nonnegative().nullish(),
   refunded_credits: z.number().int().safe().nonnegative().nullish(),
   net_consumption_credits: z.number().int().safe().nonnegative().nullish(),

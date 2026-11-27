@@ -99,6 +99,8 @@ function UsageLogsContent() {
                       : undefined,
                   upstreamRequestId: undefined,
                   status: undefined,
+                  requestResult: undefined,
+                  settlementStatus: undefined,
                   minDurationMs: undefined,
                   maxDurationMs: undefined,
                   sortOrder: undefined,

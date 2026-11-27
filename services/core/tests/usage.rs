@@ -364,6 +364,40 @@ async fn settled_refunded_failed_cancelled_reserved_streaming_reconcile_and_rele
     assert_eq!(ok(&f, "/api/log/self?type=5").await["total"], 7);
     assert_eq!(ok(&f,"/api/log/self?model_name=test-model&token_name=Test%20key&group=default&request_id=completed").await["total"],1);
     assert_eq!(ok(&f, "/api/log/self?model_name=absent").await["total"], 0);
+    // Transport errors and financial receipts are independent query dimensions.
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO core_charging.usage_events(request_id,event_id,detail) VALUES('reconcile','performance-v1',$1)")
+        .bind(json!({"schema":"core.performance.v1","finished_at":1700000000,"elapsed_us":500,"success":false,"status_code":404}))
+        .execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    let filter = "request_result=error&settlement_status=pending";
+    let pending_error = ok(&f, &format!("/api/log/self?{filter}")).await;
+    assert_eq!(pending_error["total"], 1);
+    let item = &pending_error["items"][0];
+    assert_eq!(item["request_id"], "reconcile");
+    assert_eq!(item["status_code"], 404);
+    assert_eq!(item["request_result"], "error");
+    assert_eq!(item["settlement_status"], "pending");
+    assert!(item["net_consumption_credits"].is_null());
+    assert_eq!(
+        ok(&f, &format!("/api/log/self/stat?{filter}")).await["total_count"],
+        1
+    );
+    for (query, expected) in [
+        ("request_result=disconnected&settlement_status=settled", 2),
+        ("request_result=success&settlement_status=refunded", 1),
+        ("request_result=error&settlement_status=released", 0),
+        ("settlement_status=released", 1),
+    ] {
+        assert_eq!(
+            ok(&f, &format!("/api/log/self?{query}")).await["total"],
+            expected
+        );
+    }
     // Repeated/concurrent reads never mutate funds or financial history.
     let before = f.ledger.balance(f.account).await.unwrap();
     let (a, b) = tokio::join!(ok(&f, "/api/log/self"), ok(&f, "/api/log/self"));

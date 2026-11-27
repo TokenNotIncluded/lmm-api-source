@@ -98,6 +98,8 @@ struct UsageQuery {
     channel: Option<i64>,
     upstream_request_id: Option<String>,
     status: Option<String>,
+    request_result: Option<String>,
+    settlement_status: Option<String>,
     min_duration_ms: Option<f64>,
     max_duration_ms: Option<f64>,
     sort_order: Option<String>,
@@ -149,6 +151,13 @@ impl UsageQuery {
                 .as_deref()
                 .is_some_and(|s| !matches!(s, "" | "success" | "error" | "pending" | "refunded"))
             || self
+                .request_result
+                .as_deref()
+                .is_some_and(|value| !matches!(value, "success" | "error" | "disconnected"))
+            || self.settlement_status.as_deref().is_some_and(|value| {
+                !matches!(value, "pending" | "settled" | "released" | "refunded")
+            })
+            || self
                 .sort_order
                 .as_deref()
                 .is_some_and(|s| !matches!(s, "asc" | "desc"))
@@ -196,6 +205,14 @@ impl UsageQuery {
             _ => true,
         };
         status
+            && self
+                .request_result
+                .as_deref()
+                .is_none_or(|value| details.request_result(request) == Some(value))
+            && self
+                .settlement_status
+                .as_deref()
+                .is_none_or(|value| request.settlement_status() == value)
             && self
                 .channel
                 .filter(|c| *c != 0)
@@ -330,6 +347,14 @@ impl ValidatedRequest {
             "per_completed_request"
         } else {
             "measured_usage"
+        }
+    }
+    fn settlement_status(&self) -> &'static str {
+        match self.state.as_str() {
+            "settled" if self.amounts.refunded > 0 => "refunded",
+            "settled" => "settled",
+            "released" => "released",
+            _ => "pending", // reserved, streaming or reconcile in a validated request
         }
     }
     fn succeeded(&self) -> bool {
@@ -682,6 +707,8 @@ impl UsageStore {
                 || q.channel.is_some()
                 || q.upstream_request_id.is_some()
                 || q.status.is_some()
+                || q.request_result.is_some()
+                || q.settlement_status.is_some()
                 || q.min_duration_ms.is_some()
                 || q.max_duration_ms.is_some()
                 || q.sort_order.is_some()
@@ -895,6 +922,8 @@ impl UsageStore {
                     && q.request_id.as_deref().unwrap_or_default().is_empty()
                     && matches!(q.r#type.unwrap_or(0), 0 | 2)
                     && q.status.as_deref().unwrap_or_default().is_empty()
+                    && q.request_result.is_none()
+                    && q.settlement_status.is_none()
                     && q.channel.unwrap_or(0) == 0
                     && q.upstream_request_id
                         .as_deref()

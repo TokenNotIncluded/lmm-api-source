@@ -121,6 +121,8 @@ function buildSearchSourceKey(values: {
   upstreamRequestId?: unknown
   type?: unknown
   status?: unknown
+  requestResult?: unknown
+  settlementStatus?: unknown
   minDurationMs?: unknown
   maxDurationMs?: unknown
   sortOrder?: unknown
@@ -136,6 +138,8 @@ function buildSearchSourceKey(values: {
     values.requestId,
     values.upstreamRequestId,
     values.status,
+    values.requestResult,
+    values.settlementStatus,
     values.minDurationMs,
     values.maxDurationMs,
     values.sortOrder,
@@ -261,6 +265,8 @@ export function CommonLogsFilterBar<TData extends RowData>(
       upstreamRequestId: searchParams.upstreamRequestId,
       type: searchParams.type,
       status: searchParams.status,
+      requestResult: searchParams.requestResult,
+      settlementStatus: searchParams.settlementStatus,
       minDurationMs: searchParams.minDurationMs,
       maxDurationMs: searchParams.maxDurationMs,
       sortOrder: searchParams.sortOrder,
@@ -277,11 +283,16 @@ export function CommonLogsFilterBar<TData extends RowData>(
       username: searchParams.username || undefined,
       requestId: searchParams.requestId || undefined,
       upstreamRequestId: searchParams.upstreamRequestId || undefined,
-      status: ['success', 'error', 'pending', 'refunded'].includes(
-        searchParams.status ?? ''
-      )
-        ? (searchParams.status as CommonLogFilters['status'])
-        : undefined,
+      requestResult:
+        searchParams.requestResult ??
+        (searchParams.status === 'success' || searchParams.status === 'error'
+          ? searchParams.status
+          : undefined),
+      settlementStatus:
+        searchParams.settlementStatus ??
+        (searchParams.status === 'pending' || searchParams.status === 'refunded'
+          ? searchParams.status
+          : undefined),
       minDurationMs: searchParams.minDurationMs || undefined,
       maxDurationMs: searchParams.maxDurationMs || undefined,
       sortOrder: searchParams.sortOrder || 'desc',
@@ -303,6 +314,8 @@ export function CommonLogsFilterBar<TData extends RowData>(
     searchParams.upstreamRequestId,
     searchParams.type,
     searchParams.status,
+    searchParams.requestResult,
+    searchParams.settlementStatus,
     searchParams.minDurationMs,
     searchParams.maxDurationMs,
     searchParams.sortOrder,
@@ -341,7 +354,8 @@ export function CommonLogsFilterBar<TData extends RowData>(
         username: isAdmin ? filters.username : undefined,
         upstreamRequestId:
           !historical || isAdmin ? filters.upstreamRequestId : undefined,
-        status: historical ? undefined : filters.status,
+        requestResult: historical ? undefined : filters.requestResult,
+        settlementStatus: historical ? undefined : filters.settlementStatus,
         minDurationMs: historical ? undefined : filters.minDurationMs,
         maxDurationMs: historical ? undefined : filters.maxDurationMs,
         sortOrder: historical ? undefined : filters.sortOrder,
@@ -431,7 +445,8 @@ export function CommonLogsFilterBar<TData extends RowData>(
   const hasAdditionalFilters =
     !!filters.model ||
     !!filters.requestId ||
-    !!filters.status ||
+    !!filters.requestResult ||
+    !!filters.settlementStatus ||
     hasExpandedFilters
   const sensitiveType = sensitiveVisible ? 'text' : 'password'
   const logTypeItems = useMemo(
@@ -585,37 +600,52 @@ export function CommonLogsFilterBar<TData extends RowData>(
       />
     </LogsFilterField>
   )
-  const statusItems = [
-    { value: 'all', label: t('All statuses') },
-    { value: 'success', label: t('Success') },
-    { value: 'error', label: t('Error') },
-    { value: 'pending', label: t('Pending') },
-    { value: 'refunded', label: t('Refunded') },
-  ]
+  const stateFilter = (
+    field: 'requestResult' | 'settlementStatus',
+    label: string,
+    values: { value: string; label: string }[]
+  ) => {
+    const items = [{ value: 'all', label: t('All') }, ...values]
+    return (
+      <LogsFilterField label={label}>
+        <Select
+          items={items}
+          value={filters[field] || 'all'}
+          onValueChange={(value) =>
+            handleChange(
+              field,
+              value === 'all' || value === null ? undefined : value
+            )
+          }
+        >
+          <SelectTrigger aria-label={label}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {items.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </LogsFilterField>
+    )
+  }
   const statusFilter = (
-    <LogsFilterField label={t('Status')}>
-      <Select
-        items={statusItems}
-        value={filters.status || 'all'}
-        onValueChange={(value) =>
-          handleChange(
-            'status',
-            value === 'all' || value === null ? undefined : value
-          )
-        }
-      >
-        <SelectTrigger aria-label={t('Status')}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {statusItems.map((item) => (
-            <SelectItem key={item.value} value={item.value}>
-              {item.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </LogsFilterField>
+    <>
+      {stateFilter('requestResult', t('Request result'), [
+        { value: 'success', label: t('Success') },
+        { value: 'error', label: t('Error') },
+        { value: 'disconnected', label: t('Disconnected or cancelled') },
+      ])}
+      {stateFilter('settlementStatus', t('Settlement status'), [
+        { value: 'pending', label: t('Awaiting usage receipt') },
+        { value: 'settled', label: t('Settled') },
+        { value: 'released', label: t('Released') },
+        { value: 'refunded', label: t('Refunded') },
+      ])}
+    </>
   )
   const sortItems = [
     { value: 'desc', label: t('Newest first') },
@@ -797,8 +827,12 @@ export function CommonLogsFilterBar<TData extends RowData>(
           </>
         }
         mobileFilterCount={
-          [filters.model, filters.requestId, filters.status].filter(Boolean)
-            .length + expandedFilterCount
+          [
+            filters.model,
+            filters.requestId,
+            filters.requestResult,
+            filters.settlementStatus,
+          ].filter(Boolean).length + expandedFilterCount
         }
         hasAdvancedActiveFilters={hasExpandedFilters}
         advancedFilterCount={expandedFilterCount}

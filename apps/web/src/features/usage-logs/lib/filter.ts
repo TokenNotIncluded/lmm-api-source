@@ -59,6 +59,12 @@ export function buildSearchParams(
           upstreamRequestId: commonFilters.upstreamRequestId,
         }),
         ...(commonFilters.status && { status: commonFilters.status }),
+        ...(commonFilters.requestResult && {
+          requestResult: commonFilters.requestResult,
+        }),
+        ...(commonFilters.settlementStatus && {
+          settlementStatus: commonFilters.settlementStatus,
+        }),
         ...(commonFilters.minDurationMs?.trim() && {
           minDurationMs: commonFilters.minDurationMs.trim(),
         }),

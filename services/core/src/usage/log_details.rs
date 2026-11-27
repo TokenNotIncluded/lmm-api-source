@@ -42,9 +42,22 @@ impl LogDetails {
             .or_else(|| request.provider_status())
     }
 
+    pub(super) fn request_result(&self, request: &ValidatedRequest) -> Option<&'static str> {
+        match request.outcome.as_deref() {
+            Some("cancelled") => Some("disconnected"),
+            Some("failed") => Some("error"),
+            Some("completed") => Some("success"),
+            _ if self.status_code(request).is_some_and(|code| code >= 400) => Some("error"),
+            _ if self.sample.as_ref().is_some_and(|sample| sample.success) => Some("success"),
+            _ => None,
+        }
+    }
+
     pub(super) fn project(&self, request: &ValidatedRequest, administrator: bool) -> Value {
         let mut item = request.log();
         let sample = self.sample.as_ref();
+        item["request_result"] = json!(self.request_result(request));
+        item["settlement_status"] = json!(request.settlement_status());
         item["diagnostics_available"] = json!(sample.is_some());
         item["duration_ms"] = json!(self.duration_ms());
         item["first_token_ms"] = json!(self.first_token_ms());

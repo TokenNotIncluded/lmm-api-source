@@ -161,6 +161,24 @@ export function buildApiParams(config: {
     )
       ? { status: searchParams.status as GetLogsParams['status'] }
       : {}),
+    ...(searchParams.source !== 'historical' &&
+    ['success', 'error', 'disconnected'].includes(
+      String(searchParams.requestResult)
+    )
+      ? {
+          request_result:
+            searchParams.requestResult as GetLogsParams['request_result'],
+        }
+      : {}),
+    ...(searchParams.source !== 'historical' &&
+    ['pending', 'settled', 'released', 'refunded'].includes(
+      String(searchParams.settlementStatus)
+    )
+      ? {
+          settlement_status:
+            searchParams.settlementStatus as GetLogsParams['settlement_status'],
+        }
+      : {}),
     ...(searchParams.minDurationMs !== undefined &&
     searchParams.minDurationMs !== ''
       ? { min_duration_ms: Number(searchParams.minDurationMs) }

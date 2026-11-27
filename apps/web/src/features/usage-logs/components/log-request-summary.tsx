@@ -30,7 +30,7 @@ import {
   logNetConsumptionAmounts,
   logFundingLabel,
 } from '../lib/money'
-import { usageReceiptState } from '../lib/receipt-state'
+import { nativeRequestStates, usageReceiptState } from '../lib/receipt-state'
 import { logRecovery, safeLogDiagnostic } from '../lib/recovery'
 import {
   cacheWrite12hQuantity,
@@ -94,11 +94,13 @@ export function LogRequestSummary({
     typeof audioSeconds === 'number' &&
     Number.isFinite(audioSeconds) &&
     audioSeconds >= 0
-  const failed =
-    !usageReceiptState(log, other) &&
-    (log.type === 5 ||
-      other?.stream_status?.status === 'error' ||
-      Boolean(other?.stream_status?.end_error))
+  const states = nativeRequestStates(log, other)
+  const failed = states
+    ? states.result === 'error' || states.result === 'disconnected'
+    : !usageReceiptState(log, other) &&
+      (log.type === 5 ||
+        other?.stream_status?.status === 'error' ||
+        Boolean(other?.stream_status?.end_error))
   const recovery = logRecovery(other)
   const diagnostic = safeLogDiagnostic(
     JSON.stringify(

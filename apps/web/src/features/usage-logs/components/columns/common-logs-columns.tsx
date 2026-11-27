@@ -63,6 +63,7 @@ import {
   missingFinalUsageReceipt,
   usageLogStatusCode,
   usageReceiptState,
+  nativeRequestStates,
 } from '../../lib/receipt-state'
 import { getLogTiming } from '../../lib/timing'
 import {
@@ -76,6 +77,7 @@ import { DetailsDialog } from '../dialogs/details-dialog'
 import { LogCostDisplay } from '../log-cost-display'
 import { LogUsageDisplay } from '../log-usage-display'
 import { ModelBadge } from '../model-badge'
+import { NativeRequestBadges } from '../native-request-badges'
 import { TimingMetricsCell, StreamTpsCell } from '../timing-metrics-cell'
 import { useUsageLogsContext } from '../usage-logs-provider'
 
@@ -336,6 +338,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const config = getLogTypeConfig(log.type)
         const other = parseLogOther(log.other)
         const receipt = usageReceiptState(log, other)
+        const states = nativeRequestStates(log, other)
         const statusCode = usageLogStatusCode(log, other)
 
         return (
@@ -344,16 +347,20 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
               {formatTimestampToDate(timestamp)}
             </span>
             <div className='flex flex-wrap items-center gap-x-1'>
-              <StatusBadge
-                label={t(receipt?.label ?? config.label)}
-                variant={
-                  receipt?.variant ??
-                  (config.color as StatusBadgeProps['variant'])
-                }
-                size='sm'
-                copyable={false}
-                className='-ml-1.5 !text-xs [&_span]:!text-xs'
-              />
+              {states ? (
+                <NativeRequestBadges states={states} />
+              ) : (
+                <StatusBadge
+                  label={t(receipt?.label ?? config.label)}
+                  variant={
+                    receipt?.variant ??
+                    (config.color as StatusBadgeProps['variant'])
+                  }
+                  size='sm'
+                  copyable={false}
+                  className='-ml-1.5 !text-xs [&_span]:!text-xs'
+                />
+              )}
               {statusCode !== undefined && statusCode >= 400 && (
                 <span
                   className='text-destructive font-mono text-xs'

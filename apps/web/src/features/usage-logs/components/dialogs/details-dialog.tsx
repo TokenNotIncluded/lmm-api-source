@@ -126,6 +126,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { LogRequestSummary } from '../log-request-summary'
 import { ResponseModelDetails } from '../model-badge'
+import { RequestFailureFacts } from '../request-failure-facts'
 
 // Maps a channel-update changed-field token (as recorded by the backend audit)
 // to its i18n label key for display in the audit details.
@@ -802,6 +803,11 @@ function DetailsDialogContent(props: DetailsDialogProps) {
       bodyClassName='pr-2 sm:pr-4'
     >
       <div className='w-full max-w-full min-w-0 space-y-6 overflow-x-hidden py-2'>
+        <RequestFailureFacts
+          log={props.log}
+          other={other}
+          isAdmin={props.isAdmin}
+        />
         <LogRequestSummary
           log={props.log}
           other={other}
