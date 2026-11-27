@@ -4988,6 +4988,231 @@ test('unpriced models can be found without opening each channel', async () => {
   assert.ok(dialog.textContent?.includes('pending-price'))
 })
 
+test('intake builds only chosen groups, requires observed models and previews an active price for each route', async () => {
+  const { buildIntakeRoutes, groupIntake, intakeIndex } =
+    await import('./native-intake-routes')
+  const config: NativeConfiguration = fixture()
+  const pair = { upstream: 'supplier/next', model: 'next' }
+  const limits = {
+    [pair.upstream]: { input: '4096', output: '512', revision: 'contract-1' },
+  }
+  config.routing.groups.push(
+    { name: 'GPT-Plus', enabled: true },
+    { name: 'GPT-Pro', enabled: true }
+  )
+  config.bindings.discoveries[1] = {
+    models: [pair.upstream],
+    pending_models: [pair.upstream],
+    observed_at: 1,
+  }
+  const channel = required(config.routing.upstreams.find((u) => u.id === 1))
+  const group = 'GPT-Plus'
+  const before = groupIntake(config, intakeIndex(config), channel, pair, group)
+  assert.ok(before.reasons.includes('Publish the official base price first.'))
+  assert.ok(before.reasons.includes('Enter the upstream contract revision.'))
+  config.bindings.official_prices = {
+    models: {
+      next: {
+        source: 'manual',
+        source_unit: 'USD/1M tokens',
+        rates: {
+          input: 100,
+          output: 200,
+          cache_read: 0,
+          cache_write: 0,
+          request: 0,
+        },
+      },
+    },
+    group_multipliers_ppm: { 'GPT-Plus': 1250000, 'GPT-Pro': 2000000 },
+    speed_multipliers_ppm: { fast: 1000000, ultrafast: 1000000 },
+  }
+  const original = structuredClone(config)
+  const selected = buildIntakeRoutes(config, 1, [pair], [group], limits)
+  assert.deepEqual(config, original)
+  assert.equal(selected.touched.size, 1)
+  assert.equal(selected.body.routing.routes.at(-1)?.group, group)
+  assert.deepEqual(
+    selected.body.routing.routes.slice(0, -1),
+    original.routing.routes
+  )
+  assert.deepEqual(selected.body.prices.rules, original.prices.rules)
+  assert.deepEqual(
+    selected.body.bindings.official_prices,
+    config.bindings.official_prices
+  )
+  assert.equal(
+    selected.body.bindings.contexts.at(-1)?.contract_revision,
+    'contract-1'
+  )
+  assert.throws(
+    () =>
+      buildIntakeRoutes(
+        config,
+        1,
+        [{ ...pair, upstream: 'removed' }],
+        [group],
+        limits
+      ),
+    /absent/
+  )
+  assert.throws(
+    () => buildIntakeRoutes(config, 1, [pair, pair], [group], limits),
+    /unique/
+  )
+})
+
+test('selected route review commits the exact preview digest only for the checked group', async () => {
+  const config: NativeConfiguration = fixture()
+  const model = 'group-price-intake'
+  config.routing.groups.push(
+    { name: 'GPT-Plus', enabled: true },
+    { name: 'GPT-Pro', enabled: true }
+  )
+  config.bindings.discoveries[1] = {
+    models: [model],
+    pending_models: [],
+    observed_at: 1,
+  }
+  config.bindings.contexts.push({
+    upstream_id: 1,
+    upstream_model: model,
+    protocol: config.routing.upstreams[0].protocol,
+    endpoint: config.routing.upstreams[0].endpoint,
+    max_input_tokens: 4096,
+    max_output_tokens: 512,
+    contract_revision: 'fixture-v1',
+  })
+  config.bindings.official_prices = {
+    models: {
+      [model]: {
+        source: 'manual',
+        source_unit: 'USD/1M tokens',
+        rates: {
+          input: 100,
+          output: 200,
+          cache_read: 0,
+          cache_write: 0,
+          request: 0,
+        },
+      },
+    },
+    group_multipliers_ppm: { 'GPT-Plus': 1500000 },
+    speed_multipliers_ppm: { fast: 1000000, ultrafast: 1000000 },
+  }
+  const calls: string[] = []
+  const checksum = 'b'.repeat(64)
+  let preview: Record<string, unknown> | undefined
+  const initial = structuredClone(config)
+  api.request = (async (options: {
+    url: string
+    method: string
+    data?: Record<string, unknown>
+  }) => {
+    const ok = (data: unknown) => ({ data: { success: true, data } })
+    if (options.method === 'GET') return ok(structuredClone(config))
+    calls.push(options.method + ' ' + options.url)
+    const data = required(options.data)
+    if (options.url.endsWith('/configuration/preview')) {
+      preview = data
+      const prices = structuredClone(
+        data.prices as NativeConfiguration['prices']
+      )
+      prices.rules.push({
+        id: 202,
+        model,
+        group: 'GPT-Plus',
+        speed: 'standard',
+        group_multiplier_ppm: 1500000,
+        speed_multiplier_ppm: 1000000,
+        rates: {
+          input: 100,
+          output: 200,
+          cache_write: 0,
+          cache_read: 0,
+          request: 0,
+        },
+      })
+      return ok({
+        ...data,
+        prices,
+        saved: false,
+        confirmation_digest: checksum,
+      })
+    }
+    assert.equal(options.method, 'PUT')
+    assert.deepEqual(data, { ...preview, confirmation_digest: checksum })
+    config.routing = data.routing as NativeConfiguration['routing']
+    config.prices = data.prices as NativeConfiguration['prices']
+    config.version = {
+      routing: config.routing.version,
+      pricing: config.prices.version,
+    }
+    return ok({ version: config.version })
+  }) as typeof api.request
+  const page = await mount('channels', true, {
+    native_channel_observations: false,
+  })
+  const click = (element: HTMLElement) =>
+    act(async () => {
+      element.click()
+    })
+  await until(() => page.textContent?.includes('Model onboarding') ?? false)
+  await click(button(page, 'Model onboarding'))
+  const dialog = () =>
+    required(page.querySelector<HTMLElement>('[role="dialog"]'))
+  await until(
+    () =>
+      !!dialog().querySelector(
+        'input[aria-label="Review model group-price-intake"]'
+      )
+  )
+  await click(
+    required(
+      dialog().querySelector<HTMLInputElement>(
+        'input[aria-label="Review model group-price-intake"]'
+      )
+    )
+  )
+  await click(button(dialog(), 'Review selected routes'))
+  const panel = () =>
+    required(
+      dialog().querySelector<HTMLElement>(
+        'section[aria-label="Review selected routes"]'
+      )
+    )
+  await click(
+    required(
+      [...panel().querySelectorAll('label')]
+        .find((label) => label.textContent === 'GPT-Plus')
+        ?.querySelector('input')
+    )
+  )
+  assert.equal(button(panel(), 'Publish selected routes').disabled, true)
+  await click(button(panel(), 'Preview selected routes'))
+  await until(() => !button(panel(), 'Publish selected routes').disabled)
+  assert.match(panel().textContent ?? '', /Affected channels.*#1/)
+  assert.deepEqual(config, initial)
+  await click(button(panel(), 'Publish selected routes'))
+  await until(() => calls.some((call) => call.startsWith('PUT')))
+  assert.deepEqual(calls, [
+    'POST /core/v1/admin/routing/configuration/preview',
+    'PUT /core/v1/admin/routing/configuration',
+  ])
+  assert.equal(
+    config.routing.routes.some(
+      (route) => route.model === model && route.group === 'GPT-Plus'
+    ),
+    true
+  )
+  assert.equal(
+    config.routing.routes.some(
+      (route) => route.model === model && route.group === 'GPT-Pro'
+    ),
+    false
+  )
+})
+
 test('channel onboarding persists missing-price selections without routing them', async () => {
   const config: NativeConfiguration = fixture()
   config.bindings.discoveries['1'] = {
@@ -5047,7 +5272,7 @@ test('channel onboarding persists missing-price selections without routing them'
   await until(() => box('model-c')?.checked === true)
   assert.equal(box('model-a'), null)
   assert.ok(
-    [...dialog().querySelectorAll('li')].some(
+    [...dialog().querySelectorAll('[data-intake-model]')].some(
       (row) =>
         row.textContent?.includes('model-a') &&
         row.textContent.includes('Enabled')
@@ -5071,11 +5296,11 @@ test('channel onboarding persists missing-price selections without routing them'
     /Channel models: 1 enabled, 1 pending without an official base price\./
   )
   assert.match(
-    dialog().querySelector('li')?.textContent ?? '',
+    dialog().querySelector('[data-intake-model]')?.textContent ?? '',
     /model-b.*Newly discovered/
   )
   assert.match(
-    box('model-c')?.closest('li')?.textContent ?? '',
+    box('model-c')?.closest('[data-intake-model]')?.textContent ?? '',
     /Missing official base price: model-c/
   )
   assert.equal(box('model-b')?.checked, false)
@@ -5086,7 +5311,9 @@ test('channel onboarding persists missing-price selections without routing them'
       dialog().textContent?.includes('2 returned, 0 newly discovered') ?? false
   )
   assert.ok(
-    !dialog().querySelector('li')?.textContent?.includes('Newly discovered')
+    !dialog()
+      .querySelector('[data-intake-model]')
+      ?.textContent?.includes('Newly discovered')
   )
   await click(required(box('model-b')))
   assert.equal(save().disabled, false)
@@ -5204,11 +5431,11 @@ async function checkPendingRoute(publicModel: string) {
   assert.deepEqual(config.routing.routes, before)
   await click(button(dialog(), 'Publish route'))
   await until(() =>
-    [...dialog().querySelectorAll('li')].some(
+    [...dialog().querySelectorAll('[data-intake-model]')].some(
       (row) =>
         row.querySelector('.font-mono')?.textContent === model &&
         row.textContent?.includes('Enabled') &&
-        !row.querySelector('input[type="checkbox"]')
+        !row.querySelector('input[aria-label="model-b"]')
     )
   )
   assert.deepEqual(config.routing.routes[0], before[0])
