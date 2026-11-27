@@ -1,0 +1,75 @@
+name: Native Zed OAuth and wallet
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  zed-native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd="pg_isready -U postgres" --health-interval=5s
+          --health-timeout=3s --health-retries=10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.19.0'
+      - name: Install the official editor, display and packaged LMM bridge
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb xauth dbus-x11 openbox xdotool mesa-vulkan-drivers libvulkan1 libxkbcommon-x11-0 libegl1 fonts-dejavu-core protobuf-compiler
+          curl -fLsS --retry 3 https://github.com/zed-industries/zed/releases/download/v1.30.2/zed-linux-x86_64.tar.gz -o "$RUNNER_TEMP/zed-linux.tar.gz"
+          echo "210e6a08dc5343123254dfa9b9dd7a6e828e6ac2b10f98cd4ed1bd7d68cca2df  $RUNNER_TEMP/zed-linux.tar.gz" | sha256sum -c
+          tar -xzf "$RUNNER_TEMP/zed-linux.tar.gz" -C "$RUNNER_TEMP"
+          test -x "$RUNNER_TEMP/zed.app/bin/zed"
+          echo "$RUNNER_TEMP/zed.app/bin" >> "$GITHUB_PATH"
+          git submodule update --init --depth 1 -- packages/zed-lmm-provider
+          cd packages/zed-lmm-provider
+          npm ci --ignore-scripts
+          npm run build
+          tgz="$(npm pack --silent --ignore-scripts --pack-destination "$RUNNER_TEMP")"
+          npm install --prefix "$RUNNER_TEMP/lmm-zed" --no-audit --no-fund --ignore-scripts "$RUNNER_TEMP/$tgz"
+          echo "ZED_BRIDGE_BIN=$RUNNER_TEMP/lmm-zed/node_modules/.bin/lmm-zed" >> "$GITHUB_ENV"
+          rustup toolchain install 1.100.0 --profile minimal
+      - name: Stream into the native text editor and verify the same Core request
+        env:
+          FIXTURE_TLS_CERT: ${{ runner.temp }}/zed-host-cert.pem
+          FIXTURE_TLS_KEY: ${{ runner.temp }}/zed-host-key.pem
+          NODE_EXTRA_CA_CERTS: ${{ runner.temp }}/zed-host-cert.pem
+          ZED_HOST_RECEIPT: ${{ runner.temp }}/zed-native-receipt.json
+        working-directory: services/core
+        run: |
+          set -euo pipefail
+          umask 077
+          trap 'rm -f -- "$FIXTURE_TLS_KEY" "$FIXTURE_TLS_CERT"' EXIT
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=pi-issuer.example.test' \
+            -addext 'subjectAltName=DNS:pi-issuer.example.test' -keyout "$FIXTURE_TLS_KEY" -out "$FIXTURE_TLS_CERT" 2>/dev/null
+          echo '127.0.0.1 pi-issuer.example.test' | sudo tee -a /etc/hosts >/dev/null
+          sudo sysctl -q -w net.ipv4.ip_unprivileged_port_start=443
+          export XDG_RUNTIME_DIR="$(mktemp -d "$RUNNER_TEMP/zed-runtime-XXXXXXXX")"
+          xvfb-run -a -s '-screen 0 1280x800x24' dbus-run-session -- bash -euc '
+            openbox >/dev/null 2>&1 &
+            cargo +1.100.0 test --locked --test zed_provider_host zed_inline_assistant_settles_one_ordinary_oauth_request -- --exact --ignored --nocapture
+          '
+          test -s "$ZED_HOST_RECEIPT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: zed-native-receipt-${{ github.sha }}
+          path: ${{ runner.temp }}/zed-native-receipt.json
+          if-no-files-found: error
+          retention-days: 14

@@ -208,7 +208,7 @@ enum FixtureApplications<'a> {
     PiAndProviders(&'a str),
     PiHost,
     MagpieHost,
-    OpenCodeHost,
+    ProviderHost,
 }
 
 pub(super) enum ManagedKeyring {
@@ -245,10 +245,10 @@ impl Fixture {
     async fn new(owner: &PgPool, developer: bool, applications: FixtureApplications<'_>) -> Self {
         let (native, ledger, _native_session, native_key, native_id, _native_account) =
             model_fixture::fixture(owner, 1000).await;
-        // V2 sends its own system prompt. The isolated wallet covers the declared
+        // Native provider hosts send their own prompts. The isolated wallet covers the declared
         // maximum input plus twenty output tokens at the fixture's frozen price.
         let (host_input_tokens, wallet_credits) = match applications {
-            FixtureApplications::OpenCodeHost => {
+            FixtureApplications::ProviderHost => {
                 (32_768, 32_768 + 2 * i64::from(HOST_OUTPUT_TOKENS))
             }
             FixtureApplications::PiHost => (PI_HOST_INPUT_TOKENS, WALLET_CREDITS),
@@ -258,12 +258,12 @@ impl Fixture {
             applications,
             FixtureApplications::PiHost
                 | FixtureApplications::MagpieHost
-                | FixtureApplications::OpenCodeHost
+                | FixtureApplications::ProviderHost
         );
         let applications = match applications {
             FixtureApplications::PiHost => FixtureApplications::PiOnly,
             FixtureApplications::MagpieHost => FixtureApplications::PiAndAllManaged,
-            FixtureApplications::OpenCodeHost => FixtureApplications::PiAndProviders(ISSUER),
+            FixtureApplications::ProviderHost => FixtureApplications::PiAndProviders(ISSUER),
             value => value,
         };
         let (model, group) = if cli_host {
@@ -780,6 +780,7 @@ pub(super) enum CliHost {
     Pi,
     Magpie,
     OpenCode,
+    Zed,
 }
 
 pub(super) async fn with_cli_host_fixture<F, Fut>(pool: PgPool, host: CliHost, case: F)
@@ -790,7 +791,7 @@ where
     let applications = match host {
         CliHost::Pi => FixtureApplications::PiHost,
         CliHost::Magpie => FixtureApplications::MagpieHost,
-        CliHost::OpenCode => FixtureApplications::OpenCodeHost,
+        CliHost::OpenCode | CliHost::Zed => FixtureApplications::ProviderHost,
     };
     with_fixture_applications(pool, false, applications, case).await;
 }
