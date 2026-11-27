@@ -751,8 +751,8 @@ impl Decoder {
                             }
                         },
                         UpstreamProtocol::Gemini => match kind {
-                            BlockKind::Text => (0, 0),
-                            BlockKind::ReasoningSummary => (1, 0),
+                            // A complete response has ordered parts with independent signatures.
+                            BlockKind::Text | BlockKind::ReasoningSummary => (0, ordinal),
                             BlockKind::Tool { .. } => {
                                 let key = (2, self.gemini_calls);
                                 self.gemini_calls += 1;

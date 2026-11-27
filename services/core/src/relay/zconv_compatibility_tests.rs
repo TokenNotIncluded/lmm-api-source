@@ -159,6 +159,41 @@ fn full_and_stream_responses_keep_raw_and_summary_in_distinct_blocks() {
 }
 
 #[test]
+fn gemini_complete_response_preserves_signed_parts_on_both_sides_of_a_tool() {
+    let parts = json!([
+        {"text":"before","thoughtSignature":"sig-before"},
+        {"functionCall":{"id":"call_1","name":"lookup","args":{"n":1}}},
+        {"text":"after","thoughtSignature":"sig-after"}
+    ]);
+    let response = json!({"responseId":"gemini_up","modelVersion":"m","candidates":[{
+        "index":0,"content":{"role":"model","parts":parts},"finishReason":"STOP"
+    }]});
+    let mut decoder = Decoder::new(UpstreamProtocol::Gemini, &Limits::default());
+    let events = decoder.json(&response).unwrap();
+    assert_eq!(
+        text_blocks(&events),
+        [
+            ("text", "before".into()),
+            ("tool", r#"{"n":1}"#.into()),
+            ("text", "after".into())
+        ]
+    );
+    let bytes = encode(ClientProtocol::Gemini, false, events.clone());
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["candidates"][0]["content"]["parts"], parts);
+
+    let bytes = encode(ClientProtocol::Responses, false, events);
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    let items = body["output"].as_array().unwrap();
+    assert_eq!(items.len(), 3);
+    assert_eq!(items[0]["content"][0]["text"], "before");
+    assert_eq!(items[0]["provider_metadata"]["signature"], "sig-before");
+    assert_eq!(items[1]["call_id"], "call_1");
+    assert_eq!(items[2]["content"][0]["text"], "after");
+    assert_eq!(items[2]["provider_metadata"]["signature"], "sig-after");
+}
+
+#[test]
 fn gemini_summary_survives_native_and_responses_json_and_stream_outputs() {
     for stream in [false, true] {
         for client in [ClientProtocol::Gemini, ClientProtocol::Responses] {
