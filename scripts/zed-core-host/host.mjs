@@ -8,7 +8,6 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import net from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createInterface } from 'node:readline'
 import { setTimeout as pause } from 'node:timers/promises'
 import { promisify } from 'node:util'
 import { approveBrowser, openCoreTls } from '../ci/managed-host-fixture.mjs'
@@ -16,7 +15,8 @@ import { approveBrowser, openCoreTls } from '../ci/managed-host-fixture.mjs'
 const run = promisify(execFile)
 const input = []
 for await (const part of process.stdin) input.push(part)
-const { coreBase, issuer, refresh, cap } = JSON.parse(Buffer.concat(input))
+const { coreBase, issuer: configuredIssuer, refresh, cap } = JSON.parse(Buffer.concat(input))
+const issuer = new URL(configuredIssuer).origin
 const root = await mkdtemp(join(tmpdir(), 'lmm-zed-'))
 const config = join(root, 'config', 'zed')
 const state = join(root, 'state')
@@ -50,21 +50,28 @@ try {
   tunnel = await openCoreTls({ coreBase, issuer, certFile: process.env.FIXTURE_TLS_CERT, keyFile: process.env.FIXTURE_TLS_KEY })
   const version = (await execute('zed', ['--version'])).stdout.trim().split(' ').slice(0,2).join(' ')
 
-  stage = 'ordinary user OAuth authorization and consent'
+  // This isolated browser launcher receives the ordinary authorization link chosen by the CLI.
+  // The existing Core browser-consent driver opens it over TLS and follows the real PKCE callback.
+  const tools = join(root, 'bin')
+  await mkdir(tools, { mode: 0o700 })
+  const linkFile = join(root, 'authorization.url')
+  await writeFile(join(tools, 'xdg-open'), '#!/bin/sh\numask 077\nprintf "%s" "$1" > "$LMM_ZED_AUTH_URL"\n', { mode: 0o700 })
+  env.PATH = tools + ':' + env.PATH
+  env.LMM_ZED_AUTH_URL = linkFile
+  stage = 'Zed bridge emits an ordinary browser authorization URL'
   login = spawn(bridgeBin, cliargs('login'), { env, cwd: root, stdio: ['ignore','pipe','ignore'], timeout: 45000 })
   const closed = once(login, 'close')
-  const lines = createInterface({ input: login.stdout })
-  let approved = false
-  for await (const line of lines) {
-    if (!line.startsWith(issuer + '/api/oauth2/authorize?')) continue
-    const target = new URL(line)
-    assert.equal(target.searchParams.get('client_id'), 'lmm-zed')
-    await approveBrowser(target.href, { issuer, refresh, cap })
-    approved = true
-    break
-  }
-  assert.equal(approved, true)
+  const target = new URL(await until(async () => {
+    if (login.exitCode !== null) throw new Error('login process finished before requesting browser')
+    return readFile(linkFile, 'utf8').catch(() => undefined)
+  }, 20000))
+  assert.equal(target.origin, issuer)
+  assert.equal(target.searchParams.get('client_id'), 'lmm-zed')
+  stage = 'Core ordinary user consent and loopback PKCE callback'
+  await approveBrowser(target.href, { issuer, refresh, cap })
+  stage = 'Zed persists the OAuth exchange and exits login'
   assert.equal((await closed)[0], 0)
+  assert.ok(tunnel.getAccess())
 
   stage = 'account catalog and genuine Zed provider settings'
   const catalog = JSON.parse((await execute(bridgeBin, cliargs('catalog'))).stdout)
@@ -130,9 +137,11 @@ try {
   assert.match(call.requestId, /^[a-f0-9]{64}$/)
   process.stdout.write(JSON.stringify({ host: version, provider: 'lmm-zed', request_id: call.requestId,
     granted_model: route.id, upstream_calls: 1, native_saved_reply: true, stop_count: 1, oauth_consent: true }))
-} catch {
+} catch (error) {
+  const safeCode = /^[A-Z_]+$/.test(error?.code ?? '') ? error.code : error?.name
+  const reason = error?.message === 'Timed out' ? 'deadline' : safeCode
   const status = tunnel?.calls.map(c => ({ path: c.path, status: c.status }))
-  console.error('Zed native acceptance failed at ' + stage + '; model HTTP ' + JSON.stringify(status ?? []))
+  console.error('Zed native acceptance failed at ' + stage + ' (' + reason + '); model HTTP ' + JSON.stringify(status ?? []))
   process.exitCode = 1
 } finally {
   if (bridge?.pid) { try { process.kill(-bridge.pid,'SIGTERM') } catch {} }
