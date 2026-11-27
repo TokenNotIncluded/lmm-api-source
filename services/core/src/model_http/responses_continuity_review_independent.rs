@@ -1709,7 +1709,10 @@ async fn pi_responses_oauth_streams_and_replays_output_without_creating_continua
                 let status = response.status();
                 if status != StatusCode::OK {
                     let failure = response.json::<Value>().await.unwrap_or_default();
-                    panic!("Pi OAuth turn {turn} returned {status}: {}", failure["error"]["code"]);
+                    panic!(
+                        "Pi OAuth turn {turn} returned {status}: {}",
+                        failure["error"]["code"]
+                    );
                 }
                 let id = oauth_id(&fixture.first, &nonce);
                 assert_eq!(response.headers()["x-request-id"].to_str().unwrap(), id);
