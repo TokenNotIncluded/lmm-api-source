@@ -188,7 +188,7 @@ var aggregateLanguages = map[string]aggregateCopy{
 }
 
 // renderAggregateSVG is the legacy aggregate card renderer.
-func renderAggregateSVG(o svgOptions, sources []aggregateSource) string {
+func renderAggregateSVG(o svgOptions, sources []aggregateSource, siteHost string) string {
 	c := aggregateLanguages[o.Lang]
 	if len(sources) > profileShareMaxLinkedProfiles+1 {
 		sources = sources[:profileShareMaxLinkedProfiles+1]
@@ -278,7 +278,7 @@ func renderAggregateSVG(o svgOptions, sources []aggregateSource) string {
 		}
 		svg.WriteString(`</g>`)
 	}
-	footer := "api.lmm.best · profile-share"
+	footer := siteHost + " · profile-share"
 	if o.CustomFooter {
 		footer = o.Footer
 	}

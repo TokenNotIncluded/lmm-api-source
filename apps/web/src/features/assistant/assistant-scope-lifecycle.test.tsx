@@ -376,6 +376,59 @@ async function ready(id = 91) {
   )
 }
 
+test(
+  'support keeps a 404 visible until retry, then resumes polling the current account',
+  { timeout: 15_000 },
+  async () => {
+    const { AxiosError } = await import('axios')
+    let available = false
+    let selfReads = 0
+    api.defaults.adapter = async (config) => {
+      const response = { config, headers: {}, status: 200, statusText: 'OK' }
+      if (config.url === '/api/assistant/support/eligibility') {
+        return {
+          ...response,
+          data: { success: true, data: { eligible: true } },
+        }
+      }
+      assert.equal(config.url, '/api/assistant/support/self')
+      assert.equal(config.params?.conversation_id, 0)
+      selfReads++
+      if (!available) {
+        throw new AxiosError(
+          'Not found',
+          AxiosError.ERR_BAD_REQUEST,
+          config,
+          undefined,
+          { ...response, status: 404, statusText: 'Not Found', data: {} }
+        )
+      }
+      return { ...response, data: { success: true, data: { request: null } } }
+    }
+    await mount(<Harness conversation={0} />)
+    await until(
+      () => selfReads === 1 && latest?.error instanceof AxiosError,
+      '404 surfaced'
+    )
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 3250))
+    })
+    assert.equal(selfReads, 1)
+    available = true
+    await act(async () => {
+      await latest.refresh()
+    })
+    await until(
+      () => selfReads === 2 && latest.error === null,
+      'manual retry succeeded'
+    )
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 3250))
+    })
+    assert.ok(selfReads > 2, 'successful reads resume normal polling')
+  }
+)
+
 test('support lost-reply retry reuses its turn ID only until success in the same committed scope', async () => {
   const base = transport
   let fail = true

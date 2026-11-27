@@ -1998,6 +1998,31 @@ struct AssistantConfig {
     agent: Option<crate::assistant_model::agent::store::AgentHostConfig>,
 }
 
+// Managed routes may replace these two host defaults. Keep persisted grants and
+// turns on their strict schema; only the host TOML accepts omitted selectors.
+fn parse_assistant_config(document: &[u8]) -> io::Result<AssistantConfig> {
+    let mut config: toml::Value = parse_document(document)?;
+    fn host_route(policy: Option<&mut toml::Value>) {
+        if let Some(policy) = policy.and_then(toml::Value::as_table_mut) {
+            for key in ["group", "model"] {
+                policy
+                    .entry(key)
+                    .or_insert_with(|| toml::Value::String(String::new()));
+            }
+        }
+    }
+    host_route(config.get_mut("personal_text"));
+    host_route(
+        config
+            .get_mut("agent")
+            .and_then(|agent| agent.get_mut("policy"))
+            .and_then(|policy| policy.get_mut("model")),
+    );
+    config
+        .try_into()
+        .map_err(|_| invalid_config("invalid core TOML configuration"))
+}
+
 /// Select the explicit agent authority for startup and the offline DB check.
 #[cfg(unix)]
 pub fn assistant_agent_configured() -> io::Result<bool> {
@@ -2008,7 +2033,7 @@ pub fn assistant_agent_configured() -> io::Result<bool> {
     else {
         return Ok(false);
     };
-    let config: AssistantConfig = parse_document(&document)?;
+    let config = parse_assistant_config(&document)?;
     if config.version != 1 {
         return Err(invalid_config(
             "unsupported assistant configuration version",
@@ -2057,7 +2082,7 @@ pub async fn assistant_rpc(
             ));
         }
     }
-    let config: AssistantConfig = parse_document(&document)?;
+    let config = parse_assistant_config(&document)?;
     if config.version != 1 {
         return Err(invalid_config(
             "unsupported assistant configuration version",
@@ -2109,7 +2134,12 @@ pub async fn assistant_rpc(
         gateway.clone(),
         config.personal_text,
     )
-    .map_err(|_| invalid_config("invalid assistant policy or model capability"))?;
+    .map_err(|error| match error {
+        crate::assistant_model::Error::Unavailable => invalid_config(
+            "assistant requires a selected group and model with a compatible route and price",
+        ),
+        _ => invalid_config("invalid assistant host policy"),
+    })?;
     let agent = config
         .agent
         .map(|host| {
@@ -4021,6 +4051,44 @@ pub fn checkin_rewards_configured() -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn assistant_host_route_defaults_are_optional_only_in_host_toml() {
+        let host = b"version=1
+[personal_text]
+budget_credits=10
+max_output_tokens=8
+ttl_seconds=30
+[agent]
+registry_file='/test/registry'
+registry_sha256='test'
+[agent.policy]
+max_rounds=1
+budget_credits=10
+max_tool_calls=1
+ttl_seconds=30
+allowed_tools=['get_account_access']
+initial_tools=['get_account_access']
+system_prompt='Test.'
+[agent.policy.model]
+budget_credits=10
+max_output_tokens=8
+ttl_seconds=30";
+        let config = super::parse_assistant_config(host).unwrap();
+        assert!(config.personal_text.group.is_empty());
+        assert!(config.personal_text.model.is_empty());
+        assert_eq!(config.agent.unwrap().policy.model, config.personal_text);
+        assert!(
+            serde_json::from_value::<crate::assistant_model::PersonalTextPolicy>(
+                serde_json::json!({"budget_credits":10,"max_output_tokens":8,"ttl_seconds":30})
+            )
+            .is_err()
+        );
+        assert!(
+            super::parse_assistant_config(b"version=1\n[personal_text]\nmax_output_tokens=8")
+                .is_err()
+        );
+    }
+
     #[test]
     fn provider_toml_ceilings_require_known_clients_and_a_model_service() {
         let document = |client: &str, ceiling: i64| {

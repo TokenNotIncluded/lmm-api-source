@@ -15,7 +15,14 @@ import (
 	"unicode/utf8"
 )
 
-const profileShareDestination = "https://api.lmm.best"
+// The public origin comes from the validated host configuration. Existing
+// installations without one retain the original card identity.
+func profileShareSite(origin string) *url.URL {
+	if site, err := url.Parse(origin); err == nil && site.Host != "" {
+		return site
+	}
+	return &url.URL{Scheme: "https", Host: "api.lmm.best"}
+}
 
 var profileShareHexColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
@@ -211,7 +218,7 @@ func profileSharePeriodStart(period string, now time.Time) int64 {
 	}
 }
 
-func renderProfileShareSVG(options profileShareSVGOptions, usage profileShareUsage) string {
+func renderProfileShareSVG(options profileShareSVGOptions, usage profileShareUsage, siteHost string) string {
 	fontFamily := "Arial, sans-serif"
 	switch options.Font {
 	case "mono":
@@ -246,7 +253,7 @@ func renderProfileShareSVG(options profileShareSVGOptions, usage profileShareUsa
 	}
 	fmt.Fprintf(&svg, `<rect x="1" y="1" width="%d" height="%d" rx="%d" fill="%s" stroke="%s" stroke-width="2"/>`, options.Width-2, options.Height-2, options.Radius, options.Background, options.Border)
 	fmt.Fprintf(&svg, `<g font-family="%s"><text x="36" y="39" font-size="15" font-weight="700" fill="%s">LMM Best</text>`, fontFamily, options.Accent)
-	fmt.Fprintf(&svg, `<text x="%d" y="39" text-anchor="end" font-size="14" fill="%s">api.lmm.best</text>`, options.Width-36, options.Muted)
+	fmt.Fprintf(&svg, `<text x="%d" y="39" text-anchor="end" font-size="14" fill="%s">%s</text>`, options.Width-36, options.Muted, svgText(siteHost))
 	fmt.Fprintf(&svg, `<text x="36" y="83" font-size="25" font-weight="600" fill="%s">%s</text>`, options.Foreground, svgText(options.Title))
 	fmt.Fprintf(&svg, `<text x="34" y="%d" font-size="%d" font-weight="700" fill="%s">%s</text>`, baseline, fontSize, options.Foreground, svgText(tokenText))
 	fmt.Fprintf(&svg, `<text x="36" y="%d" font-size="18" fill="%s">%s · %s</text>`, baseline+32, options.Muted, svgText(options.Label), svgText(options.Footer))

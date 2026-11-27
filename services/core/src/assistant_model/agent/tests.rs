@@ -294,6 +294,111 @@ async fn wait(
     panic!("durable agent did not reach {phase}")
 }
 #[sqlx::test(migrations = false)]
+async fn recovered_plugin_selection_runs_agent_and_personal_requests_without_host_selectors(
+    pool: PgPool,
+) {
+    use crate::assistant_model::{Binding, State};
+    use crate::channel_http::{ManagedChannels, assistant_model_settings, managed_router};
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
+    let (original, session, _, provider) = setup(&pool, "get_account_access").await;
+    let tls = super::confirmed_actions_tls_fixture::TlsProxy::start(&provider.endpoint);
+    let gateway = || gateway_endpoint_group_input_ceiling(&pool, &tls.endpoint, "allowed", 8192);
+    let admin = crate::identity::IdentityStore::from_pool(pool.clone())
+        .bootstrap_user(8, 6)
+        .await
+        .unwrap();
+    {
+        let node = gateway();
+        let manager = ManagedChannels::recover(pool.clone(), node.clone())
+            .await
+            .unwrap();
+        let app = managed_router(pool.clone(), manager)
+            .merge(assistant_model_settings(node, &original.policy.model));
+        let response = app
+            .oneshot(
+                Request::put("/api/option/assistant-model")
+                    .header("authorization", format!("Bearer {}", admin.secret))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"expected_version":{"routing":1,"pricing":1},
+                "model":"local-model","group":"allowed"})
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+    }
+    let node = gateway();
+    let manager = ManagedChannels::recover(pool.clone(), node.clone())
+        .await
+        .unwrap();
+    let _live_routes = managed_router(pool.clone(), manager);
+    let mut host = (*original.policy).clone();
+    host.model.group.clear();
+    host.model.model.clear();
+    let mut base = AssistantModel::new(pool.clone(), node, host.model.clone()).unwrap();
+    base.transport = base
+        .transport
+        .with_loopback_test_root(&tls.endpoint, tls.root.clone())
+        .unwrap();
+    let agent = AgentService::new(base.clone(), host, original.registry.clone()).unwrap();
+    let cv = base
+        .conversation(&session, "managed-agent", true)
+        .await
+        .unwrap()
+        .core_conversation_id;
+    agent
+        .start(&session, &cv, "turn1", "Read my real account")
+        .await
+        .unwrap();
+    let done = wait(&agent, &session, &cv, "completed").await;
+    assert_eq!(
+        done.final_text.as_deref(),
+        Some("done after durable tool result")
+    );
+    let frozen: Value = sqlx::query_scalar("SELECT host_policy FROM core_assistant.agent_turns WHERE conversation_id=$1 AND client_turn_id='turn1'").bind(&cv).fetch_one(&pool).await.unwrap();
+    assert_eq!(frozen["model"]["group"], "allowed");
+    assert_eq!(frozen["model"]["model"], "local-model");
+    assert_eq!(frozen["plugin_group"], "allowed");
+    let cv = base
+        .conversation(&session, "managed-personal", true)
+        .await
+        .unwrap()
+        .core_conversation_id;
+    let grant = base.turn(&session, &cv, "text", true).await.unwrap();
+    let binding = Binding {
+        delegation_id: grant.delegation_id,
+        core_conversation_id: cv,
+        turn_id: "text".into(),
+        round: 0,
+        operation_key: "text:0".into(),
+        text_sha256: Sha256::digest(b"hello").to_vec(),
+    };
+    base.reserve_text(&session, &binding, "hello")
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match base.operation(&session, &binding).await {
+                Ok(operation) if operation.state == State::Settled => break,
+                Ok(operation) => assert_ne!(operation.state, State::Unknown),
+                Err(Error::Conflict) => {}
+                Err(error) => panic!("unexpected personal operation status: {error:?}"),
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let calls = provider.requests.lock().unwrap();
+    assert_eq!(calls.len(), 3);
+    assert!(calls.iter().all(|body| body["model"] == "provider-model"));
+}
+
+#[sqlx::test(migrations = false)]
 async fn agent_request_limits_persist_rejection_without_answer_hold_or_dispatch(pool: PgPool) {
     let (agent, session, account, p) = setup(&pool, "get_account_access").await;
     let cv = agent

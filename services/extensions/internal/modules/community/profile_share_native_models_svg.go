@@ -119,7 +119,7 @@ func profileShareModelQuota(quota int64, currency string, usage profileShareMode
 
 var profileShareRate = regexp.MustCompile(`^[0-9]{1,18}(\.[0-9]{1,18})?$`)
 
-func renderProfileShareModelsSVG(options profileShareSVGOptions, usage profileShareModelUsage, start, end int64) (string, error) {
+func renderProfileShareModelsSVG(options profileShareSVGOptions, usage profileShareModelUsage, start, end int64, site *url.URL) (string, error) {
 	copy, ok := profileShareModelLanguages[options.Lang]
 	if !ok {
 		copy = profileShareModelLanguages["en"]
@@ -205,7 +205,7 @@ func renderProfileShareModelsSVG(options profileShareSVGOptions, usage profileSh
 	dateRange := time.Unix(start, 0).UTC().Format("2006-01-02") + " — " + time.Unix(end, 0).UTC().Format("2006-01-02") + " UTC"
 	text(56, 97, 15, "start", options.Muted, dateRange)
 	text(1144, 63, 20, "end", options.Accent, "LMM Best")
-	text(1144, 94, 14, "end", options.Muted, "api.lmm.best")
+	text(1144, 94, 14, "end", options.Muted, site.Host)
 	fmt.Fprintf(&svg, `<g class="model-ring" fill="none" stroke-width="26"><circle cx="226" cy="266" r="116" stroke="%s"/>`, options.Border)
 	offset := 0.0
 	for index, row := range rows {
@@ -269,7 +269,7 @@ func renderProfileShareModelsSVG(options profileShareSVGOptions, usage profileSh
 		text(600, 493, 18, "middle", options.Muted, copy.Empty)
 	}
 	text(56, height-36, 14, "start", options.Muted, svgShort(options.Footer, 64))
-	text(1144, height-36, 14, "end", options.Muted, "https://api.lmm.best")
+	text(1144, height-36, 14, "end", options.Muted, site.String())
 	svg.WriteString(`</g></g></svg>`)
 	return svg.String(), nil
 }

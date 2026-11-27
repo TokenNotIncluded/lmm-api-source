@@ -48,6 +48,21 @@ pub struct PersonalTextPolicy {
     pub service_funding: Option<ServiceFundingPolicy>,
 }
 impl PersonalTextPolicy {
+    fn on_route(&self, route: &(Option<String>, Option<String>)) -> Result<Self, Error> {
+        let mut policy = self.clone();
+        if let Some(group) = &route.0 {
+            policy.group.clone_from(group);
+        }
+        if let Some(model) = &route.1 {
+            policy.model.clone_from(model);
+        }
+        if policy.group.is_empty() || policy.model.is_empty() {
+            return Err(Error::Unavailable);
+        }
+        policy.validate()?;
+        Ok(policy)
+    }
+
     pub fn validate(&self) -> Result<(), Error> {
         if let Some(service) = &self.service_funding {
             service.validate()?;
@@ -253,16 +268,9 @@ impl AssistantModel {
         gateway: ModelGateway,
         policy: PersonalTextPolicy,
     ) -> Result<Self, Error> {
-        policy.validate()?;
-        gateway
-            .validate_assistant_policy(&policy.model, &policy.group, policy.max_output_tokens)
-            .map_err(|_| Error::Unavailable)?;
-        gateway
-            .assistant_quote(&policy.model, &policy.group)
-            .map_err(|_| Error::Unavailable)?;
         let capacity = gateway.assistant_parallelism();
         let charging = Charging::new(pool.clone(), Arc::new(TransactionalLedger));
-        Ok(Self {
+        let service = Self {
             charging,
             pool,
             gateway,
@@ -272,7 +280,18 @@ impl AssistantModel {
             transport: crate::relay::provider_network::ProviderTransport::new(capacity),
             changed: Arc::new(tokio::sync::Notify::new()),
             live: live::Registry::new(capacity),
-        })
+        };
+        let selected = service.policy.on_route(&service.recovered_route()?)?;
+        service.configured_price(&selected)?;
+        Ok(service)
+    }
+    fn recovered_route(&self) -> Result<(Option<String>, Option<String>), Error> {
+        self.gateway
+            .managed_channels()
+            .map(|manager| manager.assistant_route())
+            .transpose()
+            .map(|route| route.unwrap_or_default())
+            .map_err(|_| Error::Unavailable)
     }
     pub(crate) fn gift_enabled(&self) -> bool {
         self.policy.gift_tools
@@ -342,20 +361,12 @@ impl AssistantModel {
         Ok(t)
     }
     async fn selected_policy(&self) -> Result<PersonalTextPolicy, Error> {
-        let (group, model) = self
+        let route = self
             .gateway
             .assistant_route_override()
             .await
             .map_err(|_| Error::Unavailable)?;
-        let mut policy = self.policy.clone();
-        if let Some(group) = group {
-            policy.group = group;
-        }
-        if let Some(model) = model {
-            policy.model = model;
-        }
-        policy.validate()?;
-        Ok(policy)
+        self.policy.on_route(&route)
     }
 
     async fn selected_for(

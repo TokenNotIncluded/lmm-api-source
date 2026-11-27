@@ -157,8 +157,9 @@ export async function hideDirectoryAd(
       Number.isSafeInteger(result.refunded_quota) &&
       result.refunded_quota > 0 &&
       result.refunded_quota === result.ad.charged_quota
-    )
+    ) {
       return 'refunded'
+    }
     if (
       result.refunded === false &&
       result.refund_pending === true &&

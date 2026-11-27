@@ -516,12 +516,18 @@ async fn channel_copy_publishes_independent_keys_and_executable_bindings(pool: P
 async fn assistant_model_settings_publish_recover_and_preserve_other_routing_configuration(
     pool: PgPool,
 ) {
-    use lmm_core::assistant_model::PersonalTextPolicy;
+    use lmm_core::assistant_model::{AssistantModel, Error, PersonalTextPolicy};
     use lmm_core::channel_http::assistant_model_settings;
     let (channels, gateway, admin, ordinary) = vault_app(&pool).await;
     let policy: PersonalTextPolicy = serde_json::from_value(json!({
         "model":"model-a","group":"default","budget_credits":1000,"max_output_tokens":16,"ttl_seconds":60
     })).unwrap();
+    let mut fallback = policy.clone();
+    fallback.model = "retired-host-model".into();
+    assert!(matches!(
+        AssistantModel::new(pool.clone(), gateway.clone(), fallback.clone()),
+        Err(Error::Unavailable)
+    ));
     let settings_path = "/api/option/assistant-model";
     let configuration_path = "/core/v1/admin/routing/configuration";
     let app = channels.merge(assistant_model_settings(gateway.clone(), &policy));
@@ -650,7 +656,14 @@ async fn assistant_model_settings_publish_recover_and_preserve_other_routing_con
         .await
         .unwrap();
     let restarted = managed_router(pool.clone(), recovered)
-        .merge(assistant_model_settings(fresh_gateway, &policy));
+        .merge(assistant_model_settings(fresh_gateway.clone(), &policy));
+    // A recovered model-only binding still requires its legacy host group.
+    AssistantModel::new(pool.clone(), fresh_gateway.clone(), fallback.clone()).unwrap();
+    fallback.group.clear();
+    assert!(matches!(
+        AssistantModel::new(pool.clone(), fresh_gateway.clone(), fallback.clone()),
+        Err(Error::Unavailable)
+    ));
     let restored = success(&restarted, "GET", settings_path, &admin, Value::Null).await;
     assert_eq!(restored["model"], "assistant-alternate");
     assert_eq!(restored["routes"]["secondary"], json!(["model-a"]));
@@ -663,6 +676,11 @@ async fn assistant_model_settings_publish_recover_and_preserve_other_routing_con
     )
     .await;
     assert_eq!(moved["group"], "secondary");
+    fallback.group = "retired-host-group".into();
+    AssistantModel::new(pool.clone(), fresh_gateway.clone(), fallback.clone()).unwrap();
+    fallback.group.clear();
+    fallback.model.clear();
+    AssistantModel::new(pool.clone(), fresh_gateway, fallback).unwrap();
     assert_eq!(request(restarted.clone(), "PUT",settings_path,&admin,
         json!({"model":"assistant-alternate","group":"secondary","expected_version":moved["version"]})).await.0,StatusCode::BAD_REQUEST);
     let reset = success(

@@ -84,7 +84,7 @@ func TestAggregateSVGEscapes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svg := renderAggregateSVG(o, []aggregateSource{{Label: `"><script>`, Status: "snapshot", Period: "all"}})
+	svg := renderAggregateSVG(o, []aggregateSource{{Label: `"><script>`, Status: "snapshot", Period: "all"}}, "profiles.example.org")
 	if strings.Contains(svg, "<script>") || strings.Contains(svg, "<b>") || !strings.HasPrefix(svg, "<svg") {
 		t.Fatal("unescaped SVG text")
 	}

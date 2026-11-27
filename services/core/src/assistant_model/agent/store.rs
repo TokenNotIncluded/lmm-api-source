@@ -364,12 +364,25 @@ impl AgentService {
     }
     pub(crate) fn new(
         base: AssistantModel,
-        policy: AgentPolicy,
+        mut policy: AgentPolicy,
         registry: AgentRegistry,
     ) -> Result<Self, Error> {
-        policy.validate(&registry)?;
-        if policy.model != base.policy {
+        let route = base.recovered_route()?;
+        if policy.model.group.is_empty() {
+            policy.model.group.clone_from(&base.policy.group);
+        }
+        if policy.model.model.is_empty() {
+            policy.model.model.clone_from(&base.policy.model);
+        }
+        let legacy_group = policy.model.group.clone();
+        policy.model = policy.model.on_route(&route)?;
+        if policy.model != base.policy.on_route(&route)? {
             return Err(Error::Invalid);
+        }
+        policy.validate(&registry)?;
+        // Older turns without plugin_group must still match their host group.
+        if !legacy_group.is_empty() {
+            policy.model.group = legacy_group;
         }
         Ok(Self {
             base,
@@ -654,7 +667,7 @@ impl AgentService {
             policy.model = selection?;
             let price = self.base.configured_price(&policy.model)?;
             let mut frozen = serde_json::to_value(&policy).map_err(|_| Error::Unavailable)?;
-            if policy.model.group != self.policy.model.group {
+            if self.base.policy.group.is_empty() || policy.model.group != self.policy.model.group {
                 frozen["plugin_group"] = serde_json::json!(policy.model.group);
             }
             sqlx::query("INSERT INTO core_assistant.agent_turns(id,conversation_id,client_turn_id,session_id,source_web_session_sid,auth_version,owner_user_id,owner_account_id,original_text,text_sha256,registry_sha256,host_policy,max_rounds,budget_credits,expires_at,phase,price,loaded_tools) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'new',$16,$17)")

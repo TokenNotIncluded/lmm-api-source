@@ -123,6 +123,7 @@ func renderProfileShareProfileSVG(
 	owner *profileShareOwner,
 	rows []profileShareDay,
 	startDay int64,
+	siteOrigin string,
 ) string {
 	labels := profileShareProfileCopy[options.Lang]
 	summary := buildProfileShareYearSummary(rows, startDay)
@@ -244,7 +245,7 @@ func renderProfileShareProfileSVG(
 	for _, month := range months {
 		fmt.Fprintf(&svg, `<text x="%d" y="785" font-size="15" fill="%s">%s</text>`, 40+month.week*21, options.Muted, svgText(profileShareMonthLabel(month.month, options.Lang)))
 	}
-	fmt.Fprintf(&svg, `<text x="40" y="834" font-size="17" fill="%s">%s</text><text x="1160" y="834" text-anchor="end" font-size="17" fill="%s">%s</text>`, options.Muted, svgText(footer), options.Foreground, profileShareDestination)
+	fmt.Fprintf(&svg, `<text x="40" y="834" font-size="17" fill="%s">%s</text><text x="1160" y="834" text-anchor="end" font-size="17" fill="%s">%s</text>`, options.Muted, svgText(footer), options.Foreground, svgText(siteOrigin))
 	svg.WriteString(`</g></svg>`)
 	return svg.String()
 }

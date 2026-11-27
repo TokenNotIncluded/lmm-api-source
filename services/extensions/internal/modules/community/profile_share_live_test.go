@@ -22,6 +22,7 @@ import (
 func profileLiveInt(n int64) *int64 { return &n }
 
 func TestProfileShareLiveLayouts(t *testing.T) {
+	site := profileShareSite("")
 	for _, lang := range []string{"en", "zh", "zh-TW", "fr", "ja", "ru", "vi"} {
 		for _, layout := range []string{"profile", "badge", "models"} {
 			q := url.Values{"layout": {layout}, "lang": {lang}, "title": {"<script> & \"test\""}}
@@ -38,11 +39,11 @@ func TestProfileShareLiveLayouts(t *testing.T) {
 			var svg string
 			switch layout {
 			case "profile":
-				svg = renderProfileShareProfileSVG(o, &profileShareOwner{DisplayName: "Owner", Username: "owner", Role: 10}, []profileShareDay{{Day: 86400, Tokens: 23}}, 0)
+				svg = renderProfileShareProfileSVG(o, &profileShareOwner{DisplayName: "Owner", Username: "owner", Role: 10}, []profileShareDay{{Day: 86400, Tokens: 23}}, 0, site.String())
 			case "models":
-				svg, err = renderProfileShareModelsSVG(o, profileShareModelUsage{Tokens: 23, Requests: 2, ModelCount: 1, Models: []profileShareModelRow{{ModelName: "<script>", Tokens: 23, Requests: 2}}}, 1, 2)
+				svg, err = renderProfileShareModelsSVG(o, profileShareModelUsage{Tokens: 23, Requests: 2, ModelCount: 1, Models: []profileShareModelRow{{ModelName: "<script>", Tokens: 23, Requests: 2}}}, 1, 2, site)
 			default:
-				svg = renderProfileShareSVG(o, profileShareUsage{Tokens: 23, Requests: 2})
+				svg = renderProfileShareSVG(o, profileShareUsage{Tokens: 23, Requests: 2}, site.Host)
 			}
 			if err != nil || strings.Contains(svg, "<script>") || !strings.Contains(svg, "&lt;script&gt;") {
 				t.Fatalf("unsafe %s %s: %v", layout, lang, err)
@@ -401,6 +402,67 @@ func TestProfileShareLiveHTTPAllNativeLayouts(t *testing.T) {
 	}
 	if allTime.Load() != 3 {
 		t.Fatalf("alltime never read from Core: %d", allTime.Load())
+	}
+}
+
+func TestProfileShareLiveHTTPPublicOrigin(t *testing.T) {
+	token := strings.Repeat("e", 48)
+	db := sql.OpenDB(&profileLiveStore{share: &profileShare{UserID: 52, Token: token, AggregateUsageEnabled: true, ModelUsageEnabled: true}})
+	defer db.Close()
+	core := profileLiveCore(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/users") {
+			_ = json.NewEncoder(w).Encode([]CoreUserInfo{{UserID: 52, Active: true}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(CoreUserUsage{UserID: 52, Active: true, CreditsPerUSD: 500000})
+	})
+	for _, site := range []struct{ name, configured, origin, host string }{
+		{"default", "", "https://api.lmm.best", "api.lmm.best"},
+		{"configured", "https://profiles.example.org", "https://profiles.example.org", "profiles.example.org"},
+		{"local", "http://127.0.0.1:18559", "http://127.0.0.1:18559", "127.0.0.1:18559"},
+	} {
+		svc := &Service{db: db, core: core, origin: site.configured, now: time.Now}
+		mux := http.NewServeMux()
+		svc.Register(mux, fakeAuth{})
+		for _, tc := range []struct {
+			query string
+			text  []string
+		}{
+			{"", []string{site.origin}},
+			{"layout=badge", []string{site.host}},
+			{"layout=models", []string{site.host, site.origin}},
+			{"layout=aggregate", []string{site.host + " · profile-share"}},
+			{"layout=aggregate&footer=Team+%26+Partners", []string{"Team & Partners"}},
+		} {
+			t.Run(site.name+"/"+tc.query, func(t *testing.T) {
+				request := httptest.NewRequest("GET", "https://visitor.example.net/api/share/profile/"+token+".svg?"+tc.query, nil)
+				request.Header.Set("X-Forwarded-Host", "forwarded.example.net")
+				response := httptest.NewRecorder()
+				mux.ServeHTTP(response, request)
+				body := response.Body.String()
+				if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "image/svg+xml; charset=utf-8" {
+					t.Fatalf("unexpected SVG response: %d %s", response.Code, body)
+				}
+				var card struct {
+					XMLName xml.Name `xml:"svg"`
+				}
+				if err := xml.Unmarshal([]byte(body), &card); err != nil {
+					t.Fatal(err)
+				}
+				for _, want := range tc.text {
+					if !strings.Contains(body, ">"+svgText(want)+"</text>") {
+						t.Errorf("missing visible SVG text %q", want)
+					}
+				}
+				if strings.Contains(body, "visitor.example.net") || strings.Contains(body, "forwarded.example.net") ||
+					(site.configured != "" && strings.Contains(body, "api.lmm.best")) {
+					t.Error("SVG contains a host outside its configured origin")
+				}
+				if strings.Contains(tc.query, "footer=") && strings.Contains(body, " · profile-share") {
+					t.Error("default footer replaced a custom footer")
+				}
+			})
+		}
 	}
 }
 

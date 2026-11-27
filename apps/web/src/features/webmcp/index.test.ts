@@ -66,9 +66,11 @@ test('registers safe read/navigation tools and aborts them on cleanup', async ()
       assert.equal(site.pi_oauth, null)
     } finally {
       globalThis.fetch = originalFetch
-      if (previousWindow)
+      if (previousWindow) {
         Object.defineProperty(globalThis, 'window', previousWindow)
-      else Reflect.deleteProperty(globalThis, 'window')
+      } else {
+        Reflect.deleteProperty(globalThis, 'window')
+      }
     }
     assert.equal(new Set(names).size, names.length)
     assert.equal(listeners.length, 1)

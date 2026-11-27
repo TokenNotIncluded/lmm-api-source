@@ -64,8 +64,9 @@ func (h *handlers) profileShareLiveSVG(w http.ResponseWriter, r *http.Request) {
 	}
 	now := h.s.now()
 	var svg string
+	site := profileShareSite(h.s.origin)
 	if query.Get("layout") == "aggregate" {
-		svg = renderAggregateSVG(aggregate, h.s.resolveProfileShareSources(r.Context(), share, aggregate.Period, now))
+		svg = renderAggregateSVG(aggregate, h.s.resolveProfileShareSources(r.Context(), share, aggregate.Period, now), site.Host)
 	} else {
 		start := profileSharePeriodStart(options.Period, now)
 		bucket := int64(0)
@@ -98,7 +99,7 @@ func (h *handlers) profileShareLiveSVG(w http.ResponseWriter, r *http.Request) {
 				}
 				modelUsage.Models = append(modelUsage.Models, public)
 			}
-			svg, err = renderProfileShareModelsSVG(options, modelUsage, start, now.Unix())
+			svg, err = renderProfileShareModelsSVG(options, modelUsage, start, now.Unix(), site)
 		case "profile":
 			owner := profileShareOwner{DisplayName: usage.Name, Username: usage.Username, Role: 1}
 			switch usage.PlatformRole {
@@ -120,9 +121,9 @@ func (h *handlers) profileShareLiveSVG(w http.ResponseWriter, r *http.Request) {
 			for _, p := range usage.Buckets {
 				days = append(days, profileShareDay{Day: p.Bucket, Tokens: p.Tokens})
 			}
-			svg = renderProfileShareProfileSVG(options, &owner, days, start)
+			svg = renderProfileShareProfileSVG(options, &owner, days, start, site.String())
 		default:
-			svg = renderProfileShareSVG(options, profileShareUsage{Tokens: usage.Totals.Tokens, Requests: usage.Totals.Requests})
+			svg = renderProfileShareSVG(options, profileShareUsage{Tokens: usage.Totals.Tokens, Requests: usage.Totals.Requests}, site.Host)
 		}
 	}
 	if err != nil {

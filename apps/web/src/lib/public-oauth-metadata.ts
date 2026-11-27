@@ -51,8 +51,9 @@ export async function readPublicOAuthMetadata(signal: AbortSignal) {
       protectedResource.resource !== `${issuer}/api/oauth2` ||
       authorization.authorization_endpoint !==
         `${protectedResource.resource}/authorize`
-    )
+    ) {
       return null
+    }
     return {
       issuer,
       pi: authorization.lmm_client_ids_supported.includes('lmm-pi'),

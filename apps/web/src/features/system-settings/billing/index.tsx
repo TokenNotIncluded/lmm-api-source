@@ -127,12 +127,16 @@ const defaultBillingSettings: BillingSettings = {
   'checkin_setting.max_quota': 10000,
 }
 
+function PaymentGatewaySection() {
+  const hash = useLocation({ select: (location) => location.hash })
+  return <NativePaymentGateways initialHash={hash} />
+}
+
 export function BillingSettings() {
   const { t } = useTranslation()
   const { section } = useParams({
     from: '/_authenticated/system-settings/billing/$section',
   })
-  const hash = useLocation({ select: (location) => location.hash })
   // Published prices have their own capability and versioned management API.
   if (section === 'model-pricing' || section === 'group-pricing') {
     return (
@@ -169,7 +173,7 @@ export function BillingSettings() {
   if (section === 'payment') {
     return (
       <SettingsPageFrame title={t('Payment')}>
-        <NativePaymentGateways initialHash={hash} />
+        <PaymentGatewaySection />
       </SettingsPageFrame>
     )
   }
