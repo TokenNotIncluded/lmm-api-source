@@ -611,6 +611,17 @@ for (const money of [
       () =>
         container.textContent?.includes(`${money.quota} Raw credits`) === true
     )
+    assert.equal(
+      container.querySelector('[title="Historical monetary value unavailable"]')
+        ?.textContent,
+      `Usage${money.quota} Raw credits`
+    )
+    await waitFor(
+      () =>
+        container.querySelectorAll(
+          '[aria-label="Usage trend for the selected time range"] button'
+        ).length === 12
+    )
     assert.match(container.textContent ?? '', /RPM\s*29/)
     assert.match(container.textContent ?? '', /TPM\s*743/)
     assert.doesNotMatch(container.textContent ?? '', /USD/)
