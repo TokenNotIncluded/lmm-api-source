@@ -26,12 +26,25 @@ export async function capturePaidLogViews(browser, session, payment, web) {
   const directory = join(dirname(process.env.BROWSER_RECEIPT), 'usage-log-details')
   await mkdir(directory, { recursive: true })
   const captures = []
+  const failedRequests = new Set()
+  const viewsWithErrors = []
   for (const { label, width, height, touch } of viewports) {
     const { page, user } = await session(browser, 'browserpayer', '/wallet', {
       viewport: { width, height }, isMobile: touch, hasTouch: touch, deviceScaleFactor: touch ? 3 : 1,
     })
     try {
       assert.equal(user, payment.user)
+      page.on('response', response => {
+        const url = new URL(response.url())
+        const status = response.status()
+        if (url.origin !== web || !['fetch', 'xhr'].includes(response.request().resourceType())) return
+        if (status !== 404 && status < 500) return
+        // Keep the route template only. Query strings, IDs, and credentials are private.
+        const route = url.pathname.split('/').map(part =>
+          part === '' || /^[a-z][a-z_-]{0,30}$/.test(part) || /^v[0-9]+$/.test(part) ? part : '{id}'
+        ).join('/')
+        failedRequests.add(response.request().method() + ' ' + route + ' ' + status)
+      })
       // Use the application's real System preference and Chromium's OS color scheme.
       await page.context().addCookies([{ name: 'vite-ui-theme', value: 'system', url: web }])
       for (const theme of ['light', 'dark']) {
@@ -53,11 +66,15 @@ export async function capturePaidLogViews(browser, session, payment, web) {
         }
         const filename = label + '-' + width + 'x' + height + '-' + theme + '.png'
         await page.screenshot({ path: join(directory, filename), scale: 'css' })
+        if (await page.locator('[data-sonner-toast][data-type="error"]:visible').count()) {
+          viewsWithErrors.push(label + '-' + theme)
+        }
         captures.push({ file: 'usage-log-details/' + filename, width, height, theme, touch, request_id: payment.request_id })
       }
     } finally {
       await page.context().close()
     }
   }
+  assert.deepEqual({ requests: [...failedRequests], viewsWithErrors }, { requests: [], viewsWithErrors: [] }, 'Ordinary request details must load without failed API requests or visible errors')
   return captures
 }
