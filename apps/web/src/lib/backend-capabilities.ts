@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import type { BackendCapabilities, SystemStatus } from '@/features/auth/types'
 
 const NO_BACKEND_CAPABILITIES: Readonly<BackendCapabilities> = Object.freeze({
+  compensation_gifts: false,
   bounty_notifications: false,
   bounty_challenge_cancel: false,
   bounty_public_read: false,
@@ -34,6 +35,7 @@ export function getBackendCapabilities(
   const reported = status?.backend_capabilities
 
   return {
+    compensation_gifts: reported?.compensation_gifts === true,
     bounty_notifications: reported?.bounty_notifications === true,
     bounty_challenge_cancel: reported?.bounty_challenge_cancel === true,
     bounty_public_read: reported?.bounty_public_read === true,

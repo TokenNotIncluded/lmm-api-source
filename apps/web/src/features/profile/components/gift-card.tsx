@@ -39,7 +39,11 @@ import type { GiftItem } from '../types'
  * Compensation gift card shown on the profile page when the operator has
  * published time-boxed gifts. Users proactively claim within the window.
  */
-export function GiftCard() {
+export function GiftCard({ available }: { available: boolean }) {
+  return available ? <AvailableGiftCard /> : null
+}
+
+function AvailableGiftCard() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const userId = useAuthStore((state) => state.auth.user?.id)

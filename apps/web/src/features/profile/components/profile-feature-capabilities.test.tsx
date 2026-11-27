@@ -213,7 +213,7 @@ test('gift read failures are not an empty gift list or repeated automatic claims
       data: { success: false, message: 'Compensation service unavailable' },
     }
   }) as typeof api.get
-  const host = await render(<GiftCard />)
+  const host = await render(<GiftCard available />)
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 30))
   })
@@ -229,4 +229,34 @@ test('gift read failures are not an empty gift list or repeated automatic claims
     await new Promise((resolve) => setTimeout(resolve, 30))
   })
   assert.equal(calls, 2)
+})
+
+test('servers without advertised compensation campaigns never issue a list or a claim request', async () => {
+  useAuthStore.setState({
+    auth: {
+      ...previousAuth,
+      user: { id: 7, role: 1 },
+      session: { sid: 'synthetic-profile-session' },
+    } as never,
+  })
+  const originalPost = api.post
+  const calls: string[] = []
+  api.get = (async (url: string) => {
+    calls.push(url)
+    throw new Error('Unexpected GET')
+  }) as typeof api.get
+  api.post = (async (url: string) => {
+    calls.push(url)
+    throw new Error('Unexpected POST')
+  }) as typeof api.post
+  try {
+    const host = await render(<GiftCard available={false} />)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30))
+    })
+    assert.deepEqual(calls, [])
+    assert.equal(host.textContent, '')
+  } finally {
+    api.post = originalPost
+  }
 })

@@ -93,6 +93,7 @@ export interface ApiResponse<T = unknown> {
 // ============================================================================
 
 export interface BackendCapabilities {
+  compensation_gifts: boolean
   bounty_notifications: boolean
   bounty_challenge_cancel: boolean
   bounty_public_read: boolean

@@ -28,6 +28,7 @@ import {
 describe('native backend capabilities', () => {
   test('keeps missing or unconfirmed capabilities disabled', () => {
     assert.deepEqual(getBackendCapabilities(null), {
+      compensation_gifts: false,
       bounty_notifications: false,
       bounty_challenge_cancel: false,
       bounty_public_read: false,
@@ -41,6 +42,7 @@ describe('native backend capabilities', () => {
     const nested = {
       data: {
         backend_capabilities: {
+          compensation_gifts: true,
           bounty_notifications: true,
           bounty_challenge_cancel: true,
           bounty_public_read: true,
@@ -67,6 +69,7 @@ describe('native backend capabilities', () => {
     assert.deepEqual(
       getBackendCapabilities({
         backend_capabilities: {
+          compensation_gifts: true,
           bounty_notifications: true,
           bounty_challenge_cancel: true,
           bounty_public_read: true,
@@ -76,6 +79,7 @@ describe('native backend capabilities', () => {
         },
       }),
       {
+        compensation_gifts: true,
         bounty_notifications: true,
         bounty_challenge_cancel: true,
         bounty_public_read: true,
@@ -100,6 +104,7 @@ describe('native backend capabilities', () => {
   test('masks every cached capability until the current mount confirms live status', () => {
     const cachedStatus = {
       backend_capabilities: {
+        compensation_gifts: true,
         bounty_notifications: true,
         bounty_challenge_cancel: true,
         bounty_public_read: true,
@@ -112,6 +117,7 @@ describe('native backend capabilities', () => {
     assert.deepEqual(
       getBackendCapabilities(getCapabilitySafeStatus(cachedStatus, false)),
       {
+        compensation_gifts: false,
         bounty_notifications: false,
         bounty_challenge_cancel: false,
         bounty_public_read: false,

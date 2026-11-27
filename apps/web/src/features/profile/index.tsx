@@ -173,7 +173,12 @@ export function Profile() {
               value='rewards'
               className='grid items-start gap-5 lg:grid-cols-2'
             >
-              <GiftCard />
+              <GiftCard
+                available={
+                  capabilitiesReady &&
+                  status?.backend_capabilities?.compensation_gifts === true
+                }
+              />
               <ReferralOverviewCard />
               <CheckinHistoryCard />
               <ProfileCheckinCapability
