@@ -8,6 +8,7 @@ pub(crate) async fn check_selected_model_issuance(
     pool: &PgPool,
     gateway: ModelGateway,
     session: &str,
+    other_session: &str,
     host: &PersonalTextPolicy,
 ) {
     let mut expected = host.clone();
@@ -15,7 +16,34 @@ pub(crate) async fn check_selected_model_issuance(
     let quote = gateway
         .assistant_quote(&expected.model, &expected.group)
         .unwrap();
-    assert_eq!(quote.model, "model-a"); // The alias has the canonical model's real tariff.
+    let default_quote = gateway.assistant_quote(&host.model, &host.group).unwrap();
+    assert_eq!(default_quote.model, "model-a");
+    assert_eq!(quote.model, "model-b");
+    assert_eq!(
+        (
+            default_quote.input_per_million,
+            default_quote.output_per_million
+        ),
+        (1, 2)
+    );
+    assert_eq!(
+        (quote.input_per_million, quote.output_per_million),
+        (50_000, 100_000)
+    );
+    assert_ne!(quote, default_quote);
+    let attempt = gateway
+        .dashboard_routing()
+        .route(crate::routing::RouteRequest {
+            model: &expected.model,
+            group: &expected.group,
+            protocol: crate::routing::Protocol::OpenAiChat,
+            speed: None,
+            replay: crate::routing::ReplayPermission::Denied,
+        })
+        .unwrap()
+        .start()
+        .unwrap();
+    assert_eq!(attempt.upstream_model(), "model-b");
     let expected_price = serde_json::to_value(quote).unwrap();
     let base = AssistantModel::new(pool.clone(), gateway, host.clone()).unwrap();
     let personal = base
@@ -34,6 +62,16 @@ pub(crate) async fn check_selected_model_issuance(
             .unwrap();
     assert_eq!(frozen.0, serde_json::to_value(&expected).unwrap());
     assert_eq!(frozen.1, expected_price);
+    assert!(matches!(
+        base.turn(
+            other_session,
+            &personal.core_conversation_id,
+            "first",
+            false
+        )
+        .await,
+        Err(Error::Forbidden)
+    ));
 
     let tools = BTreeSet::from(["get_account_access".to_owned()]);
     let policy = AgentPolicy {
@@ -81,6 +119,12 @@ pub(crate) async fn check_selected_model_issuance(
     assert_eq!(frozen.0, serde_json::to_value(&expected_agent).unwrap());
     assert_eq!(frozen.1, expected_price);
     assert_eq!(turn.held_credits, 0);
+    assert!(matches!(
+        service
+            .get(other_session, &conversation.core_conversation_id, "first")
+            .await,
+        Err(Error::Forbidden)
+    ));
 }
 
 pub(crate) async fn check_replaced_model_grant(
@@ -89,6 +133,14 @@ pub(crate) async fn check_replaced_model_grant(
     session: &str,
     host: &PersonalTextPolicy,
 ) {
+    let default_price =
+        serde_json::to_value(gateway.assistant_quote(&host.model, &host.group).unwrap()).unwrap();
+    let previous_price = serde_json::to_value(
+        gateway
+            .assistant_quote("assistant-alternate", &host.group)
+            .unwrap(),
+    )
+    .unwrap();
     let base = AssistantModel::new(pool.clone(), gateway, host.clone()).unwrap();
     let conversation = base
         .conversation(session, "selection-personal", false)
@@ -116,17 +168,27 @@ pub(crate) async fn check_replaced_model_grant(
         .unwrap();
     assert!(retired.revoked);
     assert_eq!(retired.delegation_id, grant.delegation_id);
+    let retired_price: Value =
+        sqlx::query_scalar("SELECT price FROM core_assistant.grants WHERE id=$1")
+            .bind(&retired.delegation_id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(retired_price, previous_price);
 
     let next = base
         .turn(session, &conversation.core_conversation_id, "second", true)
         .await
         .unwrap();
-    let frozen: Value = sqlx::query_scalar("SELECT policy FROM core_assistant.grants WHERE id=$1")
-        .bind(&next.delegation_id)
-        .fetch_one(pool)
-        .await
-        .unwrap();
-    assert_eq!(frozen, serde_json::to_value(host).unwrap());
+    let frozen: (Value, Value) =
+        sqlx::query_as("SELECT policy,price FROM core_assistant.grants WHERE id=$1")
+            .bind(&next.delegation_id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(frozen.0, serde_json::to_value(host).unwrap());
+    assert_eq!(frozen.1, default_price);
+    assert_ne!(frozen.1, retired_price);
     let dispatched: i64 = sqlx::query_scalar("SELECT count(*) FROM core_charging.requests WHERE assistant_grant_id=$1 OR assistant_grant_id=$2")
         .bind(&grant.delegation_id).bind(&next.delegation_id).fetch_one(pool).await.unwrap();
     assert_eq!(dispatched, 0);

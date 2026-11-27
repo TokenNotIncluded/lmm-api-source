@@ -538,15 +538,38 @@ async fn assistant_model_settings_publish_recover_and_preserve_other_routing_con
     let cfg = success(&app, "GET", configuration_path, &admin, Value::Null).await;
     let mut routing = cfg["routing"].clone();
     routing["version"] = json!(2);
+    let mut route = routing["routes"][0].clone();
+    route["id"] = json!(2);
+    route["model"] = json!("model-b");
+    route["targets"][0]["id"] = json!(2);
+    route["targets"][0]["upstream_model"] = json!("model-b");
+    routing["routes"].as_array_mut().unwrap().push(route);
     routing["aliases"] =
-        json!([{"group":"default","model":"model-a","alias":"assistant-alternate"}]);
-    let mut change = json!({"expected_version":cfg["version"],"routing":routing,"prices":cfg["prices"],"bindings":cfg["bindings"]});
+        json!([{"group":"default","model":"model-b","alias":"assistant-alternate"}]);
+
+    let mut prices = cfg["prices"].clone();
+    prices["version"] = json!(2);
+    let mut rule = prices["rules"][0].clone();
+    rule["id"] = json!(2);
+    rule["model"] = json!("model-b");
+    rule["rates"]["input"] = json!(100_000);
+    rule["rates"]["output"] = json!(200_000);
+    prices["rules"].as_array_mut().unwrap().push(rule);
+
+    let mut bindings = cfg["bindings"].clone();
+    let mut context = bindings["contexts"][0].clone();
+    context["upstream_model"] = json!("model-b");
+    bindings["contexts"].as_array_mut().unwrap().push(context);
+    let mut change = json!({"expected_version":cfg["version"],"routing":routing,"prices":prices,"bindings":bindings});
     let preview_path = format!("{configuration_path}/preview");
     let preview = success(&app, "POST", &preview_path, &admin, change.clone()).await;
     change["confirmation_digest"] = preview["confirmation_digest"].clone();
     success(&app, "PUT", configuration_path, &admin, change).await;
     let loaded = success(&app, "GET", settings_path, &admin, Value::Null).await;
-    assert_eq!(loaded["models"], json!(["assistant-alternate", "model-a"]));
+    assert_eq!(
+        loaded["models"],
+        json!(["assistant-alternate", "model-a", "model-b"])
+    );
     let selection = json!({"expected_version":loaded["version"], "model":"assistant-alternate"});
     assert_eq!(
         request(
@@ -582,6 +605,7 @@ async fn assistant_model_settings_publish_recover_and_preserve_other_routing_con
         &pool,
         gateway.clone(),
         &ordinary,
+        &admin,
         &policy,
     )
     .await;
