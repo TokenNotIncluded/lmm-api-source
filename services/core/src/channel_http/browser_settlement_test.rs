@@ -158,6 +158,9 @@ async fn paid_gateway(pool: &PgPool, address: SocketAddr, model: &str) -> ModelG
 async fn browser_onboarding_wallet(pool: PgPool) {
     let (identity, ledger, _, _, _, account) = model_fixture::fixture(&pool, 1000).await;
     identity.bootstrap_user(8, 6).await.unwrap();
+    lmm_core::console_compat::record_initialization(&pool, env!("CARGO_PKG_VERSION"))
+        .await
+        .unwrap();
     let hash = identity
         .hash_installer_password(PASSWORD.into())
         .await
@@ -229,6 +232,9 @@ async fn browser_onboarding_wallet(pool: PgPool) {
             ..Default::default()
         },
     )
+    .merge(lmm_core::console_compat::router(
+        lmm_core::console_compat::ConsoleCompat::new(pool.clone(), identity.clone()),
+    ))
     .merge(legacy_auth::router(identity, auth))
     .merge(managed_router(pool.clone(), management))
     .merge(paid);
