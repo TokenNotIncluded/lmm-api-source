@@ -59,6 +59,20 @@ export const usageLogSchema = z.object({
   grounded_requests: z.number().int().min(0).max(1).nullish(),
   token_usage_available: z.boolean().optional(),
   output_image_count: z.number().int().safe().positive().nullish(),
+  settlement_timeline: z
+    .object({
+      events: z.array(
+        z.object({
+          kind: z.enum(['reserve_total', 'captured', 'released', 'refunded']),
+          at: z.number().int().safe().nonnegative(),
+          credits: z.number().int().safe().nonnegative(),
+        })
+      ),
+      truncated: z.boolean(),
+      wait_seconds_at_read: z.number().int().safe().nonnegative().nullable(),
+      hold_retained_at: z.number().int().safe().nonnegative().nullable(),
+    })
+    .optional(),
   platform_sponsored: z.boolean().optional(),
   payer_kind: z.enum(['personal', 'team']).optional(),
   wallet_debit_supported: z.boolean().optional(),

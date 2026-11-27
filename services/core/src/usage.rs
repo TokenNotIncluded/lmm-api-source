@@ -11,6 +11,7 @@ mod log_details;
 pub(crate) mod personal_summary;
 pub(crate) mod receipts;
 pub(crate) use channel::{ChannelUsage, ChannelUsageError, channel_totals, channel_usage};
+mod settlement_timeline;
 pub mod task_log;
 
 #[cfg(test)]
@@ -805,7 +806,11 @@ impl UsageStore {
                         | Projection::AdministratorRequest
                             if total > f.offset && total <= f.offset + f.size =>
                         {
-                            let item = detail.project(&r, administrator);
+                            let mut item = detail.project(&r, administrator);
+                            if projection.detail() {
+                                item["settlement_timeline"] =
+                                    settlement_timeline::read(&mut tx, &r, now).await?;
+                            }
                             if !ids.insert(presentation_id(&r.id)) {
                                 return Err(Error::Collision);
                             }

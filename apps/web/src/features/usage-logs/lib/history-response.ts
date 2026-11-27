@@ -41,6 +41,10 @@ export type HistoricalLog = z.infer<typeof historicalLogSchema>
 const historicalPageSchema = z.object({
   ...pagination,
   source: z.literal('legacy_log_only'),
+  imported_range: z
+    .tuple([count, count])
+    .refine(([first, last]) => first <= last)
+    .nullish(),
   items: z.array(historicalLogSchema),
 })
 const commonPageSchema = z.object({

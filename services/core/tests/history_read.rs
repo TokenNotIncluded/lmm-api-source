@@ -36,7 +36,7 @@ async fn row(
     quota: Option<i64>,
     basis: Option<i64>,
 ) {
-    sqlx::query("INSERT INTO core_history.log_records(source_id,source_log_id,canonical_event_key,source_row_sha256,user_id,owner_account_id,created_at,log_type,quota,pricing_credits_per_usd,username,model_name) VALUES(1,$1,$2,repeat('c',64),$3,$4,1700000000,2,$5,$6,'synthetic-user','synthetic-model')")
+    sqlx::query("INSERT INTO core_history.log_records(source_id,source_log_id,canonical_event_key,source_row_sha256,user_id,owner_account_id,created_at,log_type,quota,pricing_credits_per_usd,username,model_name) VALUES(1,$1,$2,repeat('c',64),$3,$4,1700000000::bigint + $1,2,$5,$6,'synthetic-user','synthetic-model')")
         .bind(id).bind(format!("synthetic-event-{id}")).bind(user).bind(owner).bind(quota).bind(basis).execute(pool).await.unwrap();
 }
 #[sqlx::test(migrations = false)]
@@ -121,6 +121,7 @@ async fn mixed_bases_are_summed_exactly_once_and_other_user_is_not_in_page_or_to
         .await
         .unwrap();
     assert_eq!(result.total, 2);
+    assert_eq!(result.imported_range, Some((1_700_000_001, 1_700_000_002)));
     assert_eq!(result.items.len(), 1);
     assert_eq!(result.items[0].source_log_id, 2);
     assert_eq!(result.items[0].quota, Some(1));
@@ -132,6 +133,20 @@ async fn mixed_bases_are_summed_exactly_once_and_other_user_is_not_in_page_or_to
         .await
         .unwrap();
     assert_eq!(all.total, 3);
+    assert_eq!(all.imported_range, Some((1_700_000_001, 1_700_000_003)));
+    let outside = store
+        .read(
+            &user,
+            ReadRoute::SelfSession,
+            &HistoryQuery {
+                start_timestamp: Some(1_800_000_000),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(outside.total, 0);
+    assert_eq!(outside.imported_range, result.imported_range);
     assert_eq!(all.summary.money.quota_usd.as_deref(), Some("100.5"));
     assert_eq!(
         store
@@ -160,6 +175,7 @@ async fn null_negative_missing_basis_and_empty_are_distinct_without_any_writes(p
         .read(&user, ReadRoute::SelfSession, &HistoryQuery::default())
         .await
         .unwrap();
+    assert_eq!(empty.imported_range, None);
     assert_eq!(empty.summary.money.quota_money_basis, "empty_result");
     assert_eq!(empty.summary.money.quota_usd.as_deref(), Some("0"));
     row(&pool, 1, 7, owner, Some(3), Some(3)).await;

@@ -384,6 +384,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
   if (data?.kind === 'historical') {
     return (
       <HistoricalLogsTable
+        importedRange={data.imported_range}
         items={data.items}
         total={data.total}
         pagination={pagination}

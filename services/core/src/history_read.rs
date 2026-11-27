@@ -164,6 +164,8 @@ pub struct HistorySummary {
 pub struct HistorySnapshot {
     pub contract: &'static str,
     pub snapshot_at: i64,
+    /// First and last imported timestamps visible to the authenticated scope, before UI filters.
+    pub imported_range: Option<(i64, i64)>,
     pub items: Vec<HistoryRow>,
     pub total: i64,
     pub page: u32,
@@ -343,6 +345,17 @@ impl HistoryStore {
                 return Err(HistoryError::Unavailable);
             }
         }
+        // All source receipts and this identity's mapping have been checked in this snapshot.
+        let (first, last): (Option<i64>, Option<i64>) = sqlx::query_as(
+            "SELECT min(created_at), max(created_at) FROM core_history.log_records
+             WHERE ($1::bigint=0 OR user_id=$1) AND ($2::bigint=0 OR owner_account_id=$2)
+             AND ($3::bigint=0 OR token_id=$3)",
+        )
+        .bind(user)
+        .bind(owner)
+        .bind(key)
+        .fetch_one(&mut *tx)
+        .await?;
         let selection = Selection {
             user,
             owner,
@@ -426,6 +439,7 @@ impl HistoryStore {
         Ok(HistorySnapshot {
             contract: CONTRACT,
             snapshot_at,
+            imported_range: first.zip(last),
             items,
             total,
             page: if export { 1 } else { page },

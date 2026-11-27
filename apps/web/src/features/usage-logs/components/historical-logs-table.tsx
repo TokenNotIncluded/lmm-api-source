@@ -1,9 +1,11 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+import { getRouteApi } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
 import { CopyButton } from '@/components/copy-button'
 import { DataTablePage, useDataTable } from '@/components/data-table'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { useMediaQuery } from '@/hooks'
 import { useHistoricalQuotaMoney } from '@/hooks/use-historical-quota-money'
 import { formatTimestampToDate } from '@/lib/format'
@@ -19,7 +21,10 @@ import { CommonLogsFilterBar } from './common-logs-filter-bar'
 import { ModelBadge } from './model-badge'
 import { useUsageLogsContext } from './usage-logs-provider'
 
+const route = getRouteApi('/_authenticated/usage-logs/$section')
+
 interface HistoricalLogsTableProps {
+  importedRange?: [number, number] | null
   items: HistoricalLog[]
   total: number
   pagination: PaginationState
@@ -32,8 +37,35 @@ interface HistoricalLogsTableProps {
 
 /** Historical rows carry their original ID and nullable facts, not native receipts. */
 export function HistoricalLogsTable(props: HistoricalLogsTableProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const isMobile = useMediaQuery('(max-width: 640px)')
+  const search = route.useSearch()
+  const navigate = route.useNavigate()
+  const range = props.importedRange
+  const outside =
+    range &&
+    ((search.startTime !== undefined &&
+      Math.floor(search.startTime / 1000) > range[1]) ||
+      (search.endTime !== undefined &&
+        Math.floor(search.endTime / 1000) < range[0]))
+  const jumpToLatestDay = () => {
+    if (!range) return
+    const latest = new Date(range[1] * 1000)
+    const start = new Date(latest).setHours(0, 0, 0, 0)
+    const end = new Date(latest).setHours(23, 59, 59, 999)
+    void navigate({
+      to: '/usage-logs/$section',
+      params: { section: 'common' },
+      search: {
+        source: 'historical',
+        scope: search.scope,
+        pageSize: search.pageSize,
+        page: 1,
+        startTime: start,
+        endTime: end,
+      },
+    })
+  }
   const { sensitiveVisible } = useUsageLogsContext()
   const { formatHistoricalQuota } = useHistoricalQuotaMoney()
   const columns: ColumnDef<HistoricalLog>[] = [
@@ -148,16 +180,40 @@ export function HistoricalLogsTable(props: HistoricalLogsTableProps) {
       tableHeaderClassName='text-muted-foreground'
       fixedHeight={!isMobile}
       paginationInFooter={!isMobile}
-      emptyTitle={t('No Logs Found')}
+      emptyTitle={
+        range === null
+          ? t('No imported records for this scope')
+          : outside
+            ? t('The selected dates are outside the imported range')
+            : range
+              ? t('No imported records match these filters')
+              : t('No Logs Found')
+      }
+      emptyAction={
+        range ? (
+          <Button variant='outline' onClick={jumpToLatestDay}>
+            {t('Reset filters and show the latest day with records')}
+          </Button>
+        ) : undefined
+      }
       toolbar={
         <div className='space-y-3'>
           <div role='note' className='text-muted-foreground text-sm'>
             <p className='text-foreground font-medium'>
               {t('Imported history')}
             </p>
-            <p>
-              {t('Imported usage is shown separately from current requests.')}
-            </p>
+            {range ? (
+              <p>
+                {t('Imported dates: {{first}} – {{last}}', {
+                  first: new Date(range[0] * 1000).toLocaleDateString(
+                    i18n.language
+                  ),
+                  last: new Date(range[1] * 1000).toLocaleDateString(
+                    i18n.language
+                  ),
+                })}
+              </p>
+            ) : null}
           </div>
           <CommonLogsFilterBar table={table} />
         </div>

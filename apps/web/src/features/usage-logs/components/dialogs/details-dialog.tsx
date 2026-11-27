@@ -127,6 +127,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { LogRequestSummary } from '../log-request-summary'
 import { ResponseModelDetails } from '../model-badge'
 import { RequestFailureFacts } from '../request-failure-facts'
+import { SettlementTimeline } from '../settlement-timeline'
 
 // Maps a channel-update changed-field token (as recorded by the backend audit)
 // to its i18n label key for display in the audit details.
@@ -1371,6 +1372,12 @@ function DetailsDialogContent(props: DetailsDialogProps) {
           <TokenBreakdown log={props.log} other={other} />
         )}
 
+        {props.log.settlement_timeline && (
+          <SettlementTimeline
+            timeline={props.log.settlement_timeline}
+            state={props.log.state}
+          />
+        )}
         {/* Billing breakdown (consume type) */}
         {isConsume && other && !isViolation && (
           <BillingBreakdown

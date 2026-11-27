@@ -229,6 +229,7 @@ export function CommonLogsStats({
         searchParams,
         columnFilters: [],
         isAdmin,
+        historical,
       })
       return readUsageStatistics(scope, params, isAdmin, signal, historical)
     },

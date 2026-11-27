@@ -270,6 +270,7 @@ mod csv_formula_independent_tests {
         HistorySnapshot {
             contract: crate::history_read::CONTRACT,
             snapshot_at: 1_700_000_001,
+            imported_range: None,
             items: vec![row],
             total: 1,
             page: 1,

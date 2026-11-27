@@ -85,17 +85,21 @@ function timestampToSeconds(ms: number): number {
  */
 function buildTimeRangeParams(
   searchParams: Record<string, unknown>,
-  useMilliseconds: boolean
+  useMilliseconds: boolean,
+  useToday = true
 ): { start_timestamp?: number; end_timestamp?: number } {
-  const hasTimeParams = searchParams.startTime ?? searchParams.endTime
-  const defaultTimeRange = !hasTimeParams ? getDefaultTimeRange() : null
+  const hasTimeParams =
+    searchParams.startTime != null || searchParams.endTime != null
+  const defaultTimeRange =
+    !hasTimeParams && useToday ? getDefaultTimeRange() : null
 
   const convertTimestamp = (timestamp: number) =>
     useMilliseconds ? timestamp : timestampToSeconds(timestamp)
 
   const getTimestamp = (paramTime?: unknown, defaultTime?: Date) => {
-    const time = (paramTime as number) || defaultTime?.getTime()
-    return time ? convertTimestamp(time) : undefined
+    const time =
+      typeof paramTime === 'number' ? paramTime : defaultTime?.getTime()
+    return time === undefined ? undefined : convertTimestamp(time)
   }
 
   return {
@@ -116,6 +120,7 @@ export function buildApiParams(config: {
   searchParams: Record<string, unknown>
   columnFilters?: Array<{ id: string; value: unknown }>
   isAdmin: boolean
+  historical?: boolean
 }): GetLogsParams {
   const { page, pageSize, searchParams, columnFilters = [], isAdmin } = config
 
@@ -190,7 +195,7 @@ export function buildApiParams(config: {
     ...(searchParams.sortOrder === 'asc' || searchParams.sortOrder === 'desc'
       ? { sort_order: searchParams.sortOrder }
       : {}),
-    ...buildTimeRangeParams(searchParams, false),
+    ...buildTimeRangeParams(searchParams, false, !config.historical),
   }
 
   // Override with column filters if present
@@ -253,6 +258,7 @@ export async function fetchLogsByCategory(
       searchParams,
       columnFilters,
       isAdmin,
+      historical,
     })
     return {
       success: true,

@@ -131,6 +131,22 @@ async fn partial_full_and_explicit_zero_settlements_have_distinct_billing_eviden
             assert_eq!(data["billing_basis"], "net_consumption");
             assert_eq!(data["wallet_debit_supported"], false);
         }
+        assert!(row.get("settlement_timeline").is_none());
+        let detail = ok(&f, &format!("/core/v1/usage/self/request?request_id={id}")).await;
+        let timeline = &detail["settlement_timeline"];
+        let events = timeline["events"].as_array().unwrap();
+        for (kind, amount) in [
+            ("reserve_total", 100),
+            ("captured", 49),
+            ("released", 51),
+            ("refunded", refund),
+        ] {
+            let event = events.iter().find(|event| event["kind"] == kind).unwrap();
+            assert_eq!(event["credits"], amount);
+            assert!(event["at"].as_i64().is_some_and(|at| at > 0));
+        }
+        assert_eq!(timeline["truncated"], false);
+        assert!(timeline["wait_seconds_at_read"].is_null());
         assert_eq!(row["quota"], 49 - refund);
         assert_eq!(row["quota_money_basis"], "captured_credits_per_usd");
         for path in ["/api/log/self/stat", "/api/data/self"] {

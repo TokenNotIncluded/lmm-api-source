@@ -196,6 +196,7 @@ export function CommonLogsFilterBar<TData extends RowData>(
         searchParams,
         columnFilters: props.table.state.columnFilters,
         isAdmin,
+        historical,
       })
       const options = { params, scope, signal: controller.signal }
       const blob = historical
@@ -272,10 +273,18 @@ export function CommonLogsFilterBar<TData extends RowData>(
       sortOrder: searchParams.sortOrder,
     }
     const filters: CommonLogFilters = {
-      startTime: searchParams.startTime
-        ? new Date(searchParams.startTime)
-        : start,
-      endTime: searchParams.endTime ? new Date(searchParams.endTime) : end,
+      startTime:
+        searchParams.startTime !== undefined
+          ? new Date(searchParams.startTime)
+          : historical
+            ? undefined
+            : start,
+      endTime:
+        searchParams.endTime !== undefined
+          ? new Date(searchParams.endTime)
+          : historical
+            ? undefined
+            : end,
       channel: searchParams.channel || undefined,
       model: searchParams.model || undefined,
       token: searchParams.token || undefined,
@@ -303,6 +312,7 @@ export function CommonLogsFilterBar<TData extends RowData>(
       logType: getLogTypeValue(searchParams.type),
     }
   }, [
+    historical,
     searchParams.startTime,
     searchParams.endTime,
     searchParams.channel,
@@ -397,11 +407,13 @@ export function CommonLogsFilterBar<TData extends RowData>(
 
   const handleReset = useCallback(() => {
     const { start, end } = getDefaultTimeRange()
-    const resetFilters: CommonLogFilters = { startTime: start, endTime: end }
+    const resetFilters: CommonLogFilters = historical
+      ? {}
+      : { startTime: start, endTime: end }
     const resetSearch = {
       type: [LOG_TYPE_ALL_VALUE],
-      startTime: start.getTime(),
-      endTime: end.getTime(),
+      startTime: resetFilters.startTime?.getTime(),
+      endTime: resetFilters.endTime?.getTime(),
     }
     setDraft({
       sourceKey: buildSearchSourceKey(resetSearch),
@@ -420,7 +432,7 @@ export function CommonLogsFilterBar<TData extends RowData>(
         ...resetSearch,
       },
     })
-  }, [isAdmin, navigate, searchParams.pageSize, usageSource])
+  }, [historical, isAdmin, navigate, searchParams.pageSize, usageSource])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

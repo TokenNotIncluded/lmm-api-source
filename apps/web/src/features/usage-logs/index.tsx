@@ -87,6 +87,8 @@ function UsageLogsContent() {
                 search: (previous) => ({
                   ...previous,
                   source: value,
+                  startTime: undefined,
+                  endTime: undefined,
                   scope: viewScope,
                   page: 1,
                   channel: undefined,
