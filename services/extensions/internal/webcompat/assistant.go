@@ -173,6 +173,7 @@ func RegisterAssistant(mux RouteRegistrar, auth *Authenticator, history Assistan
 		value, err := history.Status(r.Context(), token)
 		if err == nil && !access.Missing(chat) {
 			value["enabled"], value["route_available"] = true, true
+			value["input_limits"] = map[string]int{"message_bytes": assistant.MaxChatMessageBytes, "request_bytes": access.MaxBodyBytes}
 			value["funding"] = map[string]any{"mode": "personal", "configured": true}
 			value["agent"] = map[string]any{"enabled": false, "stream_enabled": false}
 			value["unavailable_reason"] = ""

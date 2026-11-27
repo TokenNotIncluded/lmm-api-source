@@ -90,7 +90,7 @@ func (s *AgentChat) Chat(ctx context.Context, credential string, request Persona
 }
 
 func (s *AgentChat) chat(ctx context.Context, credential string, request PersonalChatRequest, consume func(AgentOutput) error) (PersonalChatReply, error) {
-	if request.ConversationID < 0 || request.ConversationID > maxSafeHistoryID || !access.ID(request.ClientTurnID) || len(request.ClientTurnID) > 64 || !utf8.ValidString(request.Message) || len(request.Message) > 8192 || strings.TrimSpace(request.Message) == "" {
+	if request.ConversationID < 0 || request.ConversationID > maxSafeHistoryID || !access.ID(request.ClientTurnID) || len(request.ClientTurnID) > 64 || !utf8.ValidString(request.Message) || len(request.Message) > MaxChatMessageBytes || strings.TrimSpace(request.Message) == "" {
 		return PersonalChatReply{}, access.ErrInvalid
 	}
 	deadline := time.Now().Add(15 * time.Second)

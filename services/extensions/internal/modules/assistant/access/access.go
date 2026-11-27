@@ -199,10 +199,12 @@ func Credential(r *http.Request) (string, error) {
 	return v[0], nil
 }
 
+const MaxBodyBytes = 16 << 10
+
 // Decode rejects duplicate keys, trailing documents, null, unknown fields and
 // excessive nesting. Validation and execution therefore see the same document.
 func Decode(data []byte, out any) error {
-	if len(data) == 0 || len(data) > 16<<10 || !utf8.Valid(data) {
+	if len(data) == 0 || len(data) > MaxBodyBytes || !utf8.Valid(data) {
 		return ErrInvalid
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
@@ -299,7 +301,7 @@ func Respond(w http.ResponseWriter, value any, err error) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 func Body(w http.ResponseWriter, r *http.Request, out any) error {
-	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 16<<10))
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxBodyBytes))
 	if err != nil {
 		return ErrInvalid
 	}

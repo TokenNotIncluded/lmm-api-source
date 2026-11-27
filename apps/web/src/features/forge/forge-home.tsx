@@ -31,7 +31,10 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from '@/components/ui/input-group'
-import { getAssistantPreConversationPresets } from '@/features/assistant/api'
+import {
+  getAssistantPreConversationPresets,
+  getAssistantStatus,
+} from '@/features/assistant/api'
 import { requestAssistantSend } from '@/features/assistant/assistant-events'
 import { redactAssistantMessageForRequest } from '@/features/assistant/assistant-message-safety'
 import {
@@ -154,6 +157,7 @@ export function ForgeHome() {
       'Continue client setup': t('Continue setup'),
     }[nextStep.label] ?? t(nextStep.label)
   const user = useAuthStore((state) => state.auth.user)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
   const { status, loading: statusLoading } = useStatus()
   const apiBaseUrl = status
     ? resolveApiBaseUrl(
@@ -188,7 +192,19 @@ export function ForgeHome() {
   const codewhaleCopy = useCopyFeedback()
   const codeCopy = useCopyFeedback()
   const snippet = apiBaseUrl ? codeForTab(codeTab, apiBaseUrl) : ''
-  const assistantEnabled = status?.assistant?.enabled !== false
+  const accountAssistant = useQuery({
+    queryKey: ['assistant-status', user?.id, sessionId],
+    queryFn: getAssistantStatus,
+    enabled: Boolean(user),
+    staleTime: 30_000,
+    retry: false,
+  })
+  const checkingAssistant = Boolean(user) && accountAssistant.isPending
+  const assistantEnabled = user
+    ? accountAssistant.isSuccess &&
+      accountAssistant.data?.enabled === true &&
+      accountAssistant.data.route_available !== false
+    : status?.assistant?.enabled !== false
   const messageInvalid = getAssistantPromptValidation(message).invalid
   const presetLanguage = i18n.resolvedLanguage || i18n.language || 'en'
   const preConversationPresetsQuery = useQuery({
@@ -341,7 +357,7 @@ export function ForgeHome() {
           />
         }
         assistant={
-          <form onSubmit={submitMessage}>
+          <form onSubmit={submitMessage} aria-busy={checkingAssistant}>
             <label
               className='forge-home-assistant-label'
               htmlFor='forge-home-message'
@@ -394,7 +410,7 @@ export function ForgeHome() {
                 {t('Describe your question in words.')}
               </p>
             )}
-            {!assistantEnabled && (
+            {!assistantEnabled && !checkingAssistant && (
               <p className='text-muted-foreground mt-3 text-sm'>
                 {t(
                   navigation.developers

@@ -23,6 +23,7 @@ import { api } from '@/lib/api'
 
 import {
   ASSISTANT_MAX_REQUEST_ATTEMPTS,
+  AssistantInputSizeError,
   archiveAssistantConversation,
   isAssistantTurnUnavailable,
   sendAssistantMessage,
@@ -258,4 +259,77 @@ test('expired or conflicting turn receipts are terminal, not retryable transport
     true
   )
   assert.equal(isAssistantTurnUnavailable(assistantAxiosError(503)), false)
+})
+
+test('fits buffered and streaming chat bodies to the advertised byte limits without changing the turn', async () => {
+  const originalFetch = globalThis.fetch
+  const bodies: unknown[] = []
+  const payload = {
+    choices: [{ message: { content: 'ready' } }],
+    lmm_assistant_history: {
+      conversation_id: 42,
+      client_turn_id: 'turn-boundary',
+    },
+  }
+  globalThis.fetch = async (_url, init) => {
+    bodies.push(JSON.parse(String(init?.body)))
+    return Response.json(payload)
+  }
+  const limits = { message_bytes: 8192, request_bytes: 16_384 }
+  const history = [{ role: 'user' as const, content: '旧'.repeat(4000) }]
+  const message = `${'问'.repeat(2730)}ab` // Exactly 8,192 UTF-8 bytes.
+  try {
+    await withAssistantPost(
+      async (_url, body) => {
+        bodies.push(body)
+        return { data: payload, headers: {} }
+      },
+      async () => {
+        for (const handlers of [undefined, { onDelta: () => undefined }]) {
+          const send = (text: string, advertised?: typeof limits) =>
+            sendAssistantMessage(
+              text,
+              history,
+              42,
+              'setup',
+              handlers,
+              undefined,
+              false,
+              'turn-boundary',
+              advertised
+            )
+          await send(message, limits)
+          assert.deepEqual(bodies.at(-1), {
+            message,
+            conversation_id: 42,
+            preset_id: 'setup',
+            client_turn_id: 'turn-boundary',
+          })
+          const count = bodies.length
+          await assert.rejects(
+            send(`${message}c`, limits),
+            (error: unknown) =>
+              error instanceof AssistantInputSizeError &&
+              error.maximumBytes === limits.message_bytes
+          )
+          // Escaped JSON can exceed the envelope even when the decoded text fits.
+          await assert.rejects(
+            send('\u0001'.repeat(3200), limits),
+            (error: unknown) =>
+              error instanceof AssistantInputSizeError &&
+              error.maximumBytes === limits.request_bytes
+          )
+          assert.equal(bodies.length, count)
+          // Legacy accepts 4,000 Unicode characters and reconstructs the transcript.
+          await send('问'.repeat(4000))
+          assert.equal(
+            (bodies.at(-1) as { message: string }).message,
+            '问'.repeat(4000)
+          )
+        }
+      }
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })

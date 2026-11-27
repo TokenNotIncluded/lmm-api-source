@@ -125,6 +125,7 @@ import {
   recoverAssistantConversation,
   AssistantTurnReleasedError,
   AssistantSubmissionRejectedError,
+  AssistantInputSizeError,
   AssistantTurnTerminalError,
   type AssistantPreConversationPreset,
   type AssistantConversationHistoryItem,
@@ -774,6 +775,9 @@ function assistantFailureMessage(
   error: unknown,
   translate: ReturnType<typeof useTranslation>['t']
 ) {
+  if (error instanceof AssistantInputSizeError) {
+    return `${translate('Maximum input bytes')}: ${error.maximumBytes}`
+  }
   const { code } = getAssistantErrorInfo(error)
   if (code === 'ASSISTANT_HUMAN_SUPPORT_PENDING') {
     return translate('Waiting for an administrator to join')
@@ -1834,7 +1838,8 @@ function AssistantPanelSession(props: AssistantPanelProps) {
             streaming ? handlers : undefined,
             abortController.signal,
             replay,
-            clientTurnId
+            clientTurnId,
+            statusQuery.data?.input_limits
           )
         } catch (error) {
           if (

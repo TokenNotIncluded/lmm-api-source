@@ -177,6 +177,10 @@ async function renderHome(
   statusPending = false,
   options: {
     registrationEnabled?: boolean
+    accountAssistantStatus?: () => Promise<{
+      enabled: boolean
+      route_available?: boolean
+    }>
     component?: typeof ForgeHome
     headerNavModules?: string
     serverAddress?: string
@@ -225,6 +229,12 @@ async function renderHome(
           },
         },
       }
+    }
+    if (url === '/api/assistant/status') {
+      const data = options.accountAssistantStatus
+        ? await options.accountAssistantStatus()
+        : { enabled: true, route_available: true }
+      return { data: { success: true, data } }
     }
     if (url === '/api/assistant/pre-conversation-presets') {
       return {
@@ -823,6 +833,68 @@ describe('ForgeHome assistant entry', () => {
     unsubscribe()
     await unmountHome(rendered)
   })
+
+  test('checks the signed-in account before enabling Ask when the public assistant is disabled', async () => {
+    let enableAssistant!: () => void
+    const accountStatus = new Promise<{ enabled: boolean }>((resolve) => {
+      enableAssistant = () => resolve({ enabled: true })
+    })
+    const rendered = await renderHome(
+      { id: 9, username: 'signed-in', role: 1 },
+      false,
+      false,
+      { accountAssistantStatus: () => accountStatus }
+    )
+    try {
+      const input = findMessageInput(rendered.container)
+      assert.equal(input.disabled, true)
+      assert.equal(input.form?.getAttribute('aria-busy'), 'true')
+      await act(async () => {
+        enableAssistant()
+        await flushEffects()
+      })
+      assert.equal(input.disabled, false)
+      await submitMessage(rendered.container, 'Help me configure my client')
+      assert.equal(rendered.router.state.location.pathname, '/dashboard')
+      assert.equal(
+        consumeQueuedAssistantRequest()?.message,
+        'Help me configure my client'
+      )
+    } finally {
+      await unmountHome(rendered)
+    }
+  })
+
+  for (const [name, accountAssistantStatus] of [
+    ['disabled', async () => ({ enabled: false })],
+    [
+      'without a route',
+      async () => ({ enabled: true, route_available: false }),
+    ],
+    [
+      'unavailable',
+      async () => {
+        throw new Error('Status unavailable')
+      },
+    ],
+  ] as const) {
+    test(`keeps Ask disabled for a signed-in account when its assistant is ${name}`, async () => {
+      const rendered = await renderHome(
+        { id: 9, username: 'signed-in', role: 1 },
+        true,
+        false,
+        { accountAssistantStatus }
+      )
+      try {
+        assert.equal(findMessageInput(rendered.container).disabled, true)
+        await submitMessage(rendered.container, 'Help me configure my client')
+        assert.equal(rendered.router.state.location.pathname, '/')
+        assert.equal(consumeQueuedAssistantRequest(), undefined)
+      } finally {
+        await unmountHome(rendered)
+      }
+    })
+  }
 
   test('does not submit whitespace-only messages', async () => {
     const opened: Array<string | undefined> = []

@@ -17,6 +17,8 @@ type PersonalChat struct {
 	gifts   *Gifts
 }
 
+const MaxChatMessageBytes = 8192
+
 type PersonalChatRequest struct {
 	ConversationID int64  `json:"conversation_id"`
 	ClientTurnID   string `json:"client_turn_id"`
@@ -62,7 +64,7 @@ func (s *PersonalChat) ClaimStoredNewUserGift(ctx context.Context, credential st
 }
 
 func (s *PersonalChat) Chat(ctx context.Context, credential string, request PersonalChatRequest) (PersonalChatReply, error) {
-	if request.ConversationID < 0 || request.ConversationID > maxSafeHistoryID || !access.ID(request.ClientTurnID) || len(request.ClientTurnID) > 64 || !utf8.ValidString(request.Message) || len(request.Message) > 8192 || strings.TrimSpace(request.Message) == "" {
+	if request.ConversationID < 0 || request.ConversationID > maxSafeHistoryID || !access.ID(request.ClientTurnID) || len(request.ClientTurnID) > 64 || !utf8.ValidString(request.Message) || len(request.Message) > MaxChatMessageBytes || strings.TrimSpace(request.Message) == "" {
 		return PersonalChatReply{}, access.ErrInvalid
 	}
 	id := request.ConversationID

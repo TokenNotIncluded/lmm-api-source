@@ -46,6 +46,10 @@ func TestAssistantStatusReportsTheSelectedChatMode(t *testing.T) {
 						Enabled    bool `json:"enabled"`
 						MultiRound bool `json:"multi_round"`
 					} `json:"agent"`
+					InputLimits struct {
+						MessageBytes int `json:"message_bytes"`
+						RequestBytes int `json:"request_bytes"`
+					} `json:"input_limits"`
 					Funding struct {
 						Mode string `json:"mode"`
 					} `json:"funding"`
@@ -53,6 +57,9 @@ func TestAssistantStatusReportsTheSelectedChatMode(t *testing.T) {
 			}
 			if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &response) != nil || !response.Success || response.Data.Agent.Enabled != test.wantAgent || response.Data.Agent.MultiRound != test.wantAgent || response.Data.Funding.Mode != test.wantFunding {
 				t.Fatal(w.Code, w.Body.String())
+			}
+			if limits := response.Data.InputLimits; limits.MessageBytes != 8192 || limits.RequestBytes != 16<<10 {
+				t.Fatalf("unexpected input limits: %+v", limits)
 			}
 		})
 	}

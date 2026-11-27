@@ -154,6 +154,25 @@ Do not echo secret contents or place URLs/tokens in process arguments.
    public hostname and verify HTTP 200 with `success: true` and the respective
    `data.models` or `data.users` array.
 
+   Plain-text assistant chat uses the existing Extensions history location. When
+   `POST /api/assistant/chat` returns HTTP 202 with state `unknown`, `reserved`
+   or `streaming`, the browser reads the original turn with
+   `GET /api/assistant/conversations/{conversation_id}/turns/{client_turn_id}`.
+   Both IDs come from the pending response. In the existing GET-only conversation
+   history location, keep its method and upstream settings and replace its raw
+   URI check with this guard.
+
+   ```nginx
+   if ($request_uri !~ "^/api/assistant/conversations/[1-9][0-9]{0,15}(?:[?].*|/turns/[A-Za-z0-9][A-Za-z0-9_.:-]{0,63})?$") { return 404; }
+   ```
+
+   After validating and reloading Nginx, send a GET without cookies or credentials
+   to `/api/assistant/conversations/1/turns/edge-check` on the public host.
+   HTTP 401 with JSON code `ASSISTANT_SESSION_REQUIRED` shows that the request
+   reached the Extensions authentication handler. This check starts no chat or
+   model call. An HTML 404 on that path calls for inspecting the matching Nginx
+   location and its raw URI guard.
+
    The same native console server needs the
    [assistant browser snippet](templates/native-assistant-browser-locations.conf)
    for owner pages and confirmation links:

@@ -208,7 +208,10 @@ export type DrawingWebAccess = {
   allowed: boolean
 }
 
+type AssistantInputLimits = { message_bytes: number; request_bytes: number }
+
 export type AssistantStatus = {
+  input_limits?: AssistantInputLimits
   agent?: { stream_enabled?: boolean }
   drawing_web_access?: DrawingWebAccess
   enabled: boolean
@@ -1573,16 +1576,41 @@ function buildAssistantRequestBody(
   normalizedMessage: string,
   messages: AssistantChatMessage[],
   conversationId?: number,
-  presetId?: string
+  presetId?: string,
+  clientTurnId?: string,
+  limits?: AssistantInputLimits
 ): Record<string, unknown> {
-  return {
+  const encoder = new TextEncoder()
+  if (
+    limits &&
+    encoder.encode(normalizedMessage).length > limits.message_bytes
+  ) {
+    throw new AssistantInputSizeError(limits.message_bytes)
+  }
+  const body = {
     message: normalizedMessage,
-    messages,
     ...(conversationId && conversationId > 0
       ? { conversation_id: conversationId }
       : {}),
     ...(presetId ? { preset_id: presetId } : {}),
+    ...(clientTurnId ? { client_turn_id: clientTurnId } : {}),
   }
+  // Both servers restore authoritative history from the conversation ID.
+  // Older native servers have a 16 KiB envelope but do not advertise it.
+  const withHistory = { ...body, messages }
+  if (
+    encoder.encode(JSON.stringify(withHistory)).length <=
+    (limits?.request_bytes ?? 16_384)
+  ) {
+    return withHistory
+  }
+  if (
+    limits &&
+    encoder.encode(JSON.stringify(body)).length > limits.request_bytes
+  ) {
+    throw new AssistantInputSizeError(limits.request_bytes)
+  }
+  return body
 }
 
 async function readAssistantFetchPayload(
@@ -1668,6 +1696,15 @@ export class AssistantTurnReleasedError extends Error {
   }
 }
 export class AssistantSubmissionRejectedError extends AssistantStreamError {}
+export class AssistantInputSizeError extends AssistantSubmissionRejectedError {
+  constructor(readonly maximumBytes: number) {
+    super(
+      413,
+      { code: 'ASSISTANT_REQUEST_TOO_LARGE' },
+      'Assistant input exceeds the byte limit.'
+    )
+  }
+}
 export class AssistantTurnTerminalError extends AssistantStreamError {}
 
 const assistantConversationLookup = z.object({
@@ -2002,7 +2039,8 @@ export async function sendAssistantMessage(
   handlers?: AssistantStreamHandlers,
   signal?: AbortSignal,
   replay = false,
-  clientTurnId?: string
+  clientTurnId?: string,
+  limits?: AssistantInputLimits
 ): Promise<AssistantReply> {
   const normalizedMessage =
     redactAssistantMessageForRequest(message).content.trim()
@@ -2011,9 +2049,10 @@ export async function sendAssistantMessage(
     normalizedMessage,
     messages,
     conversationId,
-    presetId
+    presetId,
+    clientTurnId,
+    limits
   )
-  if (clientTurnId) requestBody.client_turn_id = clientTurnId
   return withAssistantDeadline(async (signal) => {
     for (
       let attempt = 1;
