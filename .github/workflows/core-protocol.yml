@@ -250,7 +250,16 @@ jobs:
             unit)
               status=0
               run_tests --lib -- --skip model_http:: --skip core_schema:: --skip identity:: || status=$?
-              run_tests --bins --examples --benches -- || status=$?
+              # Cargo's --benches also selects the library harness. Select only
+              # real external benchmarks here so the library does not run twice.
+              bench_names=$(cargo metadata --locked --no-deps --format-version 1 |
+                jq -er '[.packages[] | select(.name == "lmm-core") | .targets[]
+                  | select(.kind | index("bench")) | .name] | sort | join("\n")')
+              targets=()
+              while IFS= read -r name; do
+                if [[ -n "$name" ]]; then targets+=(--bench "$name"); fi
+              done <<<"$bench_names"
+              run_tests --bins --examples "${targets[@]}" -- || status=$?
               exit "$status" ;;
             model-unit)
               run_tests --lib -- model_http:: ;;

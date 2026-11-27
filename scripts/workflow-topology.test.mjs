@@ -510,13 +510,14 @@ test('automatic Core checks partition every Rust target across independent runne
     {name: 'lmm-core', targets: [
       ...['delta', 'alpha', 'gamma', 'beta', 'epsilon'].map(name => ({kind: ['test'], name})),
       {kind: ['lib'], name: 'lmm_core'},
+      {kind: ['bench'], name: 'named_benchmark'},
     ]},
     {name: 'another-crate', targets: [{kind: ['test'], name: 'foreign'}]},
   ]};
   const stub = 'cargo() { if [[ $1 == metadata ]]; then printf "%s\\n" "$METADATA"; else printf "%s\\n" "$*"; fi; }\n';
-  function calls(group) {
+  function calls(group, targets = metadata) {
     return execFileSync('bash', ['-euo', 'pipefail', '-c', stub + executor], {
-      env: { ...process.env, RUST_TARGET_GROUP: group, METADATA: JSON.stringify(metadata) },
+      env: { ...process.env, RUST_TARGET_GROUP: group, METADATA: JSON.stringify(targets) },
       stdio: ['ignore', 'pipe', 'pipe'],
       encoding: 'utf8',
     }).trim().split('\n').map(line => line.split(' --skip synthetic_live_proof')[0]);
@@ -525,8 +526,10 @@ test('automatic Core checks partition every Rust target across independent runne
   assert.deepEqual(calls('all'), [runner + '--all-targets --']);
   assert.deepEqual(calls('unit'), [
     runner + '--lib -- --skip model_http:: --skip core_schema:: --skip identity::',
-    runner + '--bins --examples --benches --',
+    runner + '--bins --examples --bench named_benchmark --',
   ]);
+  assert.deepEqual(calls('unit', { packages: [{ name: 'lmm-core', targets: [] }] }).slice(1),
+    [runner + '--bins --examples --']);
   assert.deepEqual(calls('model-unit'), [runner + '--lib -- model_http::']);
   assert.deepEqual(calls('schema-identity'), [runner + '--lib -- core_schema:: identity:: --skip model_http::']);
   assert.deepEqual(calls('integration'), [runner + '--test alpha --test delta --test gamma --']);
