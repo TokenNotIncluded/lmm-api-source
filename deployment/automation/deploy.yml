@@ -18,6 +18,7 @@
   serial: 1
   any_errors_fatal: true
   vars:
+    selected_slots: []
     deploy_states: []
     activated_states: []
     deployment_ok: false
@@ -64,29 +65,13 @@
         label: '{{ item.item.name }}'
     - name: Select the inactive slots
       ansible.builtin.set_fact:
-        deploy_states: '{{ deploy_states + [item.item | combine({"previous": item.stat.lnk_source, "candidate": deploy_root + "/slots/" + item.item.name + ("-b" if item.stat.lnk_source.endswith("-a") else "-a")})] }}'
+        selected_slots: '{{ selected_slots + [item.item | combine({"previous": item.stat.lnk_source, "candidate": deploy_root + "/slots/" + item.item.name + ("-b" if item.stat.lnk_source.endswith("-a") else "-a")})] }}'
       loop: '{{ component_links.results }}'
       loop_control:
         label: '{{ item.item.name }}'
 
     - name: Deploy one host with bounded temporary storage
       block:
-        - name: Remove interrupted inactive candidates
-          ansible.builtin.file:
-            path: '{{ item.candidate }}'
-            state: absent
-          loop: '{{ deploy_states }}'
-          loop_control:
-            label: '{{ item.name }}'
-        - name: Read free bytes on the actual deployment filesystem
-          ansible.builtin.command:
-            argv: [df, --output=avail, -B1, '{{ deploy_root }}']
-          changed_when: false
-          register: deployment_disk
-        - name: Reserve space for unpacking and transport
-          ansible.builtin.assert:
-            that: (deployment_disk.stdout_lines[-1] | int) > ((deploy_components | map(attribute='expanded_bytes') | sum) + (2 * (deploy_components | map(attribute='compressed_bytes') | sum)) + deploy_min_free_bytes)
-            fail_msg: Insufficient space on the deployment filesystem; active components are unchanged.
         - name: Prepare the existing archive verifier
           ansible.builtin.file:
             path: '{{ deploy_root }}/.tools/{{ item }}'
@@ -99,6 +84,30 @@
             dest: '{{ deploy_root }}/.tools/{{ item }}'
             mode: '0644'
           loop: [scripts/build-distribution.py, packaging/distribution.json]
+        - name: Select only components that need activation
+          ansible.builtin.include_tasks: plan-activation.yml
+          loop: '{{ selected_slots }}'
+          loop_control:
+            loop_var: component
+            label: '{{ component.name }}'
+        - name: Remove interrupted inactive candidates
+          ansible.builtin.file:
+            path: '{{ item.candidate }}'
+            state: absent
+          loop: '{{ deploy_states }}'
+          loop_control:
+            label: '{{ item.name }}'
+        - name: Read free bytes on the actual deployment filesystem
+          ansible.builtin.command:
+            argv: [df, --output=avail, -B1, '{{ deploy_root }}']
+          changed_when: false
+          register: deployment_disk
+          when: deploy_states | length > 0
+        - name: Reserve space for unpacking and transport
+          ansible.builtin.assert:
+            that: (deployment_disk.stdout_lines[-1] | int) > ((deploy_states | map(attribute='expanded_bytes') | sum) + (2 * (deploy_states | map(attribute='compressed_bytes') | sum)) + deploy_min_free_bytes)
+            fail_msg: Insufficient space on the deployment filesystem; active components are unchanged.
+          when: deploy_states | length > 0
         - name: Stage each selected component
           ansible.builtin.include_tasks: stage.yml
           loop: '{{ deploy_states }}'
@@ -114,7 +123,7 @@
         - name: Replace the current deployment receipt
           ansible.builtin.copy:
             dest: '{{ deploy_root }}/last-deployment.json'
-            content: '{{ {"revision": deploy_revision, "components": deploy_states | map(attribute="name") | list, "status": "deployed"} | to_nice_json }}'
+            content: '{{ {"revision": deploy_revision, "components": deploy_components | map(attribute="name") | list, "status": "deployed"} | to_nice_json }}'
             mode: '0644'
         - name: Mark this host healthy
           ansible.builtin.set_fact:

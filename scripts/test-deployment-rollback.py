@@ -7,6 +7,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -82,6 +84,40 @@ def verify_backend_readiness(work, server):
         if not accepted:
             assert "did not return readiness for the selected service" in result.stdout, result.stdout
     print("PASS: recognized readiness, wrong service rejected, HTML fallback rejected")
+
+    root = work / "backend"
+    slot = root / "slots/core-a"
+    binary = slot / "bin/lmm-core"
+    binary.parent.mkdir(parents=True)
+    shutil.copy2("/proc/self/exe", binary)
+    files = {"bin/lmm-core": {"sha256": digest, "size": binary.stat().st_size,
+                               "mode": stat.S_IMODE(binary.stat().st_mode)}}
+    (slot / "MANIFEST.json").write_text(json.dumps({"revision": "a" * 40, "files": files}))
+    tools = root / ".tools/scripts"
+    tools.mkdir(parents=True)
+    shutil.copyfile(ROOT / "scripts/build-distribution.py", tools / "build-distribution.py")
+    for service, queued in [("lmm-core", False), ("lmm-extensions", True)]:
+        component["previous"] = str(slot)
+        component["health_url"] = f"http://127.0.0.1:{server.server_port}/backend/{service}"
+        component["files"] = files
+        plan = [{
+            "hosts": "localhost",
+            "connection": "local",
+            "gather_facts": False,
+            "environment": {"PATH": str(fake_bin) + os.pathsep + os.environ["PATH"]},
+            "vars": {"component": component, "deploy_root": str(root), "deploy_revision": "a" * 40,
+                     "ansible_python_interpreter": sys.executable, "deploy_states": []},
+            "tasks": [
+                {"ansible.builtin.include_tasks": str(ROOT / "deployment/automation/plan-activation.yml")},
+                {"ansible.builtin.assert": {"that": f"(deploy_states | length) == {int(queued)}"}},
+            ],
+        }]
+        playbook.write_text(json.dumps(plan))
+        result = subprocess.run([os.environ.get("ANSIBLE_PLAYBOOK_BIN", "ansible-playbook"),
+                                 "-i", "localhost,", str(playbook)],
+                                capture_output=True, text=True)
+        assert result.returncode == 0, result.stdout + result.stderr
+    print("PASS: identical running Core skips restart; mismatching readiness queues activation")
 
 
 
@@ -191,6 +227,7 @@ def main():
                 hosts = json.loads(inventory.read_text())
                 hosts["all"]["hosts"]["fixture"].update({"ansible_connection": "local", "ansible_python_interpreter": sys.executable})
                 inventory.write_text(json.dumps(hosts))
+                preceding_slot = (root / "web").resolve()
                 result = subprocess.run([os.environ.get("ANSIBLE_PLAYBOOK_BIN", "ansible-playbook"),
                                          "-i", str(inventory), str(ROOT / "deployment/automation/deploy.yml")],
                                         capture_output=True, text=True)
@@ -199,8 +236,8 @@ def main():
                 if not allow_rollback:
                     assert "automatic rollback is disabled" in result.stdout, result.stdout
                     assert (root / "web/dist/index.html").read_text() == "<!doctype html>rejected-candidate"
-                    assert (root / "slots/web-b/dist/index.html").read_text() == "<!doctype html>accepted-candidate"
-                    assert (root / "web").resolve() == root / "slots/web-a"
+                    assert (preceding_slot / "dist/index.html").read_text() == "<!doctype html>accepted-candidate"
+                    assert (root / "web").resolve() != preceding_slot
                     assert len(list((root / "slots").iterdir())) == 2, "forward recovery lost a component slot"
                     assert (root / ".incoming-web.tar.gz").is_file(), "forward recovery lost the received archive"
                     print("PASS: HTTP failure retains selected candidate, preceding slot and received archive")
@@ -211,6 +248,21 @@ def main():
                 assert len(list((root / "slots").iterdir())) == 1, "historical slot was not cleaned"
                 assert not list(root.glob(".incoming-*.tar.gz")), "uploaded archive was not cleaned"
                 print("PASS:", "successful deployment and cleanup" if should_pass else "HTTP failure, rollback and cleanup")
+                if number == 1:
+                    active_slot = (root / "web").resolve()
+                    rerun = [os.environ.get("ANSIBLE_PLAYBOOK_BIN", "ansible-playbook"),
+                             "-i", str(inventory), str(ROOT / "deployment/automation/deploy.yml")]
+                    result = subprocess.run(rerun, capture_output=True, text=True)
+                    assert result.returncode == 0, result.stdout + result.stderr
+                    assert (root / "web").resolve() == active_slot, "identical release changed slots"
+                    assert "Upload the component archive" not in result.stdout, result.stdout
+                    # Damage a package file that the HTTP health check never reads.
+                    (active_slot / "README.md").write_text("damaged")
+                    result = subprocess.run(rerun, capture_output=True, text=True)
+                    assert result.returncode == 0, result.stdout + result.stderr
+                    assert (root / "web").resolve() != active_slot, "damaged package was skipped"
+                    assert "damaged" not in (root / "web/README.md").read_text()
+                    print("PASS: unchanged healthy artifact skips upload and activation, damaged artifact is reinstalled")
         finally:
             server.shutdown()
             server.server_close()

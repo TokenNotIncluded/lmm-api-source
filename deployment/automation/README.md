@@ -140,7 +140,9 @@ disk-backed deployment root. Servers never compile components.
 Each component has two fixed slots, `a` and `b`. During a transaction, the active
 slot and candidate coexist. Core must pass `check-db` as its runtime user before
 activation; schema incompatibility stops the update without initialization or
-migration. Links switch atomically, and only selected backend services restart.
+migration. A repeated deployment skips a component when the installed revision
+and package files match the selected artifact and its live check succeeds.
+Components that need updating switch links atomically before backend restart.
 Health checks must succeed; backend `/proc/<pid>/exe` hashes and the actual Web
 HTML must match the CI artifact.
 

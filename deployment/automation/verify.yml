@@ -7,7 +7,7 @@
     timeout: 5
   register: component_health
   until: component_health.status | default(0) == 200
-  retries: 10
+  retries: '{{ readiness_retries | default(10) }}'
   delay: 2
 - name: Require backend readiness from the expected service
   ansible.builtin.assert:

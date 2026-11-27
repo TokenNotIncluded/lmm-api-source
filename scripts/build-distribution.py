@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 import re
 import stat
 import struct
+import sys
 import tarfile
 import tempfile
 
@@ -347,6 +348,37 @@ def verify(archive: Path, revision: str | None = None) -> dict:
     return manifest
 
 
+def verify_installed(root: Path, revision: str, expected_files: dict) -> None:
+    manifest = json.loads(read_regular(root, "MANIFEST.json"), object_pairs_hook=_unique_object)
+    if manifest["revision"] != revision or manifest["files"] != expected_files:
+        raise ValueError("installed manifest does not match the selected artifact")
+
+    remaining = set(expected_files) | {"MANIFEST.json"}
+    for directory, subdirectories, filenames in os.walk(root):
+        folder = Path(directory)
+        if any((folder / name).is_symlink() for name in subdirectories):
+            raise ValueError("installed directory is a symlink")
+        for filename in filenames:
+            path = folder / filename
+            name = path.relative_to(root).as_posix()
+            if name not in remaining:
+                raise ValueError("installed slot contains an unexpected file")
+            remaining.remove(name)
+            if name == "MANIFEST.json":
+                continue
+            expected = expected_files[name]
+            info = path.lstat()
+            if (not stat.S_ISREG(info.st_mode) or info.st_size != expected["size"]
+                    or stat.S_IMODE(info.st_mode) != expected["mode"]):
+                raise ValueError("installed file metadata does not match")
+            with path.open("rb") as stream:
+                digest = hashlib.file_digest(stream, "sha256").hexdigest()
+            if digest != expected["sha256"]:
+                raise ValueError("installed file checksum does not match")
+    if remaining:
+        raise ValueError("installed files are missing")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     actions = parser.add_subparsers(dest="action", required=True)
@@ -361,14 +393,19 @@ def main() -> int:
     inspect = actions.add_parser("verify")
     inspect.add_argument("archive", type=Path)
     inspect.add_argument("--revision")
+    installed = actions.add_parser("verify-installed")
+    installed.add_argument("slot", type=Path)
+    installed.add_argument("--revision", required=True)
     args = parser.parse_args()
     try:
         if args.action == "build":
             print(build(ROOT, args.component, args.version, args.revision,
                         args.platform, args.input, args.output, args.epoch))
-        else:
+        elif args.action == "verify":
             manifest = verify(args.archive, args.revision)
             print(f"Verified {manifest['component']}: {manifest['revision']}")
+        else:
+            verify_installed(args.slot, args.revision, json.load(sys.stdin))
     except (OSError, ValueError, KeyError, TypeError, tarfile.TarError) as error:
         parser.exit(1, f"Distribution failed: {error}\n")
     return 0
