@@ -64,8 +64,14 @@ try {
   assert.equal(models.length, 1);
   const [model] = models;
   assert.equal(typeof model.id, 'string');
+  stage = 'published gateway output ceiling';
+  const gatewayLimit = model.metadata?.gateway_max_output_tokens;
+  assert.ok(Number.isSafeInteger(gatewayLimit) && gatewayLimit > 0);
+  const modelLimit = model.metadata?.max_output_tokens;
+  const outputLimit = Number.isSafeInteger(modelLimit) && modelLimit > 0 ? Math.min(modelLimit, gatewayLimit) : gatewayLimit;
+  env.CODEWHALE_MAX_OUTPUT_TOKENS = String(outputLimit);
   stage = 'official one-shot exec';
-  const terminal = await companion(['run', '--model', model.id, '--', 'exec', '--max-turns', '1', '--output-format', 'text', 'Reply briefly.']);
+  const terminal = await companion(['run', '--model', model.id, '--', 'exec', '--output-format', 'text', 'Reply briefly.']);
   stage = 'official host terminal and same-request Core response';
   assert.equal(tunnel.calls.length, 1);
   const [call] = tunnel.calls;
@@ -87,7 +93,16 @@ try {
   assert.ok(terminal.split(/\r?\n/).some(line => line.trim() === expected));
   process.stdout.write(JSON.stringify({ version: '0.10.0', requestId: call.requestId, modelId: model.id, group: call.group, terminal: true }));
 } catch {
-  const requests = (tunnel?.calls ?? []).map(({ status, path }) => ({ status, chat: path === '/v1/chat/completions' }));
+  const requests = (tunnel?.calls ?? []).map(({ status, path, body }) => {
+    let reason = 'unknown';
+    try {
+      const message = JSON.parse(body)?.error?.message;
+      if (message === 'invalid_request: invalid output token limit') reason = 'output_limit';
+      if (message === 'relay_limit_exceeded: local model input budget') reason = 'input_limit';
+      if (message === 'unsupported_feature: request contains an unsupported field') reason = 'unsupported_field';
+    } catch { /* Preserve unknown responses without exposing the body. */ }
+    return { status, chat: path === '/v1/chat/completions', reason };
+  });
   console.error('CodeWhale acceptance failed during ' + stage + ' ' + JSON.stringify(requests));
   process.exitCode = 1;
 } finally {
