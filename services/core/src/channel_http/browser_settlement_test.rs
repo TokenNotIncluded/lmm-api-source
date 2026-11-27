@@ -33,7 +33,7 @@ use tower::ServiceExt;
 mod model_fixture;
 
 const PUBLIC_ENDPOINT: &str = "https://provider.example/v1/";
-const PASSWORD: &str = "Synthetic-Browser-Password-27!";
+const PASSWORD: &str = "Browser-QA-27!";
 const WEB_ORIGIN: &str = "http://127.0.0.1:41781";
 
 async fn supplier(hits: Arc<AtomicUsize>, model: String, sibling: String) -> SocketAddr {
