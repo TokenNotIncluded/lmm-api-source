@@ -34,6 +34,11 @@ import {
   readNativeUsersScope,
   type NativeUsersScope,
 } from '@/features/native-users/access'
+import {
+  pluginReadTime,
+  settingsReadFailure,
+  useReportPluginSetting,
+} from '@/features/plugins/settings-observations'
 import { api } from '@/lib/api'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
@@ -116,6 +121,22 @@ function CheckinWorkspace({ scope }: { scope: NativeUsersScope }) {
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   })
+  const current = query.data
+  const result = query.isError
+    ? settingsReadFailure(query.error)
+    : !current
+      ? undefined
+      : !current.funding_available
+        ? 'noFunding'
+        : !current.module_enabled || !current.enabled
+          ? 'off'
+          : 'funded'
+  useReportPluginSetting(
+    'rewards',
+    result,
+    pluginReadTime(query),
+    query.isSuccess ? current?.writable : undefined
+  )
   if (query.isPending) return <p role='status'>{t('Loading settings...')}</p>
   if (!query.data) {
     return (

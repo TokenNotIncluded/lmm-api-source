@@ -4,6 +4,11 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { readNativeUsersScope } from '@/features/native-users/access'
+import {
+  pluginReadTime,
+  settingsReadFailure,
+  useReportPluginSetting,
+} from '@/features/plugins/settings-observations'
 import { getSettingsErrorMessage } from '@/features/system-settings/utils/settings-error-message'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
@@ -37,6 +42,32 @@ export function MarketAIReviewSettingsSection({
     enabled: Boolean(scope),
     retry: false,
   })
+  const readAt = pluginReadTime(query)
+  const reviewState = (
+    mode: MarketAIReviewModes[keyof MarketAIReviewModes] | undefined
+  ) => {
+    if (query.isError) return settingsReadFailure(query.error)
+    if (!query.data || (mode !== 'assist' && mode !== 'auto' && mode !== 'off'))
+      return undefined
+    if (!query.data.review_group || !query.data.review_model)
+      return 'noRoute' as const
+    return mode === 'off' ? ('off' as const) : ('configured' as const)
+  }
+  const editable = query.isSuccess
+    ? scope?.role === ROLE.SUPER_ADMIN
+    : undefined
+  useReportPluginSetting(
+    'toolReview',
+    reviewState(query.data?.tool_mode),
+    readAt,
+    editable
+  )
+  useReportPluginSetting(
+    'storeReview',
+    reviewState(query.data?.store_mode),
+    readAt,
+    editable
+  )
   if (!scope) return null
   if (query.isPending) return <p role='status'>{t('Loading...')}</p>
   if (query.isError) {

@@ -42,6 +42,11 @@ import {
   pluginDependents,
 } from './lifecycle'
 import { pluginPresentation } from './presentation'
+import {
+  PluginObservationContext,
+  PluginSettingsObservations,
+  usePluginObservations,
+} from './settings-observations'
 import { usePlugins } from './use-plugins'
 
 type Selection =
@@ -61,6 +66,7 @@ function PluginInventory({
 }: { scope: NativeUsersScope } & ConfigurationProps) {
   const { t } = useTranslation()
   const client = useQueryClient()
+  const { observations, report } = usePluginObservations()
   const runtime = useRuntimeCapabilities()
   const localQuery = usePlugins(runtime ? undefined : scope)
   const query = runtime?.plugins ?? localQuery
@@ -534,16 +540,11 @@ function PluginInventory({
                   <h3 className='text-base font-semibold [overflow-wrap:anywhere]'>
                     {presentation.title}
                   </h3>
-                  <Badge
-                    variant='secondary'
-                    className={
-                      plugin.enabled ? 'text-success' : 'text-muted-foreground'
-                    }
-                  >
+                  <Badge variant='secondary' className='text-muted-foreground'>
                     {!plugin.available
                       ? t('Setup required')
                       : plugin.enabled
-                        ? t('Enabled')
+                        ? t('Routes enabled')
                         : plugin.installed
                           ? t('Disabled')
                           : t('Not installed')}
@@ -561,6 +562,11 @@ function PluginInventory({
                     {presentation.description}
                   </p>
                 )}
+                <PluginSettingsObservations
+                  name={plugin.name}
+                  observations={observations}
+                  enabled={plugin.available && plugin.enabled}
+                />
                 {!plugin.available && (
                   <p className='text-warning text-xs leading-relaxed'>
                     {t('This module has not been configured on the server.')}
@@ -695,12 +701,14 @@ function PluginInventory({
                   className='min-w-0 scroll-mt-16 border-t pt-4 focus-visible:outline-offset-2'
                 >
                   {configReady ? (
-                    <PluginConfiguration
-                      name={activePanel}
-                      marketReviewEnabled={marketReviewEnabled}
-                      writable={writable}
-                      onSelect={changePanel}
-                    />
+                    <PluginObservationContext.Provider value={report}>
+                      <PluginConfiguration
+                        name={activePanel}
+                        marketReviewEnabled={marketReviewEnabled}
+                        writable={writable}
+                        onSelect={changePanel}
+                      />
+                    </PluginObservationContext.Provider>
                   ) : (
                     <div className='flex flex-wrap items-center gap-3'>
                       <p

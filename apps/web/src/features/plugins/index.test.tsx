@@ -182,6 +182,7 @@ test('administrator sees plugin state and refreshes with a scoped read only requ
   const container = await mount()
   await until(() => container.textContent?.includes('Enabled modules') === true)
   assert.match(container.textContent ?? '', /store/)
+  assert.match(container.textContent ?? '', /Service availability unverified/)
   assert.match(container.textContent ?? '', /Installed/)
   assert.match(
     container.textContent ?? '',
@@ -821,10 +822,27 @@ test('an installed disabled check-in plugin still opens its host-owned reward en
     assert.equal(config.method, 'get')
     return config.url === '/api/extensions/plugins'
       ? response(config, [{ ...plugin, name: 'checkins', enabled: false }])
-      : response(config, {})
+      : response(config, {
+          revision: 1,
+          enabled: true,
+          min_quota: '1',
+          max_quota: '2',
+          writable: true,
+          module_enabled: false,
+          funding_available: false,
+          funding_limit: null,
+        })
   }
-  await mount('checkins')
-  await until(() => reads.includes('/api/option/checkin'))
+  const container = await mount('checkins')
+  const card = () => container.querySelector('[data-plugin="checkins"]')
+  await until(
+    () => card()?.textContent?.includes('Reward funding unavailable') === true
+  )
+  await act(async () => button('Close', card()!).click())
+  assert.match(
+    card()?.textContent ?? '',
+    /Reward funding unavailable.*Settings editable/
+  )
   assert.deepEqual(reads, ['/api/extensions/plugins', '/api/option/checkin'])
 })
 
@@ -838,6 +856,43 @@ const reviewSettings = {
   categories: ['violence'],
 }
 const reviewPath = '/api/security/market-ai-review/settings'
+
+test('one missing review endpoint is visible on both market cards after the panel closes', async () => {
+  login(100)
+  const reads: string[] = []
+  api.defaults.adapter = async (config) => {
+    reads.push(config.url!)
+    assert.equal(config.method, 'get')
+    if (config.url === '/api/extensions/plugins') {
+      return response(config, [plugin, { ...plugin, name: 'toolmarket' }])
+    }
+    assert.equal(config.url, reviewPath)
+    throw new AxiosError('Not found', 'ERR_BAD_REQUEST', config, undefined, {
+      ...response(config, {}),
+      status: 404,
+      statusText: 'Not found',
+    })
+  }
+  const container = await mount('toolmarket')
+  for (const name of ['store', 'toolmarket']) {
+    await until(
+      () =>
+        container
+          .querySelector(`[data-plugin="${name}"]`)
+          ?.textContent?.includes('Settings endpoint not found') === true
+    )
+  }
+  await act(async () => button('Close', container).click())
+  assert.match(
+    container.querySelector('[data-plugin="toolmarket"]')?.textContent ?? '',
+    /Routes enabled/
+  )
+  assert.match(
+    container.querySelector('[data-plugin="store"]')?.textContent ?? '',
+    /Settings endpoint not found/
+  )
+  assert.deepEqual(reads, ['/api/extensions/plugins', reviewPath])
+})
 
 test('platform payment settings have no marketplace card even when an old host advertises the adapter', async () => {
   login(100)

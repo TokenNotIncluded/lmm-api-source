@@ -22,6 +22,11 @@ import { useTranslation } from 'react-i18next'
 import { ErrorState } from '@/components/error-state'
 import { LoadingState } from '@/components/loading-state'
 import { Button } from '@/components/ui/button'
+import {
+  pluginReadTime,
+  settingsReadFailure,
+  useReportPluginSetting,
+} from '@/features/plugins/settings-observations'
 
 import { useHeroSmsTranslations } from '../../email-activations/use-hero-sms-translations.js'
 import { getHeroSmsSettings, testHeroSmsConnection } from './hero-sms-api'
@@ -38,6 +43,16 @@ export function HeroSmsSettingsSection() {
     retry: false,
   })
 
+  const result = settings.isError
+    ? settingsReadFailure(settings.error)
+    : !settings.data
+      ? undefined
+      : !settings.data.api_key_configured
+        ? 'needsSetup'
+        : settings.data.purchases_available
+          ? 'available'
+          : 'noPurchases'
+  useReportPluginSetting('activations', result, pluginReadTime(settings))
   if (settings.isError) {
     return (
       <ErrorState

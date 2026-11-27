@@ -42,7 +42,12 @@ import { clearConnectionCache } from '@/features/models/hooks/use-model-deployme
 import {
   readIoNetSettings,
   saveIoNetSettings,
+  type IoNetSettings,
 } from '@/features/models/ionet-api'
+import {
+  settingsReadFailure,
+  useReportPluginSetting,
+} from '@/features/plugins/settings-observations'
 import { openExternalUrl } from '@/lib/external-navigation'
 import { ROLE } from '@/lib/roles'
 import { validatedExternalUrl } from '@/lib/validated-external-url'
@@ -74,12 +79,30 @@ export function IoNetDeploymentSettingsSection() {
   )
 }
 
+function deploymentStatus(settings: IoNetSettings) {
+  if (!settings.enabled) return 'off' as const
+  return settings.configured && settings.can_connect
+    ? ('configured' as const)
+    : ('needsSetup' as const)
+}
+
 function IoNetDeploymentSettingsForm() {
   const { t } = useTranslation()
   const auth = useAuthStore((state) => state.auth)
   const canManage = auth.user?.role === ROLE.SUPER_ADMIN
   const [revision, setRevision] = useState<number | null>(null)
   const [configured, setConfigured] = useState(false)
+  const [reading, setReading] = useState<{
+    result: 'configured' | 'off' | 'needsSetup' | 'missingApi' | 'readFailed'
+    at: number
+    writable?: boolean
+  }>()
+  useReportPluginSetting(
+    'deployment',
+    reading?.result,
+    reading?.at ?? 0,
+    reading?.writable
+  )
   const [clearKey, setClearKey] = useState(false)
   const [saving, setSaving] = useState(false)
   const form = useForm<Values>({
@@ -104,17 +127,23 @@ function IoNetDeploymentSettingsForm() {
     void readIoNetSettings(controller.signal)
       .then((settings) => {
         if (controller.signal.aborted) return
+        setReading({
+          result: deploymentStatus(settings),
+          at: Date.now(),
+          writable: canManage,
+        })
         setRevision(settings.revision)
         setConfigured(settings.configured)
         form.reset({ enabled: settings.enabled, apiKey: '' })
       })
-      .catch(() => {
+      .catch((error) => {
         if (!controller.signal.aborted) {
+          setReading({ result: settingsReadFailure(error), at: Date.now() })
           toast.error(t('Failed to load settings'))
         }
       })
     return () => controller.abort()
-  }, [auth.user?.id, auth.user?.role, auth.session?.sid, form, t])
+  }, [auth.user?.id, auth.user?.role, auth.session?.sid, canManage, form, t])
   async function onSubmit(values: Values) {
     if (!canManage || revision === null) return
     setSaving(true)
@@ -127,6 +156,11 @@ function IoNetDeploymentSettingsForm() {
       })
       setRevision(settings.revision)
       setConfigured(settings.configured)
+      setReading({
+        result: deploymentStatus(settings),
+        at: Date.now(),
+        writable: canManage,
+      })
       setClearKey(false)
       form.reset({ enabled: settings.enabled, apiKey: '' })
       clearConnectionCache()
@@ -163,6 +197,13 @@ function IoNetDeploymentSettingsForm() {
 
   return (
     <SettingsSection title={t('io.net Deployments')}>
+      {revision === null && reading && (
+        <p role='alert'>
+          {reading.result === 'missingApi'
+            ? t('Settings endpoint not found')
+            : t('Failed to load settings')}
+        </p>
+      )}
       <Form {...form}>
         <SettingsForm onSubmit={form.handleSubmit(onSubmit)} autoComplete='off'>
           <SettingsPageFormActions

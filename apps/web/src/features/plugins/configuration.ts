@@ -10,6 +10,13 @@ const hostFields: Record<string, readonly string[]> = {
 }
 
 export function pluginHostFields(name: string) {
+  if (name === 'ssmcpd')
+    return [
+      'ssmcpd.base_url',
+      'ssmcpd.token_file',
+      'ssmcpd.seller_kind',
+      'ssmcpd.seller_id',
+    ]
   return Object.hasOwn(hostFields, name) ? hostFields[name] : undefined
 }
 
@@ -46,7 +53,7 @@ export function configurationOwner(panel: string | undefined) {
   if (panel === 'community' || panel === 'store' || panel === 'toolmarket') {
     return panel
   }
-  return panel && pluginHostFields(panel) ? panel : undefined
+  return panel && Object.hasOwn(hostFields, panel) ? panel : undefined
 }
 
 export function canOpenConfiguration(

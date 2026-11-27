@@ -33,6 +33,11 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  pluginReadTime,
+  settingsReadFailure,
+  useReportPluginSetting,
+} from '@/features/plugins/settings-observations'
 import { REPOSITORIES, repositoryUrl } from '@/features/repositories/api'
 import { RepositoryLink } from '@/features/repositories/repository-link'
 import { SettingsSection } from '@/features/system-settings/components/settings-section'
@@ -467,6 +472,15 @@ export function ScriptsAdminSection() {
   )
   const queryClient = useQueryClient()
   const scripts = useScriptList()
+  useReportPluginSetting(
+    'scripts',
+    scripts.isError
+      ? settingsReadFailure(scripts.error)
+      : scripts.isSuccess
+        ? 'available'
+        : undefined,
+    pluginReadTime(scripts)
+  )
   const repository = useQuery({
     queryKey: ['scripts-repository'],
     queryFn: async () =>
