@@ -22,6 +22,7 @@ from email.parser import BytesParser
 from email.utils import getaddresses
 import hashlib
 import http.client
+from http.cookies import SimpleCookie
 import json
 import os
 from pathlib import Path
@@ -196,9 +197,12 @@ class Process:
         require(not self.overflow, "process_output_limit_exceeded")
         return code
 
-    def signal(self, sig):
+    def signal(self, sig, *, group=True):
         if self.process.poll() is None:
-            os.killpg(self.process.pid, sig)
+            if group:
+                os.killpg(self.process.pid, sig)
+            else:
+                self.process.send_signal(sig)
             self.runner.events.append({"event": "process_signal", "label": self.label,
                                        "signal": sig.name})
 
@@ -345,10 +349,10 @@ privacy_policy_enabled = true
             require(len(raw) <= 262144, "http_response_too_large")
             value = json.loads(raw)
             status = response.status
-            returned = {key.lower(): val for key, val in response.getheaders()}
-            if "set-cookie" in returned:
-                self.remember(returned["set-cookie"])
-                self.remember(returned["set-cookie"].split(";", 1)[0])
+            returned = response.headers
+            for line in returned.get_all("Set-Cookie", []):
+                self.remember(line)
+                self.remember(line.split(";", 1)[0])
             data = value.get("data")
             if isinstance(data, dict):
                 self.remember(data.get("access_token"))
@@ -584,8 +588,15 @@ FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname LIKE
         bundle = body["data"]
         require(bundle["user"]["email"] == registration["email"], "login_email_not_registered")
         require(bundle.get("token_type") == "Bearer", "login_token_type")
-        cookie = headers.get("set-cookie", "").split(";", 1)[0]
-        require(cookie.startswith("new_api_refresh="), "refresh_cookie_missing")
+        refresh = []
+        for line in headers.get_all("Set-Cookie", []):
+            parsed = SimpleCookie()
+            parsed.load(line)
+            item = parsed.get("new_api_refresh")
+            if item and item.value and item["path"] == "/api/user/auth" and item["max-age"] != "0":
+                refresh.append(item.OutputString(attrs=[]))
+        require(len(refresh) == 1, "refresh_cookie_missing_or_ambiguous")
+        cookie = refresh[0]
         return {"Authorization": "Bearer " + bundle["access_token"],
                 "X-Auth-Session": bundle["session"]["sid"]}, cookie
 
@@ -690,8 +701,13 @@ FROM core_identity.email_delivery_outbox WHERE id='{row}';
         # Stop Core/commands before PG; SIGKILL is recorded as cleanup failure.
         for process in [p for p in self.processes if p is not self.pg] + ([self.pg] if self.pg else []):
             try:
-                process.signal(signal.SIGINT if process is self.pg else signal.SIGTERM)
-                process.wait(40)
+                if process is self.pg:
+                    # The postmaster coordinates its children during fast shutdown.
+                    process.signal(signal.SIGINT, group=False)
+                    process.wait(120)
+                else:
+                    process.signal(signal.SIGTERM)
+                    process.wait(40)
             except Exception:
                 self.failures.append({"check": "cleanup", "reason": "process_required_forced_cleanup",
                                       "label": process.label})
