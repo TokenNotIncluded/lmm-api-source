@@ -43,10 +43,10 @@ async function capture(page, route, name, errors) {
     scroll: document.documentElement.scrollWidth,
   }))
   const text = await page.locator('body').innerText()
-  assert.ok(
-    !/Invalid language tag|Internal Server Error|PERSONA_DEBUG_UNMOCKED_REQUEST/.test(
-      text
-    )
+  assert.doesNotMatch(
+    text,
+    /Invalid language tag|Internal Server Error|PERSONA_DEBUG_UNMOCKED_REQUEST/,
+    `${route} at ${dimensions.width}px`
   )
   assert.ok(dimensions.scroll <= dimensions.width + 1)
   assert.deepEqual(errors, [])
@@ -72,8 +72,10 @@ try {
       locale: 'zh-CN',
       serviceWorkers: 'block',
     })
+    await context.addCookies([
+      { name: 'lmm_ui_locale', value: 'zh-CN', url: origin },
+    ])
     await context.addInitScript(() => {
-      localStorage.setItem('i18nextLng', 'zh-CN')
       localStorage.setItem('lmm:source-consent:v2', 'no')
     })
     const errors = []
@@ -196,11 +198,11 @@ try {
           history.pushState({}, '', '/temporary-activations?console_review=1')
           window.dispatchEvent(new PopStateEvent('popstate'))
         })
-        await page.locator('#sms-purchase-balance-notice').waitFor()
+        await page.getByText('暂不支持购买', { exact: true }).waitFor()
         await capture(
           page,
           '/temporary-activations',
-          `l1-sms-${width}-low-balance.png`,
+          `l1-sms-${width}-purchases-unavailable.png`,
           errors
         )
       }

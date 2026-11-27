@@ -99,9 +99,15 @@ jobs:
             sleep 2
           done
           test "$ready" = 1
+          if [[ "$SUITE" == console ]]; then
+            # Keep the gallery available when an interaction assertion fails.
+            failed=0
+            node scripts/console-interaction-review.mjs > "$RUNNER_TEMP/pages/interactions.log" 2>&1 || failed=1
+            node scripts/console-page-review.mjs > "$RUNNER_TEMP/pages/review.log" 2>&1 || failed=1
+            exit "$failed"
+          fi
           case "$SUITE" in
             focused) script=sitewide-polish-review;;
-            console) script=console-page-review;;
             public) script=mobile-experience-review;;
             store) script=store-pickup-review;;
           esac

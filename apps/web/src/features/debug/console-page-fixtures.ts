@@ -134,6 +134,8 @@ const reads: Record<string, unknown> = {
   '/api/user/gift': [],
   '/api/user/oauth/bindings': [],
   '/api/user/passkey': { enabled: false, credentials: [] },
+  '/api/user/self/ip-allowlist': { allow_ips: [], client_ip: '127.0.0.1' },
+  '/api/user/auth/oauth2/grants': [],
   '/api/user/checkin': { enabled: false, checked_in_today: false, records: [] },
   '/api/subscription/self': {
     billing_preference: 'wallet_only',
@@ -145,6 +147,21 @@ const reads: Record<string, unknown> = {
   '/api/subscription/admin/plans': [],
   '/api/subscription/admin/reset/eligible': page,
   '/api/log/self/stat': { quota: 15000, rpm: 0, tpm: 0 },
+  '/api/log/self/history': { ...page, source: 'legacy_log_only' },
+  '/api/log/self/history/stat': {
+    source: 'legacy_log_only',
+    quota: 0,
+    raw_consumption_quota: '0',
+    quota_numeric_representable: true,
+    invalid_quota_records: 0,
+    unpriced_quota_records: 0,
+    quota_usd: '0',
+    quota_money_available: true,
+    quota_money_basis: 'empty_result',
+    rates_available: false,
+    rpm: null,
+    tpm: null,
+  },
   '/api/log/stat': { quota: 15000, rpm: 0, tpm: 0 },
   '/api/task/self': page,
   '/api/task/': page,
@@ -466,6 +483,84 @@ export function consolePageFixture(
   if (url.origin !== window.location.origin) return undefined
   const user = useAuthStore.getState().auth.user
   const path = url.pathname
+  if (path === '/health/ready') {
+    return {
+      service: 'lmm-core',
+      status: 'ready',
+      database: true,
+      capabilities: { identity: true, models: true },
+      readiness_scope: 'configured_components',
+      upstream_health_checked: false,
+    }
+  }
+  if ((user?.role ?? 0) >= ROLE.ADMIN) {
+    switch (path) {
+      case '/api/deployments/operations':
+        return { success: true, data: [] }
+      case '/core/v1/payment-discounts/admin/codes':
+        return { success: true, data: { items: [], next_after: null } }
+      case '/core/v1/promotions/admin/campaigns':
+        return { contract: 'core.promotions.v1', campaigns: [] }
+      case '/core/v1/subscriptions/admin/plans':
+        return { contract: 'core.subscriptions.v1', plans: [] }
+      case '/core/v1/admin/routing/pricing-source-snapshot':
+        return { success: true, data: null }
+      case '/core/v1/admin/request-limits':
+        return {
+          version: 1,
+          revision: 1,
+          policy: {
+            enabled: false,
+            window_seconds: 60,
+            user_limit: null,
+            group_limits: {},
+          },
+        }
+      case '/core/v1/admin/abuse/policies':
+        return {
+          version: 1,
+          revision: 1,
+          config: { version: 1, policies: [] },
+          capabilities: {
+            client_protocols: ['openai_chat', 'openai_responses'],
+            upstream_protocols: [
+              'openai_chat',
+              'openai_responses',
+              'anthropic_messages',
+              'gemini',
+            ],
+            modes: ['fixed_text', 'custom_upstream'],
+            numeric_loopback_only: true,
+            credential_references: [],
+          },
+        }
+      case '/core/v2/admin/abuse/users':
+        return { version: 2, users: [], next_after: null }
+    }
+  }
+  if (path === '/core/v1/checkins/history' && user) {
+    const month = (config.params as { month?: unknown } | undefined)?.month
+    if (
+      typeof month !== 'string' ||
+      !/^(?!0000)\d{4}-(0[1-9]|1[0-2])$/.test(month)
+    ) {
+      return undefined
+    }
+    return {
+      success: true,
+      data: {
+        contract: 'core.checkin-history.v1',
+        month,
+        observed_at: stamp,
+        total_checkins: 0,
+        total_raw_quota_awarded: '0',
+        award_unit: 'legacy_raw_no_conversion',
+        native_claim_available: false,
+        calendar_timezone: null,
+        records: [],
+      },
+    }
+  }
   if (path === '/core/v1/pricing/session') {
     if (
       !user ||

@@ -10,9 +10,9 @@
 - Additional 390px mobile, profile tabs, SMS order/history/email, wallet disclosure, expanded filter, and dark-theme views.
 - `/workspace` and `/playground` are compatibility redirects; the report records the resolved URL rather than inventing separate screens.
 
-`console-interaction-review.mjs` additionally exercises filter selection, collapsed active-filter chips, single-condition removal and focus restoration, 320px/390px list scrolling, the mobile log-filter drawer, and Chinese low-balance SMS rendering. It emits `interactions.json` and its own screenshots alongside the route gallery. Both scripts run even if one fails, so diagnostic coverage is not silently lost.
+`console-interaction-review.mjs` additionally exercises filter selection, collapsed active-filter chips, single-condition removal and focus restoration, 320px/390px list scrolling, the mobile log-filter drawer, and the Chinese notice when temporary activation purchases are unavailable. It emits `interactions.json` and its own screenshots alongside the route gallery. Both scripts run even if one fails, so diagnostic coverage is not silently lost.
 
-The fixture data deliberately includes empty lists, unconfigured services, and a low-balance ordinary account. These screenshots do not represent production balances, prices, inventory, or service availability. The review does not purchase numbers, refund/cancel orders, submit payments, or save administrative settings.
+The fixture data deliberately includes empty lists, unconfigured services, and a server with temporary activation purchases disabled. These screenshots do not represent production balances, prices, inventory, or service availability. The review does not purchase numbers, refund/cancel orders, submit payments, or save administrative settings.
 
 ## Running
 
@@ -22,7 +22,7 @@ Set `CONSOLE_REVIEW_OUTPUT` to an isolated output directory. If Playwright or it
 
 The target defaults to `http://127.0.0.1:4174`; `CONSOLE_REVIEW_ORIGIN` may select another HTTP port on `127.0.0.1` for an isolated local run. Requests to external origins are blocked; unexpected backend requests fail the review. `console_review=1` selects the explicit read-only fixture catalog in the development entry. The catalog permits GET reads and the exact POST `/api/pricing/runtime` batch query; all purchase/payment/reset/refund mutations remain blocked. Production builds use `main.tsx`, not `debug-main.tsx`.
 
-`report.json` records identity, route, resolved URL, viewport, screenshot, errors, and visible page text. A review fails on route exceptions, error toasts, known data-load error states, or document-width overflow. Keep the artifact's `revision.txt` with the screenshots when comparing versions. The separate `console-review-source` artifact contains the exact tracked frontend source and revision for offline inspection; it never includes credentials or installed dependencies.
+`report.json` records identity, route, resolved URL, viewport, screenshot, errors, and visible page text. A review fails on route exceptions, error toasts, known data-load error states, or document-width overflow. Keep the artifact's `revision.txt` with the screenshots when comparing versions. The `sitewide-console` artifact in the Sitewide UI review workflow contains both reports and the revision required to reproduce the tracked source.
 
 ## Regressions
 

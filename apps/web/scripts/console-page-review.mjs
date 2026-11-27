@@ -249,7 +249,7 @@ try {
         await page.evaluate((to) => {
           history.pushState({}, '', to)
           window.dispatchEvent(new PopStateEvent('popstate'))
-        }, `${destination}?debug_persona=${persona}&console_review=1`)
+        }, destination)
         await settle(page)
         await snapshot(page, persona, destination, errors)
         await page.evaluate(() =>
@@ -263,12 +263,11 @@ try {
           const tabs = page.locator('.console-page-tabs > [role=tablist]')
           const all = tabs.getByRole('tab')
           for (let index = 1; index < (await all.count()); index += 1) {
-            await all.nth(index).click()
-            if (index === 4) {
-              await page
-                .locator('[role=tabpanel]:visible a[href="/wallet"]')
-                .waitFor()
-            }
+            const tab = all.nth(index)
+            await tab.click()
+            const panelId = await tab.getAttribute('aria-controls')
+            assert.ok(panelId)
+            await page.locator(`[id="${panelId}"]`).waitFor()
             await snapshot(page, persona, destination, errors, `-tab-${index}`)
           }
         }
@@ -277,8 +276,14 @@ try {
           const historyTab = page
             .locator('.console-sms-orders [role=tab]')
             .nth(1)
-          await historyTab.click()
-          await snapshot(page, persona, destination, errors, '-history')
+          if (await historyTab.count()) {
+            await historyTab.click()
+            await snapshot(page, persona, destination, errors, '-history')
+          } else {
+            await page
+              .getByText(/^(Purchases unavailable|暂不支持购买)$/)
+              .waitFor()
+          }
           const emailTab = page.getByRole('tab', {
             name: /^(Email address|邮箱地址|电子邮箱|电子邮件地址|邮箱接码)$/,
           })
