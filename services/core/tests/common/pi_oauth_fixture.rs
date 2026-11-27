@@ -109,7 +109,7 @@ fn routes_for_model(
                     targets: vec![RouteTarget {
                         id: 1,
                         upstream_id: 1,
-                        upstream_model: "provider-model".into(),
+                        upstream_model: public_model.into(),
                         enabled: true,
                         priority: 0,
                         weight: 1,
@@ -237,7 +237,6 @@ impl Fixture {
     async fn new(owner: &PgPool, developer: bool, applications: FixtureApplications<'_>) -> Self {
         let (native, ledger, _native_session, native_key, native_id, _native_account) =
             model_fixture::fixture(owner, 1000).await;
-        let provider = Provider::start(true).await;
         let cli_host = matches!(
             applications,
             FixtureApplications::PiHost | FixtureApplications::MagpieHost
@@ -247,28 +246,25 @@ impl Fixture {
             FixtureApplications::MagpieHost => FixtureApplications::PiAndAllManaged,
             value => value,
         };
-        let (router, group) = if cli_host {
+        let (model, group) = if cli_host {
             let suffix: String =
                 sqlx::query_scalar("SELECT left(replace(gen_random_uuid()::text,'-',''),16)")
                     .fetch_one(owner)
                     .await
                     .unwrap();
-            let group = format!("group-{suffix}");
-            let router = routes_for_model(
-                &provider.endpoint,
-                0,
-                0,
-                PayloadPolicy::Adapt,
-                &format!("host-{suffix}"),
-                &group,
-            );
-            (router, group)
+            (format!("host-{suffix}"), format!("group-{suffix}"))
         } else {
-            (
-                routes(&provider.endpoint, 0, 0, PayloadPolicy::Adapt),
-                "allowed".to_owned(),
-            )
+            ("provider-model".to_owned(), "allowed".to_owned())
         };
+        let provider = Provider::start_for_model(true, &model).await;
+        let router = routes_for_model(
+            &provider.endpoint,
+            0,
+            0,
+            PayloadPolicy::Adapt,
+            &model,
+            &group,
+        );
         let store = native
             .with_registration_enabled(true)
             .with_dashboard_routing(router.clone());

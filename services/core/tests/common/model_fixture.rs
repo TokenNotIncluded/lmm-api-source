@@ -60,6 +60,7 @@ impl Drop for Provider {
 #[derive(Clone)]
 #[allow(dead_code)] // Only the loopback provider constructs this state.
 struct ProviderState {
+    model: String,
     hits: Arc<AtomicUsize>,
     auth: Arc<Mutex<Vec<String>>>,
     socket_produced: Arc<AtomicUsize>,
@@ -116,7 +117,7 @@ async fn provider(
         .lock()
         .unwrap()
         .push(headers["authorization"].to_str().unwrap().to_owned());
-    assert_eq!(request["model"], "provider-model");
+    assert_eq!(request["model"].as_str(), Some(state.model.as_str()));
     let prompt = match &request["messages"][0]["content"] {
         Value::String(text) => text.clone(),
         Value::Array(parts) => parts
@@ -207,7 +208,7 @@ async fn provider(
         )
             .into_response();
     }
-    let mut value = json!({"id":"synthetic-completion","object":"chat.completion","created":0,"model":"provider-model",
+    let mut value = json!({"id":"synthetic-completion","object":"chat.completion","created":0,"model":state.model,
         "choices":[{"index":0,"message":{"role":"assistant","content":"local synthetic answer"},"finish_reason":"stop"}]});
     if state.usage {
         value["usage"] = json!({"prompt_tokens":10,"completion_tokens":20,"prompt_tokens_details":{"cached_tokens":2}});
@@ -217,6 +218,10 @@ async fn provider(
 impl Provider {
     #[allow(dead_code)] // Importers that only seed the database do not start it.
     pub(super) async fn start(usage: bool) -> Self {
+        Self::start_for_model(usage, "provider-model").await
+    }
+
+    pub(super) async fn start_for_model(usage: bool, model: &str) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("http://{}/custom/v1", listener.local_addr().unwrap());
         let hits = Arc::new(AtomicUsize::new(0));
@@ -229,6 +234,7 @@ impl Provider {
         let app = Router::new()
             .route("/custom/v1/chat/completions", post(provider))
             .with_state(ProviderState {
+                model: model.to_owned(),
                 hits: hits.clone(),
                 auth: auth.clone(),
                 usage,
