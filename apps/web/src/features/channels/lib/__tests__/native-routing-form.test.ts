@@ -4,10 +4,8 @@ import { test } from 'node:test'
 
 import {
   readChannelDraft,
-  readModelDraft,
   toggleChannelAttachment,
   updateChannelAttachment,
-  updateModelIdentity,
 } from '../native-routing-form'
 
 function fixture() {
@@ -179,64 +177,6 @@ test('clearing numeric fields preserves an editable draft without replacing empt
   assert.deepEqual(reread.expected_version, draft.expected_version)
 })
 
-test('a model or group rename updates price identities and retains advanced billing data', () => {
-  const draft = readModelDraft(
-    JSON.stringify({
-      expected_version: { routing: 5, pricing: 3 },
-      route: {
-        id: 1,
-        model: 'public-a',
-        group: 'default',
-        enabled: false,
-        targets: [],
-        speeds: ['standard'],
-        failover: {
-          max_attempts: 1,
-          retry_on: [],
-          allow_replay_after_send: false,
-        },
-      },
-      metadata: {
-        display_name: 'public-a',
-        description: 'Keep this text',
-        vendor_id: null,
-      },
-      contexts: [],
-      prices: [
-        {
-          id: 1,
-          model: 'public-a',
-          group: 'default',
-          speed: 'standard',
-          rates: {
-            input: 2,
-            output: 3,
-            cache_read: 1,
-            cache_write: 2,
-            request: 0,
-          },
-          group_multiplier_ppm: 1_000_000,
-          speed_multiplier_ppm: 1_000_000,
-          billing_mode: 'tiered_decimal',
-          tiered: { retained: 'exact' },
-        },
-      ],
-    })
-  )
-  assert.ok(draft)
-  const changed = updateModelIdentity(
-    updateModelIdentity(draft, 'model', 'public-b'),
-    'group',
-    'team'
-  )
-  assert.equal(changed.route.model, 'public-b')
-  assert.equal(changed.prices[0].model, 'public-b')
-  assert.equal(changed.prices[0].group, 'team')
-  assert.deepEqual(changed.prices[0].tiered, { retained: 'exact' })
-  assert.equal(changed.metadata.display_name, 'public-b')
-  assert.equal(changed.metadata.description, 'Keep this text')
-})
-
 test('malformed advanced input stays outside the visual editor instead of inventing defaults', () => {
   assert.equal(readChannelDraft('{'), null)
   assert.equal(
@@ -247,7 +187,6 @@ test('malformed advanced input stays outside the visual editor instead of invent
     readChannelDraft(JSON.stringify({ ...fixture(), id: 1.5 })),
     null
   )
-  assert.equal(readModelDraft('{"route":null}'), null)
 })
 
 test('a new channel attachment follows the global timeout without rewriting existing bindings', () => {

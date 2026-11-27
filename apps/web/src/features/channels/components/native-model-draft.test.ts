@@ -170,6 +170,39 @@ test('model identity edits inherit the destination tariff without losing CAS or 
   assert.deepEqual(next.expected_version, { routing: 4, pricing: 3 })
 })
 
+test('renaming preserves tiered billing metadata and updates an inherited display name', () => {
+  const draft = readNativeModelDraft(
+    JSON.stringify({
+      ...draftInput,
+      metadata: {
+        ...draftInput.metadata,
+        display_name: draftInput.route.model,
+      },
+      prices: [
+        {
+          ...draftInput.prices[0],
+          billing_mode: 'tiered_decimal',
+          tiered: { retained: 'exact' },
+        },
+      ],
+    })
+  )
+  assert.ok(draft)
+  const changed = modelIdentity(
+    modelIdentity(draft, 'model', 'public-b'),
+    'group',
+    'team'
+  )
+  assert.equal(changed.metadata.display_name, 'public-b')
+  assert.equal(changed.metadata.description, draftInput.metadata.description)
+  assert.equal(changed.prices[0].billing_mode, 'tiered_decimal')
+  assert.deepEqual(changed.prices[0].tiered, { retained: 'exact' })
+})
+
+test('malformed model input stays outside the visual editor', () => {
+  assert.equal(readNativeModelDraft('{"route":null}'), null)
+})
+
 test('empty and mixed groups require an explicit multiplier while free groups preserve zero', () => {
   const { draft } = fixture()
   const rules = [
