@@ -10,6 +10,8 @@ on:
         description: Run only the Chromium onboarding and wallet job.
         type: boolean
         default: false
+  schedule:
+    - cron: '7,37 * * * *'
   workflow_call:
     inputs:
       split_rust_targets:
@@ -23,11 +25,41 @@ defaults:
   run:
     shell: bash
 concurrency:
-  group: microkernel-${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.sha || github.ref }}
-  cancel-in-progress: true
+  group: core-protocol-${{ inputs.browser_only && 'browser' || 'full' }}-${{ github.sha }}
+  cancel-in-progress: false
 jobs:
+  cadence:
+    name: Select full verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      needed: ${{ steps.schedule.outputs.needed || steps.explicit.outputs.needed }}
+    steps:
+      - name: Select explicit qualification
+        id: explicit
+        if: ${{ github.event_name != 'schedule' }}
+        run: echo "needed=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        if: ${{ github.event_name == 'schedule' }}
+        with:
+          persist-credentials: false
+      - name: Look up the original full validation for this SHA
+        id: schedule
+        if: ${{ github.event_name == 'schedule' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -B scripts/ci/core_cadence.py
+      - name: Preserve a previous unsuccessful result
+        if: ${{ steps.schedule.outputs.needed == 'false' && steps.schedule.outputs.prior_state != 'success' && steps.schedule.outputs.prior_state != 'in_progress' }}
+        run: |
+          echo "::error::The original full validation was unsuccessful. See the run linked in the job summary."
+          exit 1
   protocol:
-    if: ${{ !inputs.browser_only }}
+    needs: cadence
+    if: ${{ needs.cadence.outputs.needed == 'true' && !inputs.browser_only }}
     name: ${{ startsWith(matrix.targets, 'integration-') && format('Rust targets ({0})', matrix.targets) ||
       matrix.targets == 'model-unit' && 'Rust model unit tests' ||
       matrix.targets == 'model-responses' && 'Rust Responses unit tests' ||
@@ -382,7 +414,8 @@ jobs:
           retention-days: 7
 
   financial-import:
-    if: ${{ !inputs.browser_only }}
+    needs: cadence
+    if: ${{ needs.cadence.outputs.needed == 'true' && !inputs.browser_only }}
     name: Reviewed financial import and PostgreSQL
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -414,7 +447,8 @@ jobs:
           retention-days: 7
 
   rpc:
-    if: ${{ !inputs.browser_only }}
+    needs: cadence
+    if: ${{ needs.cadence.outputs.needed == 'true' && !inputs.browser_only }}
     name: Native protobuf container acceptance
     runs-on: ubuntu-24.04
     timeout-minutes: 55

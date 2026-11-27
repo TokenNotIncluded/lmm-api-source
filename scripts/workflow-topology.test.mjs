@@ -125,9 +125,18 @@ test('Workflows use bounded manual and publication triggers', () => {
     assert.ok(block, `${file}: event block is required`);
     const events = [...block[1].matchAll(/^  ([\w-]+):/gm)].map((match) => match[1]);
     if (file === 'core-protocol.yml') {
-      assert.deepEqual(events, ['workflow_dispatch', 'workflow_call']);
+      assert.deepEqual([...events].sort(), ['schedule', 'workflow_call', 'workflow_dispatch']);
+      assert.match(block[1], /^    - cron: ['"]7,37 \* \* \* \*['"]$/m);
+      assert.ok(source.includes("group: core-protocol-${{ inputs.browser_only && 'browser' || 'full' }}-${{ github.sha }}"));
+      assert.match(source, /cancel-in-progress: false/);
       assert.match(source, /permissions:\n  contents: read/);
       assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);
+    } else if (file === 'main-checks.yml') {
+      assert.deepEqual(events, ['push']);
+      assert.match(block[1], /push:\n    branches: \[main\]/);
+      assert.match(source, /git diff --check/);
+      assert.ok(source.includes('node --test scripts/workflow-topology.test.mjs'));
+      assert.ok(source.includes('test_core_cadence.py'));
     } else if (file === 'source-release.yml') {
       assert.deepEqual(events, ['workflow_dispatch', 'push']);
       assert.match(block[1], /push:\n    branches: \[main\]\n    paths: \[\.github\/source-release-request\.json\]/);
@@ -191,8 +200,8 @@ test('Core archives require exact OpenRouter streaming and wallet tests from the
 test('Manual qualification verifies Core and Extensions', () => {
   const source = workflow('core-protocol');
   const triggers = source.match(/^on:\n((?:[ \t]+[^\n]*\n)+)/m)?.[1];
-  assert.deepEqual([...triggers.matchAll(/^  ([\w-]+):/gm)].map((match) => match[1]),
-    ['workflow_dispatch', 'workflow_call']);
+  assert.deepEqual([...triggers.matchAll(/^  ([\w-]+):/gm)].map((match) => match[1]).sort(),
+    ['schedule', 'workflow_call', 'workflow_dispatch']);
   for (const command of ['cargo clippy --locked --all-targets -- -D warnings', 'cargo test --locked --all-targets',
     'go mod verify', 'go vet ./...', 'go test -race', 'scripts/test-core-rpc-docker.py', 'scripts/test-core-boundaries.py',
     'scripts/test-local-release-tests.py', 'scripts/generate-core-protocol.sh --check',
@@ -476,11 +485,13 @@ test('financial and RPC acceptance run independently and remain required in Core
   const [dispatch, called] = source.split('  workflow_call:');
   assert.match(dispatch, /browser_only:\n[^\n]*\n        type: boolean\n        default: false/);
   assert.doesNotMatch(called.split('\npermissions:')[0], /browser_only:/);
-  for (const job of [financial, rpc]) {
+  const protocol = rust.split('\n  protocol:\n')[1].split(/\n  [\w-]+:\n/, 1)[0];
+  for (const job of [protocol, financial, rpc]) {
+    assert.match(job, /^    needs: cadence$/m);
+    assert.ok(job.includes("    if: ${{ needs.cadence.outputs.needed == 'true' && !inputs.browser_only }}\n"));
+    assert.equal([...job.matchAll(/^    (?:if|needs):/gm)].length, 2);
     assert.match(job, /runs-on: ubuntu-24\.04/);
-    const browserOnlyGuard = '    if: ${{ !inputs.browser_only }}\n';
-    assert.ok(job.startsWith(browserOnlyGuard));
-    assert.doesNotMatch(job.slice(browserOnlyGuard.length), /(?:^    (?:if|needs):|continue-on-error:)/m);
+    assert.doesNotMatch(job, /continue-on-error:/);
   }
   assert.match(financial, /bash scripts\/install-ci-postgresql18\.sh/);
   assert.match(financial, /docker pull postgres:18-alpine@sha256:[0-9a-f]{64}/);

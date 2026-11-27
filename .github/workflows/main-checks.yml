@@ -1,0 +1,27 @@
+name: Main quick checks
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  quick:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check the pushed changes
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [[ "$BEFORE" =~ ^0+$ ]]; then
+            BEFORE="$(git hash-object -t tree /dev/null)"
+          fi
+          git diff --check "$BEFORE" "$GITHUB_SHA"
+      - name: Exercise the workflow and scheduling contracts
+        run: |
+          node --test scripts/workflow-topology.test.mjs
+          python3 -B -m unittest discover -s scripts/ci -p 'test_core_cadence.py'
