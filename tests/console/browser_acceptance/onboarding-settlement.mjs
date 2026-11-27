@@ -17,7 +17,10 @@ const extensions = new URL(process.env.BROWSER_EXTENSIONS_URL)
 assert.equal(extensions.protocol, 'http:')
 assert.equal(extensions.hostname, '127.0.0.1')
 assert.equal(extensions.href, extensions.origin + '/')
+const pluginPath = '/api/extensions/plugins'
+const optionsPath = '/api/option/'
 const extensionRoutes = new Set([
+  pluginPath,
   '/api/site/navigation', '/api/release-notes/latest', '/api/hero-sms/capabilities', '/api/user/payments/channels',
 ])
 const dist = resolve(process.env.BROWSER_WEB_DIST)
@@ -136,6 +139,15 @@ async function clickReceipt(page, button, path, method) {
 async function onboard(browser) {
   const { page, identity, user } = await session(browser, 'browseradmin', '/channels')
   assert.equal(user, 8)
+  const plugins = await request(page, identity, pluginPath)
+  assert.equal(plugins.json.success, true)
+  const enabledPlugins = plugins.json.data.filter(plugin => plugin.installed && plugin.enabled).map(plugin => plugin.name)
+  for (const name of ['community', 'operations', 'payments']) assert.ok(enabledPlugins.includes(name), name)
+  const options = await request(page, identity, optionsPath)
+  assert.equal(options.json.success, true)
+  const settings = new Map(options.json.data.map(entry => [entry.key, entry.value]))
+  assert.equal(settings.get('ServerAddress'), web)
+  assert.equal(settings.get('USDExchangeRate'), '7.25')
   const read = async () => (await request(page, identity, config)).json.data
   // Install two fresh enabled groups in this disposable Core via its ordinary CAS.
   const seed = await read()
@@ -244,6 +256,8 @@ async function onboard(browser) {
   assert.equal(bound.targets[0].upstream_id, channelId)
   await page.context().close()
   return { model, group, other_group: otherGroup, channel_id: channelId, version: final.version,
+    shell: { plugins_status: plugins.status, options_status: options.status,
+      enabled_plugins: enabledPlugins, display_exchange_rate: settings.get('USDExchangeRate') },
     price_digest: preview.data.confirmation_digest, route_digest: route.data.confirmation_digest }
 
 }
@@ -279,6 +293,14 @@ async function stream(page, key) {
 async function settle(browser) {
   const { page, identity, user } = await session(browser, 'browserpayer', '/wallet')
   assert.equal(user, 7)
+  const restricted = []
+  for (const path of [pluginPath, optionsPath]) {
+    const anonymous = await fetch(web + path)
+    assert.equal(anonymous.status, 401, path)
+    await anonymous.body?.cancel()
+    const ordinary = await request(page, identity, path, undefined, 'GET', 403)
+    restricted.push({ path, anonymous: anonymous.status, ordinary: ordinary.status })
+  }
   const publicNavigation = await fetch(web + '/api/site/navigation')
   assert.equal(publicNavigation.status, 200)
   const navigation = await publicNavigation.json()
@@ -342,7 +364,7 @@ async function settle(browser) {
   await page.getByRole('dialog').getByText(paid.id, { exact: true }).first().waitFor()
   return {
     request_id: paid.id, user, key_id: key.id, before, after, settled: 50, stream_terminal: paid.done,
-    shell: { navigation_revision: navigation.data.revision, anonymous_release: anonymousRelease.status, signed_in_release: release.status },
+    shell: { restricted, navigation_revision: navigation.data.revision, anonymous_release: anonymousRelease.status, signed_in_release: release.status },
     checkout: { anonymous_status: anonymousChannels.status, signed_in_status: checkout.status,
       available: checkout.json.data.available, channels: checkout.json.data.channels.length,
       portal_available: checkout.json.data.pancake_portal_available },
