@@ -3343,7 +3343,7 @@ test('channel search explains an empty result and clearing restores the compact 
   assert.ok(row.textContent?.includes('OpenAI Chat Completions'))
   assert.equal(required(row.querySelector('details')).open, false)
   assert.equal(button(row, 'Edit').closest('details'), null)
-  assert.equal(button(row, 'Test').closest('details'), null)
+  assert.equal(button(row, 'Test Connection').closest('details'), null)
   assert.equal(button(row, 'API Keys').closest('details'), null)
   assert.ok(row.textContent?.includes(i18n.t('{{count}} models', { count: 1 })))
   const layout = required(row.parentElement)
@@ -3673,7 +3673,7 @@ test('channel capability expiry and failed refresh preserve the draft and CAS un
   assert.equal(button(form, 'Cancel').disabled, false)
   for (const label of [
     'Disable',
-    'Test',
+    'Test Connection',
     'Sync Upstream Models',
     'Delete',
     'API Keys',
@@ -4191,7 +4191,11 @@ test('channel override preview preserves other channels and prices and confirms 
 })
 
 test('fetched channels apply selected routes to the editor without publishing', async () => {
-  const config = fixture()
+  const config: NativeConfiguration = fixture()
+  config.bindings.discoveries['1'] = {
+    models: ['saved-only-model'],
+    observed_at: 1,
+  }
   config.prices.rules.push({
     ...config.prices.rules[0],
     id: 2,
@@ -4234,8 +4238,10 @@ test('fetched channels apply selected routes to the editor without publishing', 
     sort_unit: null,
   }
   let writes = 0
+  let catalogReads = 0
   api.request = (async (options: { method: string; url: string }) => {
     if (options.method !== 'GET') writes++
+    if (options.url === '/api/channel/fetch_models/1') catalogReads++
     return {
       data: {
         success: true,
@@ -4261,8 +4267,12 @@ test('fetched channels apply selected routes to the editor without publishing', 
   const form = required(
     container.querySelector('form[aria-label="Edit Channel"]')
   )
+  assert.match(form.textContent ?? '', /saved-only-model/)
+  assert.equal(catalogReads, 0)
   await act(async () => button(form, 'Fetch Models').click())
   await until(() => form.textContent?.includes('unpublished-model') === true)
+  assert.doesNotMatch(form.textContent ?? '', /saved-only-model/)
+  assert.equal(catalogReads, 1)
   const row = required(
     [...form.querySelectorAll('li')].find((item) =>
       item.textContent?.startsWith('model-b')

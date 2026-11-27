@@ -65,13 +65,15 @@ export function NativeChannelTagField({
 function ChannelModelCatalog({
   disabled,
   fetchModels,
+  savedModels,
   routes,
   attachedRouteIds,
   onApply,
   onCreate,
 }: {
   disabled: boolean
-  fetchModels: () => Promise<string[]>
+  fetchModels?: () => Promise<string[]>
+  savedModels?: readonly string[]
   routes: NativeConfiguration['routing']['routes']
   attachedRouteIds: readonly number[]
   onApply: (routes: NativeConfiguration['routing']['routes']) => void
@@ -81,7 +83,8 @@ function ChannelModelCatalog({
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<number[]>([])
   const catalog = useMutation({ mutationFn: fetchModels })
-  const models = new Set(catalog.data ?? [])
+  const availableModels = catalog.data ?? savedModels
+  const models = new Set(availableModels)
   const routesByModel = useMemo(() => {
     const index = new Map<string, typeof routes>()
     for (const route of routes) {
@@ -105,24 +108,26 @@ function ChannelModelCatalog({
 
   return (
     <section className='min-w-0 space-y-3'>
-      <Button
-        type='button'
-        variant='outline'
-        className='min-h-11'
-        disabled={disabled || catalog.isPending}
-        onClick={() => {
-          setSelected([])
-          catalog.mutate()
-        }}
-      >
-        {catalog.isPending ? t('Loading') : t('Fetch Models')}
-      </Button>
+      {fetchModels && (
+        <Button
+          type='button'
+          variant='outline'
+          className='min-h-11'
+          disabled={disabled || catalog.isPending}
+          onClick={() => {
+            setSelected([])
+            catalog.mutate()
+          }}
+        >
+          {catalog.isPending ? t('Loading') : t('Fetch Models')}
+        </Button>
+      )}
       {catalog.isError && (
         <p role='alert' className='text-destructive text-sm'>
           {getServerErrorMessage(catalog.error) ?? t('Failed to load data')}
         </p>
       )}
-      {catalog.isSuccess && (
+      {availableModels && (
         <>
           <p role='status' className='text-muted-foreground text-sm'>
             {t('Total')}: {models.size}
@@ -247,6 +252,15 @@ export function NativeChannelFields({
     }
     onChange(stringifyNativeDocument(next, 2))
   }
+  const savedChannel = configuration.routing.upstreams.find(
+    (channel) => channel.id === draft.id
+  )
+  const catalogMatchesDraft =
+    savedChannel &&
+    savedChannel.endpoint === draft.endpoint &&
+    savedChannel.protocol === draft.protocol
+  const savedModels =
+    savedChannel && configuration.bindings.discoveries[savedChannel.id]?.models
   const presets = configuration.provider_presets ?? []
   const provider = resolveNativeProvider(
     configuration,
@@ -369,10 +383,13 @@ export function NativeChannelFields({
           {t('Enabled')}
         </label>
       </div>
-      {fetchModels && (
+      {catalogMatchesDraft && (fetchModels || savedModels) && (
         <ChannelModelCatalog
           disabled={disabled}
           fetchModels={fetchModels}
+          savedModels={
+            configuration.bindings.discoveries[savedChannel.id]?.models
+          }
           routes={configuration.routing.routes}
           attachedRouteIds={
             readChannelDraft(document)?.attachments.map(

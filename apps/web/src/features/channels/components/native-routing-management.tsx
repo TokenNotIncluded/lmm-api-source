@@ -1816,7 +1816,7 @@ function NativeRoutingWorkspace({
                         type='button'
                         variant='ghost'
                         className='min-h-11 px-2'
-                        title={t('Test')}
+                        title={t('channelSorting.catalogNote')}
                         disabled={writeDisabled}
                         onClick={() =>
                           void run(() =>
@@ -1829,7 +1829,7 @@ function NativeRoutingWorkspace({
                       >
                         <Play className='size-4' />
                         <span className='native-channel-action-label'>
-                          {t('Test')}
+                          {t('Test Connection')}
                         </span>
                       </Button>
                       <Button

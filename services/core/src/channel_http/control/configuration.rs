@@ -927,6 +927,7 @@ pub(in crate::channel_http) async fn change_key(
         .iter_mut()
         .find(|u| u.id == id)
         .ok_or(Failure::NotFound)?;
+    let previous_credential = upstream.credential;
     let mut bindings = management.current_bindings()?;
     let mut credentials = Vec::new();
     let mut imported_count = None;
@@ -1071,6 +1072,9 @@ pub(in crate::channel_http) async fn change_key(
             (reference, "channel.key.remove")
         }
     };
+    if previous_credential != upstream.credential {
+        bindings.discoveries.remove(&id);
+    }
     let mut target = json!({"id":id,"reference":reference});
     if let Some(count) = imported_count {
         target["imported_count"] = json!(count);

@@ -261,6 +261,47 @@ async fn vault_keys_persist_encrypt_rotate_retire_and_recover_into_real_transpor
     assert_eq!(probe["models"], json!(["model-a"]));
     assert_eq!(probe["inference_tested"], false);
     assert_eq!(hits.load(Ordering::SeqCst), 1);
+    document = active(&pool).await;
+    let synchronized = success(
+        &restored_app,
+        "POST",
+        "/core/v1/admin/routing/channels/2/models/synchronize",
+        &admin,
+        json!({"expected_version": Version::of(&document)}),
+    )
+    .await;
+    assert_eq!(synchronized["models"], json!(["model-a"]));
+    let configuration = success(
+        &restored_app,
+        "GET",
+        "/core/v1/admin/routing/configuration",
+        &admin,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(
+        configuration["bindings"]["discoveries"]["2"]["models"],
+        json!(["model-a"])
+    );
+    document = active(&pool).await;
+    success(
+        &restored_app,
+        "POST",
+        "/core/v1/admin/routing/channels/2/keys",
+        &admin,
+        json!({"operation":"add","expected_version":Version::of(&document),
+            "label":"Different catalog","secret":"synthetic-vault-replacement-key","activate":true}),
+    )
+    .await;
+    let refreshed = success(
+        &restored_app,
+        "GET",
+        "/core/v1/admin/routing/configuration",
+        &admin,
+        Value::Null,
+    )
+    .await;
+    assert!(refreshed["bindings"]["discoveries"].get("2").is_none());
     server.abort();
     drop(restored_app);
     drop(restored_gateway);
