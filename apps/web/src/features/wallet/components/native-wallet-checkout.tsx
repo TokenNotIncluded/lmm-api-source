@@ -305,15 +305,29 @@ function NativeWalletCheckoutForm({
     if (!pending?.submitted || !quote || finished || busy) return
     const controller = new AbortController()
     let attempts = 0
+    let polling = false
+    let stopped = false
     let timer: ReturnType<typeof setTimeout>
     const poll = async () => {
+      if (
+        polling ||
+        stopped ||
+        document.hidden ||
+        controller.signal.aborted ||
+        !isCurrent()
+      )
+        return
+      polling = true
       attempts++
       try {
         const response = await getNativePaymentStatus(quote, controller.signal)
         if (controller.signal.aborted || !isCurrent()) return
         setResult(response)
         setError(null)
-        if (nativeCheckoutFinished(response)) return
+        if (nativeCheckoutFinished(response)) {
+          stopped = true
+          return
+        }
       } catch (failure) {
         if (controller.signal.aborted || !isCurrent()) return
         const status = axios.isAxiosError(failure)
@@ -323,16 +337,28 @@ function NativeWalletCheckoutForm({
           status !== null &&
           (status === 0 || status === 408 || status === 429 || status >= 500)
         if (!retryable || attempts >= 40) {
+          stopped = !retryable
           fail(failure)
           return
         }
+      } finally {
+        polling = false
       }
-      if (attempts < 40) timer = setTimeout(poll, 3_000)
+      if (!document.hidden && attempts < 40) timer = setTimeout(poll, 3_000)
     }
-    timer = setTimeout(poll, 3_000)
+    const resumePolling = () => {
+      clearTimeout(timer)
+      if (!document.hidden && !polling) {
+        attempts = 0
+        void poll()
+      }
+    }
+    document.addEventListener('visibilitychange', resumePolling)
+    if (!document.hidden) timer = setTimeout(poll, 3_000)
     return () => {
       controller.abort()
       clearTimeout(timer)
+      document.removeEventListener('visibilitychange', resumePolling)
     }
   }, [pending?.submitted, quote, finished, busy, isCurrent, fail])
 

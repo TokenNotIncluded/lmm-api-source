@@ -222,10 +222,16 @@ test('failed channel reads stay local until explicit retry and are not presented
   }
 })
 
-test('a closed checkout resumes after a gateway error and shows credit for the same order', async () => {
+test('returning from the payment page resumes the same order after a gateway error', async () => {
   const oldGet = api.get
   const oldPost = api.post
   const originalTimer = globalThis.setTimeout
+  const originalVisibility = Object.getOwnPropertyDescriptor(document, 'hidden')
+  let hidden = false
+  Object.defineProperty(document, 'hidden', {
+    configurable: true,
+    get: () => hidden,
+  })
   const walletSession = '[39,"checkout-rolling-update"]'
   dom.sessionStorage.clear()
   login(39, 'checkout-rolling-update')
@@ -320,7 +326,15 @@ test('a closed checkout resumes after a gateway error and shows credit for the s
     assert.match(container.textContent ?? '', /Details/)
     assert.doesNotMatch(container.textContent ?? '', /Refresh payment status/)
     await act(async () => {
+      hidden = true
+      document.dispatchEvent(new Event('visibilitychange'))
       resumeRefresh()
+      await flush()
+    })
+    assert.equal(statusReads.length, 2, 'hidden checkout stops polling')
+    await act(async () => {
+      hidden = false
+      document.dispatchEvent(new Event('visibilitychange'))
       const deadline = Date.now() + 1000
       while (statusReads.length < 3 && Date.now() < deadline) await flush()
     })
@@ -346,6 +360,11 @@ test('a closed checkout resumes after a gateway error and shows credit for the s
     api.get = oldGet
     api.post = oldPost
     globalThis.setTimeout = originalTimer
+    if (originalVisibility) {
+      Object.defineProperty(document, 'hidden', originalVisibility)
+    } else {
+      Reflect.deleteProperty(document, 'hidden')
+    }
   }
 })
 
