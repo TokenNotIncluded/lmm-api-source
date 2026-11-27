@@ -65,6 +65,8 @@ describe('plugin configuration links', () => {
   it('retains the old root-only boundary for new plugin editors', () => {
     for (const panel of [
       'rss',
+      'checkins',
+      'hero-sms',
       'community',
       'store',
       'directory-ads',
@@ -74,13 +76,7 @@ describe('plugin configuration links', () => {
       assert.equal(canOpenConfiguration(panel, false), false)
       assert.equal(canOpenConfiguration(panel, true), true)
     }
-    for (const panel of [
-      'operations',
-      'checkins',
-      'hero-sms',
-      'assistant',
-      'acquisition',
-    ]) {
+    for (const panel of ['operations', 'assistant', 'acquisition']) {
       assert.equal(canOpenConfiguration(panel, false), true)
     }
   })

@@ -29,6 +29,8 @@ export function HeaderNavigationPluginSettings() {
   return <NavigationEditor key={JSON.stringify(scope)} scope={scope} />
 }
 
+type NavigationChange = { value: string; expected: string }
+
 function NavigationEditor({ scope }: { scope: NativeUsersScope }) {
   const { t } = useTranslation()
   const client = useQueryClient()
@@ -51,7 +53,7 @@ function NavigationEditor({ scope }: { scope: NativeUsersScope }) {
   const config = useMemo(() => parseHeaderNavModules(value), [value])
   const save = useMutation({
     retry: false,
-    mutationFn: async (value: string) => {
+    mutationFn: async ({ value, expected }: NavigationChange) => {
       if (!isCurrentNativeUsersScope(scope)) {
         throw new Error(t('Access Forbidden'))
       }
@@ -65,7 +67,7 @@ function NavigationEditor({ scope }: { scope: NativeUsersScope }) {
       if (!isCurrentNativeUsersScope(scope)) {
         throw new Error(t('Access Forbidden'))
       }
-      return saveSiteNavigation(value, request)
+      return saveSiteNavigation(value, request, expected)
     },
     onSuccess: (saved) => {
       if (!isCurrentNativeUsersScope(scope)) return
@@ -93,7 +95,7 @@ function NavigationEditor({ scope }: { scope: NativeUsersScope }) {
       <HeaderNavigationSection
         config={config}
         initialSerialized={serializeHeaderNavModules(config)}
-        onSave={save.mutate}
+        onSave={(draft) => save.mutate({ value: draft, expected: value })}
         saving={save.isPending}
       />
     </fieldset>

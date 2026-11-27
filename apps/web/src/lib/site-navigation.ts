@@ -25,11 +25,12 @@ export async function getSiteNavigation(config?: ApiRequestConfig) {
 
 export async function saveSiteNavigation(
   value: string,
-  config?: ApiRequestConfig
+  config?: ApiRequestConfig,
+  expectedValue?: string
 ) {
   const response = await api.put<unknown>(
     '/api/site/navigation',
-    { value },
+    { value, expected_value: expectedValue },
     config
   )
   return navigationResponseSchema.parse(response.data)

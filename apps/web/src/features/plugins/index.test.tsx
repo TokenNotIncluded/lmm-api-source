@@ -732,7 +732,7 @@ test('a standard administrator cannot mount a root-only configuration from the U
 
 test('community navigation validates the scoped value before acknowledging a write', async () => {
   login(100)
-  let value = JSON.stringify({ home: true })
+  let value = '{ "home": true, "challenges": false }'
   const methods: string[] = []
   const proposed: string[] = []
   let approve = false
@@ -756,7 +756,9 @@ test('community navigation validates the scoped value before acknowledging a wri
     assert.equal(config.url, '/api/site/navigation')
     if (config.method === 'put') {
       assert.equal(approve, true)
-      value = JSON.parse(config.data).value
+      const body = JSON.parse(config.data)
+      assert.equal(body.expected_value, value)
+      value = body.value
     }
     return {
       ...response(config, {}),
@@ -787,6 +789,8 @@ test('community navigation validates the scoped value before acknowledging a wri
   assert.equal(proposed[0], proposed[1])
   assert.equal(proposed[1], value)
   assert.equal(JSON.parse(value).home, false)
+  assert.equal(JSON.parse(value).challenges, false)
+  assert.doesNotMatch(card.textContent ?? '', /Challenges/)
 })
 
 test('opening a disabled operations plugin offers its existing enable action without requesting RSS', async () => {

@@ -161,7 +161,6 @@ export const toHeaderNavFormValues = (config: HeaderNavModulesConfig) => ({
   scripts: config.scripts ?? HEADER_NAV_DEFAULT.scripts,
   webmcp: config.webmcp ?? HEADER_NAV_DEFAULT.webmcp,
   signal: config.signal ?? HEADER_NAV_DEFAULT.signal,
-  challenges: config.challenges ?? HEADER_NAV_DEFAULT.challenges,
   home:
     config.home === undefined ? HEADER_NAV_DEFAULT.home : Boolean(config.home),
   console:
@@ -213,7 +212,6 @@ export function applyHeaderNavFormValues(
     scripts: values.scripts,
     webmcp: values.webmcp,
     signal: values.signal,
-    challenges: values.challenges,
     home: values.home,
     console: values.console,
     docs: values.docs,

@@ -64,6 +64,8 @@ export function canOpenConfiguration(
   return (
     root ||
     (owner !== 'community' &&
+      panel !== 'checkins' &&
+      panel !== 'hero-sms' &&
       panel !== 'store' &&
       panel !== 'payments' &&
       panel !== 'rss' &&

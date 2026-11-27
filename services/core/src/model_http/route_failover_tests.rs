@@ -632,13 +632,15 @@ async fn route_failover_pg_ping_keeps_confirmed_rejection_free_without_replay(po
     let app = Router::new()
         .route(
             "/v1/chat/completions",
-            post(|State(release): State<Arc<tokio::sync::Notify>>| async move {
-                release.notified().await;
-                (
-                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                    Json(json!({"error":{"message":"pre-acceptance rejection"}})),
-                )
-            }),
+            post(
+                |State(release): State<Arc<tokio::sync::Notify>>| async move {
+                    release.notified().await;
+                    (
+                        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                        Json(json!({"error":{"message":"pre-acceptance rejection"}})),
+                    )
+                },
+            ),
         )
         .with_state(release.clone());
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -670,9 +672,11 @@ async fn route_failover_pg_ping_keeps_confirmed_rejection_free_without_replay(po
     let charge = receipt(&g, &id).await;
     assert!(charge.reserved > 0);
     assert_eq!((charge.state.as_str(), charge.settled), ("settled", 0));
-    assert!(evidence(&f, &id).await.iter().any(|e| {
-        e["kind"] == "model_no_acceptance" && e["receipt"]["outcome"] == "rejected"
-    }));
+    assert!(
+        evidence(&f, &id).await.iter().any(|e| {
+            e["kind"] == "model_no_acceptance" && e["receipt"]["outcome"] == "rejected"
+        })
+    );
     assert_balance(&f, 10_000_000, 0).await;
     supplier.abort();
 }

@@ -57,7 +57,6 @@ const headerNavSchema = z.object({
   scripts: z.boolean(),
   webmcp: z.boolean(),
   signal: z.boolean(),
-  challenges: z.boolean(),
   home: z.boolean(),
   console: z.boolean(),
   pricingEnabled: z.boolean(),
@@ -127,15 +126,13 @@ export function HeaderNavigationSection({
   }> = [
     {
       key: 'home',
-      title: t('Home'),
-      description: t('Landing page with system overview.'),
+      title: t('Tool market'),
     },
     { key: 'directory', title: t('AI directory') },
     { key: 'developers', title: t('Developers') },
     { key: 'scripts', title: t('Scripts') },
     { key: 'webmcp', title: 'WebMCP' },
     { key: 'signal', title: t('Signal path') },
-    { key: 'challenges', title: t('Challenges') },
     {
       key: 'console',
       title: t('Console'),
