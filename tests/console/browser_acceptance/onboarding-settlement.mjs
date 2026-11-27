@@ -142,7 +142,9 @@ async function onboard(browser) {
   const plugins = await request(page, identity, pluginPath)
   assert.equal(plugins.json.success, true)
   const enabledPlugins = plugins.json.data.filter(plugin => plugin.installed && plugin.enabled).map(plugin => plugin.name)
-  for (const name of ['community', 'operations', 'payments']) assert.ok(enabledPlugins.includes(name), name)
+  for (const name of ['community', 'operations']) assert.ok(enabledPlugins.includes(name), name)
+  // The host retains the payment adapter outside the marketplace plugin lifecycle.
+  assert.equal(plugins.json.data.some(plugin => plugin.name === 'payments'), false)
   const options = await request(page, identity, optionsPath)
   assert.equal(options.json.success, true)
   const settings = new Map(options.json.data.map(entry => [entry.key, entry.value]))
