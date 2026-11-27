@@ -149,6 +149,12 @@ HTML must match the CI artifact.
 On success the previous slot and upload archives are deleted immediately. There
 is no version-named release directory, server build cache or accumulated package
 history. The next run removes an interrupted inactive candidate before staging.
+Hosts already serving `static-retained/static` and provisioned with
+`static-retained/retained-manifest.json` keep immutable assets from the
+preceding Web release for open tabs. Deployment hard-links the exact hashed
+assets before switching the Web slot and tracks only links it created. The next
+Web update prunes an older deployment-owned generation and preserves separately
+provisioned fallback assets. The fallback and Web slots share a filesystem.
 `last-deployment.json` is overwritten and records only the last completed update.
 GitHub build artifacts expire after one day.
 

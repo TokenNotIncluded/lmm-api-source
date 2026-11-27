@@ -83,7 +83,7 @@
             src: '{{ playbook_dir }}/../../{{ item }}'
             dest: '{{ deploy_root }}/.tools/{{ item }}'
             mode: '0644'
-          loop: [scripts/build-distribution.py, packaging/distribution.json]
+          loop: [scripts/build-distribution.py, scripts/retain-web-static.py, packaging/distribution.json]
         - name: Select only components that need activation
           ansible.builtin.include_tasks: plan-activation.yml
           loop: '{{ selected_slots }}'

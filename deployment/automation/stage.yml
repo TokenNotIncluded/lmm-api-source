@@ -46,3 +46,23 @@
   when: component.name == 'core'
   changed_when: false
   no_log: true
+- name: Detect the provisioned Web static fallback
+  ansible.builtin.stat:
+    path: '{{ deploy_root }}/static-retained/retained-manifest.json'
+    follow: false
+    get_checksum: false
+  register: web_fallback
+  when: component.name == 'web'
+- name: Keep immutable assets for clients still on the preceding Web release
+  ansible.builtin.command:
+    argv:
+      - '{{ ansible_python_interpreter }}'
+      - '{{ deploy_root }}/.tools/scripts/retain-web-static.py'
+      - '{{ component.previous }}'
+      - '{{ deploy_root }}/static-retained'
+  when: component.name == 'web' and (web_fallback.stat.isreg | default(false))
+  register: web_retention
+  changed_when: >-
+    web_retention.rc == 0 and
+    ((web_retention.stdout | from_json).added > 0 or
+     (web_retention.stdout | from_json).removed > 0)

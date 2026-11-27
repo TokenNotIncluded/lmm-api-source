@@ -310,7 +310,9 @@ jobs:
       - name: Install the pinned deployment tool
         run: pip install 'ansible-core==2.22.0'
       - name: Exercise deployment and rollback in a disposable HTTP fixture
-        run: python3 -B scripts/test-deployment-rollback.py
+        run: |
+          python3 -B scripts/test-retain-web-static.py
+          python3 -B scripts/test-deployment-rollback.py
       - name: Verify artifacts and prepare the inventory
         run: python3 scripts/deployment-plan.py inventory --artifacts artifacts --output "$RUNNER_TEMP/inventory.json"
       - name: Recheck automatic deployment against current main

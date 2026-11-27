@@ -202,6 +202,8 @@ def main():
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Handler, directory=str(root / "web/dist")))
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        fallback = root / "static-retained"
+        asset_name = "static/js/lazy.abcdef12.js"
         target = {"name": "fixture", "host": "127.0.0.1", "root": str(root),
                   "min_free_bytes": 1024,
                   "components": {"web": {"health_url": f"http://127.0.0.1:{server.server_port}/index.html"}}}
@@ -217,6 +219,9 @@ def main():
                 source = work / f"input-{number}"
                 source.mkdir()
                 (source / "index.html").write_text("<!doctype html>" + content)
+                if number == 1:
+                    (source / asset_name).parent.mkdir(parents=True)
+                    (source / asset_name).write_text("previous browser chunk")
                 archives = work / f"artifacts-{number}"
                 distribution.build(ROOT, "web", "1.2." + str(number), revision, "any", source, archives)
                 inventory = work / "inventory.json"
@@ -240,6 +245,8 @@ def main():
                     assert (root / "web").resolve() != preceding_slot
                     assert len(list((root / "slots").iterdir())) == 2, "forward recovery lost a component slot"
                     assert (root / ".incoming-web.tar.gz").is_file(), "forward recovery lost the received archive"
+                    assert not (root / "web/dist" / asset_name).exists()
+                    assert (fallback / asset_name).read_text() == "previous browser chunk"
                     print("PASS: HTTP failure retains selected candidate, preceding slot and received archive")
                     continue
                 if not should_pass:
@@ -249,6 +256,8 @@ def main():
                 assert not list(root.glob(".incoming-*.tar.gz")), "uploaded archive was not cleaned"
                 print("PASS:", "successful deployment and cleanup" if should_pass else "HTTP failure, rollback and cleanup")
                 if number == 1:
+                    (fallback / "static").mkdir(parents=True)
+                    (fallback / "retained-manifest.json").write_text("{}")
                     active_slot = (root / "web").resolve()
                     rerun = [os.environ.get("ANSIBLE_PLAYBOOK_BIN", "ansible-playbook"),
                              "-i", str(inventory), str(ROOT / "deployment/automation/deploy.yml")]
@@ -262,6 +271,7 @@ def main():
                     assert result.returncode == 0, result.stdout + result.stderr
                     assert (root / "web").resolve() != active_slot, "damaged package was skipped"
                     assert "damaged" not in (root / "web/README.md").read_text()
+                    assert (fallback / asset_name).read_text() == "previous browser chunk"
                     print("PASS: unchanged healthy artifact skips upload and activation, damaged artifact is reinstalled")
         finally:
             server.shutdown()
