@@ -13,6 +13,7 @@ Set repository **Variables**:
 | --- | --- |
 | `DEPLOY_ENVIRONMENT` | GitHub environment name; defaults to `shadow` |
 | `DEPLOY_TARGETS` | JSON array of server/component configurations |
+| `DEPLOY_WEB_BASE_REVISION` | Optional bootstrap SHA from the verified running backends |
 | `DEPLOY_KNOWN_HOSTS` | Verified OpenSSH host-key lines for every configured SSH destination |
 
 Store `DEPLOY_SSH_PRIVATE_KEY` as a **Secret** in the selected GitHub environment.
@@ -68,6 +69,13 @@ to 22, `user` to root, `python` to `/usr/bin/python3`, and `min_free_bytes` to
 probe must return the exact built `index.html`, without HTML rewriting.
 Backend health URLs must return JSON with `status: "ready"` and the expected
 `service` identity (`lmm-core` or `lmm-extensions`).
+
+After a successful full deployment, the workflow records the released backend
+revision against the exact target configuration. Main-branch CI uses that
+record for frontend-only qualification. A partial backend deployment invalidates
+the shared baseline. Deployments that update only Web preserve it. The bootstrap
+SHA is used before the first record exists, and the deployment always verifies
+the running backend manifests before applying any frontend-only update.
 
 ## Provision once
 

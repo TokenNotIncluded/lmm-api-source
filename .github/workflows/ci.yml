@@ -23,6 +23,9 @@ env:
 jobs:
   scope:
     name: Classify deployable source changes
+    permissions:
+      actions: read
+      contents: read
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -35,11 +38,16 @@ jobs:
       - id: scope
         env:
           WEB_BASE: ${{ vars.DEPLOY_WEB_BASE_REVISION }}
+          DEPLOY_ENVIRONMENT_NAME: ${{ vars.DEPLOY_ENVIRONMENT || 'shadow' }}
+          DEPLOY_TARGETS: ${{ vars.DEPLOY_TARGETS }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           web_only=false
-          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/main ]] &&
-            python3 scripts/is-web-only-update.py --base "$WEB_BASE" --revision "$GITHUB_SHA"; then
-            web_only=true
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/main ]]; then
+            WEB_BASE=$(python3 -B scripts/resolve-deployment-web-base.py)
+            if python3 scripts/is-web-only-update.py --base "$WEB_BASE" --revision "$GITHUB_SHA"; then
+              web_only=true
+            fi
           fi
           echo "web-only=$web_only" >> "$GITHUB_OUTPUT"
 

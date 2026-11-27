@@ -36,12 +36,16 @@ defaults:
     shell: bash
 
 env:
+  DEPLOY_ENVIRONMENT_NAME: ${{ vars.DEPLOY_ENVIRONMENT || 'shadow' }}
   DEPLOY_TARGETS: ${{ vars.DEPLOY_TARGETS }}
   SELECT_COMPONENTS: ${{ inputs.components || 'all' }}
   SELECT_TARGETS: ${{ inputs.targets || 'all' }}
 
 jobs:
   plan:
+    permissions:
+      actions: read
+      contents: read
     if: >-
       github.event_name != 'workflow_run' ||
       (github.event.workflow_run.conclusion == 'success' &&
@@ -54,17 +58,31 @@ jobs:
       version: ${{ steps.plan.outputs.version }}
       revision: ${{ steps.source.outputs.revision }}
       web-base: ${{ steps.source.outputs.web-base }}
+      baseline-artifact: ${{ steps.baseline.outputs.artifact }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Read the verified backend baseline
+        id: baseline
+        env:
+          WEB_BASE: ${{ vars.DEPLOY_WEB_BASE_REVISION }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -B scripts/test-resolve-deployment-web-base.py
+          name=$(python3 -B scripts/resolve-deployment-web-base.py --artifact-name)
+          echo "artifact=$name" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_EVENT_NAME" == workflow_run ]]; then
+            revision=$(python3 -B scripts/resolve-deployment-web-base.py)
+            echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          fi
       - name: Require a source revision from main
         id: source
         env:
           REQUESTED_REVISION: ${{ inputs.source_revision }}
           CI_REVISION: ${{ github.event.workflow_run.head_sha }}
-          WEB_BASE: ${{ vars.DEPLOY_WEB_BASE_REVISION }}
+          WEB_BASE: ${{ steps.baseline.outputs.revision }}
         run: |
           revision=$(git rev-parse HEAD)
           if [[ "$GITHUB_EVENT_NAME" == workflow_run ]]; then
@@ -281,6 +299,29 @@ jobs:
           echo "ANSIBLE_SSH_COMMON_ARGS=-o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/deploy-ssh/known_hosts" >> "$GITHUB_ENV"
       - name: Deploy serially and check the running components
         run: ansible-playbook -i "$RUNNER_TEMP/inventory.json" deployment/automation/deploy.yml
+      - name: Record the deployed backend baseline
+        id: backend-baseline
+        run: |
+          if ! jq -e 'any(.all.hosts[].deploy_components[]; .name != "web")' "$RUNNER_TEMP/inventory.json" >/dev/null; then
+            exit 0
+          fi
+          revision=
+          if [[ "$SELECT_TARGETS" == all && "$SELECT_COMPONENTS" == all ]]; then
+            revision=$DEPLOY_REVISION
+          fi
+          jq -n --arg revision "$revision" --argjson run_id "$GITHUB_RUN_ID" \
+            --argjson attempt "$GITHUB_RUN_ATTEMPT" '{revision: $revision, run_id: $run_id, attempt: $attempt}' \
+            > "$RUNNER_TEMP/baseline.json"
+          echo "written=true" >> "$GITHUB_OUTPUT"
+      - name: Preserve backend baseline for later frontend-only releases
+        if: steps.backend-baseline.outputs.written == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ needs.plan.outputs.baseline-artifact }}
+          path: ${{ runner.temp }}/baseline.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 90
       - name: Delete runner credentials and downloaded archives
         if: always()
         run: rm -rf -- "$RUNNER_TEMP/deploy-ssh" "$RUNNER_TEMP/inventory.json" artifacts
