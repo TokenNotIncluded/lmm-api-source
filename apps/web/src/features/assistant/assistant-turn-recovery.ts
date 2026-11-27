@@ -18,6 +18,7 @@ import { z } from 'zod'
 
 import {
   AssistantStreamError,
+  type AssistantTurnIdentity,
   assistantAbortReason,
 } from './assistant-ai-stream'
 import {
@@ -102,10 +103,12 @@ export async function continueAssistantResponse(
   initial: Response,
   expectedTurnId: string | undefined,
   request: (method: 'GET' | 'POST', path: string) => Promise<Response>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  expectedConversationId?: number,
+  onReady?: (turn: AssistantTurnIdentity) => void
 ): Promise<Response> {
   let response = initial
-  let conversationId: number | undefined
+  let conversationId = expectedConversationId
   for (let attempt = 0; response.status === 202; attempt += 1) {
     const raw: unknown = await response
       .clone()
@@ -149,6 +152,7 @@ export async function continueAssistantResponse(
     }
     const turn = parsed.data.data
     conversationId = turn.conversation_id
+    if (attempt === 0) onReady?.(turn)
     if (turn.state === 'human_support_pending') {
       throw new AssistantTurnContinuationError(
         conversationId,

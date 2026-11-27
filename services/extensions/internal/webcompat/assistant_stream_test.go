@@ -96,6 +96,31 @@ func TestAssistantSSEFlushesBeforeCompletionAndStopsOnDisconnect(t *testing.T) {
 	}
 }
 
+func TestAssistantSSEPreservesOriginalOperationStateAfterOutput(t *testing.T) {
+	for _, tc := range []struct {
+		state string
+		code  string
+	}{
+		{"released", "ASSISTANT_OPERATION_RELEASED"},
+		{"rejected", "ASSISTANT_OPERATION_REJECTED"},
+		{"expired", "ASSISTANT_OPERATION_EXPIRED"},
+		{"unknown", "ASSISTANT_OPERATION_PENDING"},
+		{"human_support_pending", "ASSISTANT_HUMAN_SUPPORT_PENDING"},
+	} {
+		t.Run(tc.state, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			assistantSSE(w, httptest.NewRequest("GET", "/", nil), func(consume func(assistant.AgentOutput) error) (assistant.PersonalChatReply, error) {
+				err := consume(assistant.AgentOutput{ConversationID: 42, ClientTurnID: "turn", Phase: "model", Text: "partial"})
+				return assistant.PersonalChatReply{ConversationID: 42, ClientTurnID: "turn", State: tc.state}, err
+			})
+			body := w.Body.String()
+			if !strings.Contains(body, "event: ready") || !strings.Contains(body, "event: error") || !strings.Contains(body, `"code":"`+tc.code+`"`) || !strings.Contains(body, `"client_turn_id":"turn"`) {
+				t.Fatal(body)
+			}
+		})
+	}
+}
+
 func TestAssistantSSECancelAndSnapshotCursorContract(t *testing.T) {
 	p := &assistantStreamHTTPFixture{}
 	mux := http.NewServeMux()

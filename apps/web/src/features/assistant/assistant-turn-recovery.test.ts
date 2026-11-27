@@ -81,6 +81,39 @@ for (const state of ['unknown', 'reserved', 'streaming']) {
   })
 }
 
+test('exhausting the observation budget keeps the original unknown operation recoverable', async () => {
+  const original = globalThis.setTimeout
+  const reads: string[] = []
+  globalThis.setTimeout = ((
+    ...[callback, delay, ...args]: Parameters<typeof original>
+  ) =>
+    original(callback, delay === 250 ? 0 : delay, ...args)) as typeof original
+  try {
+    await assert.rejects(
+      continueAssistantResponse(
+        pending('unknown'),
+        'original',
+        async (method, path) => {
+          reads.push(`${method} ${path}`)
+          return pending('unknown')
+        }
+      ),
+      (error) =>
+        error instanceof AssistantTurnContinuationError &&
+        error.code === 'ASSISTANT_OPERATION_PENDING' &&
+        error.conversationId === 42 &&
+        error.clientTurnId === 'original'
+    )
+    assert.equal(reads.length, 79)
+    assert.deepEqual(
+      [...new Set(reads)],
+      ['GET /api/assistant/conversations/42/turns/original']
+    )
+  } finally {
+    globalThis.setTimeout = original
+  }
+})
+
 test('human support stops continuation without another request', async () => {
   let calls = 0
   await assert.rejects(

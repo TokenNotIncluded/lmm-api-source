@@ -245,6 +245,7 @@ type ConversationEntry = {
   animateToCloud?: boolean
   pendingTurn?: AssistantTurnIdentity
   pendingCreation?: boolean
+  pendingTextTurn?: boolean
   pending?: boolean
   interrupted?: boolean
   retry?: {
@@ -907,8 +908,9 @@ function AssistantPromptComposer(props: {
   onCopy: () => void
   onShare: () => void
   pending: boolean
+  pendingTextTurn: boolean
   onStop: () => void
-  onSubmit: (message: { text?: string }) => void | Promise<void>
+  onSubmit: (message: { text?: string }) => Promise<void | false>
 }) {
   const { t } = useTranslation()
   const {
@@ -921,16 +923,25 @@ function AssistantPromptComposer(props: {
   const hintId = 'assistant-input-hint'
   const describedBy = showValidationError ? hintId : undefined
 
+  const submittedDraft = useRef<string | null>(null)
+  useEffect(() => {
+    if (props.pending || props.sending || submittedDraft.current === null)
+      return
+    if (value === submittedDraft.current) setInput('')
+    submittedDraft.current = null
+  }, [props.pending, props.sending, setInput, value])
+
   const handleSubmit = useCallback(
-    (message: { text?: string }) => {
+    async (message: { text?: string }) => {
+      if (props.pending) return false as const
       const safeMessage = redactAssistantMessageForRequest(message.text ?? '')
-      // PromptInput keeps provider state until the async submit resolves. Set
-      // the safe value immediately so the raw textarea value cannot linger
-      // while the assistant request is in flight.
+      // Remove secrets from the composer before waiting for the server.
       if (safeMessage.redacted) setInput(safeMessage.content)
-      return onSubmit({ text: safeMessage.content })
+      const submitted = await onSubmit({ text: safeMessage.content })
+      if (submitted === false) submittedDraft.current = safeMessage.content
+      return submitted
     },
-    [onSubmit, setInput]
+    [onSubmit, props.pending, setInput]
   )
 
   return (
@@ -959,7 +970,7 @@ function AssistantPromptComposer(props: {
             aria-invalid={hasText ? validation.invalid : undefined}
             disabled={
               props.sending ||
-              props.pending ||
+              (props.pending && !props.pendingTextTurn) ||
               props.terminated ||
               props.routeUnavailable
             }
@@ -1682,6 +1693,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     recovery?: {
       turn?: AssistantTurnIdentity
       pendingCreation?: boolean
+      textOnly?: boolean
       cancel: boolean
       content: string
     }
@@ -1706,11 +1718,13 @@ function AssistantPanelSession(props: AssistantPanelProps) {
       useAuthStore.getState().auth.user?.id === requestUserId &&
       useAuthStore.getState().auth.session?.sid === requestSessionId &&
       assistantAbortControllerRef.current === abortController
-    const streaming =
-      recovery !== undefined || statusQuery.data?.agent?.stream_enabled === true
+    const streaming = recovery
+      ? !recovery.textOnly
+      : statusQuery.data?.agent?.stream_enabled === true
+    let acceptedText = recovery?.textOnly === true
     let turn =
       recovery?.turn ??
-      (streaming && conversationId
+      (conversationId
         ? { conversation_id: conversationId, client_turn_id: clientTurnId }
         : undefined)
     let cancelRequested = false
@@ -1827,7 +1841,8 @@ function AssistantPanelSession(props: AssistantPanelProps) {
               await resolveOriginalTurn(recovery.cancel),
               handlers,
               abortController.signal,
-              recovery.cancel
+              recovery.cancel,
+              recovery.textOnly
             )
           }
           return await sendAssistantMessage(
@@ -1835,7 +1850,14 @@ function AssistantPanelSession(props: AssistantPanelProps) {
             history,
             conversationId ?? undefined,
             presetId,
-            streaming ? handlers : undefined,
+            streaming
+              ? handlers
+              : {
+                  onAccepted: () => {
+                    acceptedText = true
+                  },
+                  onReady: handlers.onReady,
+                },
             abortController.signal,
             replay,
             clientTurnId,
@@ -2046,8 +2068,17 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         )
         return
       }
+      const humanSupportPending =
+        error instanceof AssistantTurnContinuationError &&
+        error.code === 'ASSISTANT_HUMAN_SUPPORT_PENDING'
+      if (humanSupportPending) {
+        setConversationId(error.conversationId)
+        void queryClient.invalidateQueries({ queryKey: ['assistant-support'] })
+      }
       if (
-        streaming &&
+        (streaming || acceptedText) &&
+        !humanSupportPending &&
+        !isAssistantTurnUnavailable(error) &&
         !(error instanceof AssistantSubmissionRejectedError) &&
         !(error instanceof AssistantTurnTerminalError)
       ) {
@@ -2077,21 +2108,13 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                   pending: true,
                   pendingTurn: turn,
                   pendingCreation,
+                  pendingTextTurn: !streaming,
                   retry: { message, history, presetId, clientTurnId },
                 }
               : entry
           )
         )
-        return
-      }
-      const humanSupportPending =
-        error instanceof AssistantTurnContinuationError &&
-        error.code === 'ASSISTANT_HUMAN_SUPPORT_PENDING'
-      if (error instanceof AssistantTurnContinuationError) {
-        setConversationId(error.conversationId)
-      }
-      if (humanSupportPending) {
-        void queryClient.invalidateQueries({ queryKey: ['assistant-support'] })
+        return false as const
       }
       if (isAssistantRequestAborted(error) || abortController.signal.aborted) {
         if (streamFrame !== null) {
@@ -2265,7 +2288,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     }
     const presetId = selectedPreConversationPresetId ?? undefined
     setSelectedPreConversationPresetId(null)
-    await requestAssistantReply(safeMessage.content, history, presetId)
+    return requestAssistantReply(safeMessage.content, history, presetId)
   }
 
   useEffect(() => {
@@ -2313,6 +2336,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         ? {
             turn: entry.pendingTurn,
             pendingCreation: entry.pendingCreation,
+            textOnly: entry.pendingTextTurn,
             cancel,
             content: entry.content,
           }
@@ -2615,7 +2639,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                                 {entry.pending ? t('Resume') : t('Retry')}
                               </Button>
                             ) : null}
-                            {entry.pending ? (
+                            {entry.pending && !entry.pendingTextTurn ? (
                               <Button
                                 type='button'
                                 variant='outline'
@@ -2987,6 +3011,9 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                   }
                   routeUnavailable={assistantRouteUnavailable && !authUser}
                   pending={entries.some((entry) => entry.pending === true)}
+                  pendingTextTurn={entries.some(
+                    (entry) => entry.pendingTextTurn
+                  )}
                   sending={sending || support.busy}
                   canRetry={
                     entries.some((entry) => entry.retry !== undefined) &&

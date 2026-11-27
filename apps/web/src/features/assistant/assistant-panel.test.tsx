@@ -748,6 +748,85 @@ describe('AssistantPanel', () => {
     }
   })
 
+  test('plain text pending keeps the edited draft and only reads the original turn', async () => {
+    const panelFetch = globalThis.fetch
+    const calls: string[] = []
+    const originalDraft = 'Explain these entries.\n请保留整份清单。'
+    const nextDraft = 'Follow up after settlement.\n第二段也要保留。'
+    let turn = ''
+    api.get = (async () => ({
+      data: { success: true, data: assistantStatus },
+    })) as typeof api.get
+    const receipt = () => ({ conversation_id: 42, client_turn_id: turn })
+    const pending = () => ({
+      success: false,
+      code: 'ASSISTANT_OPERATION_PENDING',
+      data: { ...receipt(), state: 'unknown' },
+    })
+    api.post = (async (
+      url: string,
+      body: { client_turn_id: string; message: string }
+    ) => {
+      calls.push(`POST ${url}`)
+      assert.equal(body.message, originalDraft)
+      turn = body.client_turn_id
+      return { status: 202, data: pending(), headers: {} }
+    }) as typeof api.post
+    globalThis.fetch = async (input, init) => {
+      calls.push(`${init?.method} ${String(input)}`)
+      assert.equal(init?.body, undefined)
+      if (calls.length === 2)
+        throw new TypeError('Original status lookup interrupted')
+      if (calls.length === 3) return Response.json(pending(), { status: 202 })
+      return Response.json({
+        choices: [{ message: { content: 'Original persisted answer' } }],
+        lmm_assistant_history: receipt(),
+      })
+    }
+    const rendered = await renderPanel()
+    const input = requireValue(
+      document.querySelector<HTMLTextAreaElement>('textarea')
+    )
+    try {
+      await setTextareaValue(input, originalDraft)
+      await act(async () => {
+        findButton('Send').click()
+        await new Promise((resolve) => setTimeout(resolve, 350))
+      })
+      assert.match(document.body.textContent ?? '', /Pending/)
+      assert.doesNotMatch(
+        document.body.textContent ?? '',
+        /ASSISTANT_OPERATION_PENDING|could not answer/
+      )
+      assert.equal(input.disabled, false)
+      assert.equal(input.value, originalDraft)
+      assert.equal(findButton('Send').disabled, true)
+      await setTextareaValue(input, nextDraft)
+      await act(async () => {
+        input.form?.requestSubmit()
+        await flushEffects()
+      })
+      assert.equal(input.value, nextDraft)
+      assert.equal(calls.length, 2)
+      await act(async () => {
+        findButton('Resume').click()
+        await new Promise((resolve) => setTimeout(resolve, 350))
+      })
+      assert.match(document.body.textContent ?? '', /Original persisted answer/)
+      assert.doesNotMatch(document.body.textContent ?? '', /Pending/)
+      assert.equal(input.value, nextDraft)
+      assert.equal(findButton('Send').disabled, false)
+      assert.deepEqual(calls, [
+        'POST /api/assistant/chat',
+        ...Array(3).fill(`GET /api/assistant/conversations/42/turns/${turn}`),
+      ])
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+      globalThis.fetch = panelFetch
+    }
+  })
+
   for (const end of ['disconnect', 'stop'] as const) {
     test(`SSE ${end} stays pending and recovers only the original turn`, async () => {
       const panelFetch = globalThis.fetch

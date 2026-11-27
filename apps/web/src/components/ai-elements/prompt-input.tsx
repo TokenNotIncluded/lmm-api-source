@@ -248,7 +248,7 @@ type PromptInputProps = Omit<
   onSubmit: (
     message: PromptInputMessage,
     event: FormEvent<HTMLFormElement>
-  ) => void | Promise<void>
+  ) => void | Promise<void | false>
   /**
    * Optional className applied to the inner InputGroup wrapper
    * (useful for layout or semantic radius utilities such as rounded-xl).
@@ -558,7 +558,8 @@ export const PromptInput = ({
           // Handle both sync and async onSubmit
           if (result instanceof Promise) {
             result
-              .then(() => {
+              .then((submitted) => {
+                if (submitted === false) return
                 clear()
                 if (usingProvider) {
                   controller.textInput.clear()

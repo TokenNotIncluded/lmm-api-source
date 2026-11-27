@@ -361,24 +361,8 @@ func assistantChatRespond(w http.ResponseWriter, reply assistant.PersonalChatRep
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		status, code := http.StatusAccepted, "ASSISTANT_OPERATION_PENDING"
-		if reply.State == "released" {
-			status, code = http.StatusConflict, "ASSISTANT_OPERATION_RELEASED"
-		}
-		switch reply.State {
-		case "rejected":
-			status, code = http.StatusConflict, "ASSISTANT_OPERATION_REJECTED"
-		case "expired":
-			status, code = http.StatusConflict, "ASSISTANT_OPERATION_EXPIRED"
-		case "human_support_pending":
-			code = "ASSISTANT_HUMAN_SUPPORT_PENDING"
-		}
+		status, body := assistantOperationResponse(reply)
 		w.WriteHeader(status)
-		body := map[string]any{"success": false, "code": code, "data": reply}
-		if reply.State == "tools_pending" && reply.InvitationConfirmation != nil {
-			body["code"] = "ASSISTANT_INVITATION_CONFIRMATION_PENDING"
-			body["lmm_assistant_invitation"] = reply.InvitationConfirmation
-		}
 		_ = json.NewEncoder(w).Encode(body)
 		return
 	}
@@ -387,6 +371,26 @@ func assistantChatRespond(w http.ResponseWriter, reply assistant.PersonalChatRep
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	body := assistantChatSuccessBody(reply)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+func assistantOperationResponse(reply assistant.PersonalChatReply) (int, map[string]any) {
+	status, code := http.StatusAccepted, "ASSISTANT_OPERATION_PENDING"
+	switch reply.State {
+	case "released":
+		status, code = http.StatusConflict, "ASSISTANT_OPERATION_RELEASED"
+	case "rejected":
+		status, code = http.StatusConflict, "ASSISTANT_OPERATION_REJECTED"
+	case "expired":
+		status, code = http.StatusConflict, "ASSISTANT_OPERATION_EXPIRED"
+	case "human_support_pending":
+		code = "ASSISTANT_HUMAN_SUPPORT_PENDING"
+	}
+	body := map[string]any{"success": false, "code": code, "data": reply}
+	if reply.State == "tools_pending" && reply.InvitationConfirmation != nil {
+		body["code"] = "ASSISTANT_INVITATION_CONFIRMATION_PENDING"
+		body["lmm_assistant_invitation"] = reply.InvitationConfirmation
+	}
+	return status, body
 }
 
 func assistantChatSuccessBody(reply assistant.PersonalChatReply) map[string]any {

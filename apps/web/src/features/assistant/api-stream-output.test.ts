@@ -105,6 +105,23 @@ test('output observes a snapshot without a cursor, body or resume command', asyn
   }
 })
 
+test('a terminal SSE receipt ends the original operation after partial output', async () => {
+  const original = globalThis.fetch
+  globalThis.fetch = async () =>
+    new Response(
+      `event: ready\ndata: ${JSON.stringify(turn)}\n\nevent: replace\ndata: {"content":"Tentative"}\n\nevent: error\ndata: ${JSON.stringify({ status: 409, code: 'ASSISTANT_OPERATION_EXPIRED', data: { ...turn, state: 'expired' } })}\n\n`,
+      { headers: { 'content-type': 'text/event-stream' } }
+    )
+  try {
+    await assert.rejects(
+      observeAssistantTurn(turn, {}),
+      AssistantTurnTerminalError
+    )
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
 test('disconnected output never replays chat POST', async () => {
   const original = globalThis.fetch
   let calls = 0
