@@ -108,6 +108,11 @@ function WalletMethods({ userId, sessionId }: Scope) {
           {t('Unable to load payment methods')}
         </p>
       )}
+      {query.isSuccess && !query.data.checkoutConfigured && (
+        <p role='status' className='text-sm'>
+          {t('No payment channel is configured.')}
+        </p>
+      )}
       <dl className='divide-y'>
         {Array.from(labels, ([key, name]) => (
           <div key={key} className='grid gap-1 py-3 sm:grid-cols-2 sm:gap-4'>

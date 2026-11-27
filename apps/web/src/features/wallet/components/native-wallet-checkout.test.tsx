@@ -170,7 +170,7 @@ test('failed channel reads stay local until explicit retry and are not presented
           status: 503,
           statusText: 'Unavailable',
           headers: {},
-          data: { error: { code: 'PAYMENT_DISABLED' } },
+          data: { success: false, code: 'PAYMENT_UNAVAILABLE' },
         }
       )
     }

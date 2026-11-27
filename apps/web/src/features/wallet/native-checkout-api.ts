@@ -1,4 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+import axios from 'axios'
 import { z } from 'zod'
 
 import { api, type ApiRequestConfig } from '@/lib/api'
@@ -15,10 +16,16 @@ import {
 } from './lib/native-checkout'
 
 const envelope = z.object({ success: z.literal(true), data: z.unknown() })
-const channels = z.object({
-  available: z.boolean(),
-  channels: z.array(nativeChannelSchema),
-  pancake_portal_available: z.boolean().default(false),
+const channels = z
+  .object({
+    available: z.boolean(),
+    channels: z.array(nativeChannelSchema),
+    pancake_portal_available: z.boolean().default(false),
+  })
+  .refine((catalog) => catalog.available === catalog.channels.length > 0)
+const checkoutDisabled = z.object({
+  success: z.literal(false),
+  code: z.literal('PAYMENT_DISABLED'),
 })
 function config(write = false): ApiRequestConfig {
   const { user, session } = useAuthStore.getState().auth
@@ -31,11 +38,30 @@ function config(write = false): ApiRequestConfig {
   }
 }
 export async function getNativePaymentChannels(signal?: AbortSignal) {
-  const result = await api.get('/api/user/payments/channels', {
-    ...config(),
-    signal,
-  })
-  return channels.parse(envelope.parse(result.data).data)
+  try {
+    const result = await api.get('/api/user/payments/channels', {
+      ...config(),
+      signal,
+    })
+    return {
+      ...channels.parse(envelope.parse(result.data).data),
+      checkoutConfigured: true,
+    }
+  } catch (error) {
+    if (
+      axios.isAxiosError(error) &&
+      error.response?.status === 503 &&
+      checkoutDisabled.safeParse(error.response.data).success
+    ) {
+      return {
+        available: false,
+        channels: [],
+        pancake_portal_available: false,
+        checkoutConfigured: false,
+      }
+    }
+    throw error
+  }
 }
 export async function quoteNativePayment(pending: PendingNativeCheckout) {
   const result = await api.post(

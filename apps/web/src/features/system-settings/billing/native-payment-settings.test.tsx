@@ -954,6 +954,28 @@ test('a failed wallet catalogue leaves the supported methods visible and their a
   assert.doesNotMatch(methods.textContent ?? '', /Not offered to this wallet/)
 })
 
+test('a confirmed disabled checkout is distinct from a catalogue read failure', async () => {
+  const { container, requests } = await mount(
+    () => rejected(503, 'PAYMENT_DISABLED'),
+    100,
+    NativePaymentGateways
+  )
+  await until(
+    () =>
+      container.querySelector('[role="status"]')?.textContent ===
+      'No payment channel is configured.'
+  )
+  assert.match(
+    container.querySelector('dl')?.textContent ?? '',
+    /StripeNot offered to this wallet/
+  )
+  assert.doesNotMatch(container.textContent ?? '', /Availability unknown/)
+  assert.deepEqual(
+    requests.map(({ method, url }) => [method, url]),
+    [['get', '/api/user/payments/channels']]
+  )
+})
+
 test('a missing route stays distinct from a verified empty Pancake configuration', async () => {
   const { container } = await mount(() => rejected(404))
   await until(
