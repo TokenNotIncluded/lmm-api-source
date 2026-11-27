@@ -71,6 +71,11 @@ impl CompatibilityProvider {
             if body["stream"] != true {
                 return Json(full).into_response();
             }
+            if chat && body["model"] == "compat-4" && body["tools"].is_array() {
+                let wire =
+                    include_str!("../../tests/fixtures/openrouter/fragmented-tool-usage-tail.sse");
+                return ([("content-type", "text/event-stream")], wire).into_response();
+            }
             let events = if chat && body["model"] == "compat-4" {
                 let usage = json!({
                     "prompt_tokens": input,
@@ -351,6 +356,100 @@ async fn openrouter_stream_usage_tail_settles_once_through_chat_gateway(pool: Pg
          FROM core_model.output_checkpoints WHERE request_id=$1 AND terminal_observed",
     ).bind(&request_id).fetch_one(&f.pool).await.unwrap();
     assert!(terminal_usage_matches);
+    assert_balance(&f, 9_999_998, 0).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn openrouter_fragmented_tool_and_repeated_finish_capture_once(pool: PgPool) {
+    let f = fixture(pool, 10_000_000).await;
+    let provider = CompatibilityProvider::start().await;
+    let gateway = compatibility_gateway(&f, &provider.endpoint, Protocol::OpenAiChat);
+    let body = json!({
+        "model":"compat-4","messages":[{"role":"user","content":"Use the sample tool."}],
+        "tools":[{"type":"function","function":{"name":"lookup_day","parameters":{
+            "type":"object","properties":{"day":{"type":"string"}},"required":["day"]
+        }}}],
+        "max_tokens":64,"stream":true,"stream_options":{"include_usage":true}
+    });
+    let (status, response, request_id) = compatibility_call(
+        &gateway,
+        &f,
+        true,
+        "openrouter-fragmented-tool",
+        body.to_string(),
+    )
+    .await;
+    assert_eq!(status, 200, "{response}");
+    let mut arguments = String::new();
+    let mut tool_index = None;
+    let mut tool_ids = Vec::new();
+    let mut tool_names = Vec::new();
+    let mut finishes = Vec::new();
+    let mut usages = Vec::new();
+    let mut packets = response
+        .lines()
+        .filter_map(|line| line.strip_prefix("data: "))
+        .peekable();
+    let mut done = 0;
+    while let Some(packet) = packets.next() {
+        if packet == "[DONE]" {
+            done += 1;
+            assert!(packets.peek().is_none(), "data after [DONE]");
+            continue;
+        }
+        let value: serde_json::Value = serde_json::from_str(packet).unwrap();
+        if let Some(usage) = value.get("usage").filter(|usage| !usage.is_null()) {
+            usages.push(usage.clone());
+        }
+        if let Some(choice) = value["choices"]
+            .as_array()
+            .and_then(|choices| choices.first())
+        {
+            if let Some(reason) = choice["finish_reason"].as_str() {
+                finishes.push(reason.to_owned());
+            }
+            if let Some(calls) = choice["delta"]["tool_calls"].as_array() {
+                for call in calls {
+                    let index = call["index"].as_u64().unwrap();
+                    assert_eq!(*tool_index.get_or_insert(index), index);
+                    if let Some(id) = call["id"].as_str() {
+                        tool_ids.push(id.to_owned());
+                    }
+                    if let Some(name) = call["function"]["name"].as_str() {
+                        tool_names.push(name.to_owned());
+                    }
+                    if let Some(fragment) = call["function"]["arguments"].as_str() {
+                        arguments.push_str(fragment);
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(tool_ids, ["call_synthetic_lookup"]);
+    assert_eq!(tool_names, ["lookup_day"]);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&arguments).unwrap(),
+        json!({"day":"Monday"})
+    );
+    assert_eq!(finishes, ["tool_calls"]);
+    assert_eq!(done, 1);
+    assert_eq!(usages.len(), 1);
+    assert_eq!(usages[0]["prompt_tokens"], 2);
+    assert_eq!(usages[0]["completion_tokens"], 3);
+    assert_eq!(provider.bodies.lock().unwrap().len(), 1);
+    let charge: (String, Option<String>, i64, i64, i64) = sqlx::query_as(
+        "SELECT state,outcome,settled,input_tokens,output_tokens FROM core_charging.requests WHERE id=$1",
+    ).bind(&request_id).fetch_one(&f.pool).await.unwrap();
+    assert_eq!(
+        charge,
+        ("settled".into(), Some("completed".into()), 2, 2, 3)
+    );
+    let counts: (i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM core_charging.usage_events WHERE request_id=$1 AND event_id='final'),
+                (SELECT count(*) FROM core_charging.ledger_commands WHERE request_id=$1 AND command->'change'->>'operation'='settle'),
+                (SELECT count(*) FROM core_charging.refunds WHERE request_id=$1)",
+    ).bind(&request_id).fetch_one(&f.pool).await.unwrap();
+    assert_eq!(counts, (1, 1, 0));
     assert_balance(&f, 9_999_998, 0).await;
 }
 

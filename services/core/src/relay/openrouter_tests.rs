@@ -203,6 +203,62 @@ fn openrouter_repeated_finish_carries_authoritative_usage_once() {
 }
 
 #[test]
+fn openrouter_tool_stream_rejects_malformed_arguments_usage_and_conflicting_finish() {
+    fn replay(mut edit: impl FnMut(&mut Value)) -> Result<(), super::RelayError> {
+        let limits = Limits::default();
+        let mut parser = super::sse::Parser::new(8192);
+        let mut decoder =
+            Decoder::new(UpstreamProtocol::Chat, &limits).with_openrouter_stream(true);
+        let mut encoder = Encoder::new(&request(true, json!({})), "tool-replay", &limits);
+        for byte in include_bytes!("../../tests/fixtures/openrouter/fragmented-tool-usage-tail.sse")
+        {
+            let Some(mut input) = parser.feed(*byte)? else {
+                continue;
+            };
+            if input.data != "[DONE]" {
+                let mut value: Value = serde_json::from_str(&input.data).unwrap();
+                edit(&mut value);
+                input.data = value.to_string();
+            }
+            for event in decoder.frame(input)? {
+                encoder.consume(event)?;
+            }
+        }
+        parser.finish()?;
+        encoder.terminal()?;
+        Ok(())
+    }
+    replay(|_| {}).unwrap();
+    assert!(
+        replay(|value| {
+            if let Some(args) =
+                value.pointer_mut("/choices/0/delta/tool_calls/0/function/arguments")
+                && args.as_str() == Some("\"Monday\"}")
+            {
+                *args = json!("}");
+            }
+        })
+        .is_err()
+    );
+    assert!(
+        replay(|value| {
+            if let Some(usage) = value.get_mut("usage") {
+                usage["is_byok"] = json!("invalid");
+            }
+        })
+        .is_err()
+    );
+    assert!(
+        replay(|value| {
+            if value.get("usage").is_some() {
+                value["choices"][0]["finish_reason"] = json!("length");
+            }
+        })
+        .is_err()
+    );
+}
+
+#[test]
 fn openrouter_images_reject_malformed_oversized_and_lossy_output() {
     let limits = Limits::default();
     for images in [
