@@ -264,12 +264,18 @@ test('empty policy save updates the parent cache and survives switching Users th
   await edit('Audit reason', 'Reviewed synthetic policy')
   await click('Review changes')
   await click('Save changes')
+  const readPolicies = () =>
+    client.getQueryData<HoneypotPolicies>([
+      'honeypot-policies',
+      scope.userId,
+      scope.sessionId,
+    ])
+  const deadline = performance.now() + 5000
+  while (readPolicies()?.revision !== 1 && performance.now() < deadline) {
+    await settle()
+  }
+  const cached = readPolicies()
   assert.equal(server.writes(), 1)
-  const cached = client.getQueryData<HoneypotPolicies>([
-    'honeypot-policies',
-    scope.userId,
-    scope.sessionId,
-  ])
   assert.equal(cached?.revision, 1)
   assert.equal(cached?.config.policies[0]?.id, 'persisted-policy')
   await cycleTabs()
