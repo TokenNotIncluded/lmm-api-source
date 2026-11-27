@@ -1212,10 +1212,7 @@ async fn ws06_official_exact_rejects_before_handshake_and_unknown_usage_holds(po
     assert_eq!(lab.peer.supplier.handshakes.load(Ordering::SeqCst), 0);
     drop(socket);
     drop(core);
-    for (index, input) in ["missing", "missing12h", "contradiction", "mismatched_tier"]
-        .iter()
-        .enumerate()
-    {
+    for (index, input) in ["missing", "missing12h", "contradiction"].iter().enumerate() {
         let core = Core::start(&lab, &lab.document(true), None, false, false).await;
         let (mut socket, _) = connect(&core, &lab.fixture.key, None, None).await.unwrap();
         let before: std::collections::BTreeSet<_> =
@@ -1243,6 +1240,42 @@ async fn ws06_official_exact_rejects_before_handshake_and_unknown_usage_holds(po
         assert_eq!(lab.calls(), calls);
         drop(core);
     }
+    lab.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn ws_reported_tier_difference_settles_once_at_the_frozen_price(pool: PgPool) {
+    let lab = Lab::new(pool).await;
+    let core = Core::start(&lab, &lab.document(true), None, false, false).await;
+    let (mut socket, _) = connect(&core, &lab.fixture.key, None, None).await.unwrap();
+    send(&mut socket, create("mismatched_tier", "reported-tier")).await;
+    assert_eq!(receive(&mut socket).await.1["type"], "response.created");
+    let (_, completed) = terminal(&mut socket).await;
+    assert_eq!(completed["response"]["service_tier"], "priority");
+    assert_eq!(lab.peer.supplier.handshakes.load(Ordering::SeqCst), 1);
+    assert_eq!(lab.calls(), 1);
+    let charges = lab.charges().await;
+    assert_eq!(charges.len(), 1);
+    let (id, state, reserved, settled) = &charges[0];
+    assert_eq!(
+        (state.as_str(), *reserved, *settled),
+        ("settled", HOLD, COST)
+    );
+    let capture_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core_charging.ledger_holds AS h
+         JOIN core_billing.ledger_journals AS j ON j.id = h.capture_journal_id
+         WHERE h.request_id = $1 AND h.closed AND h.captured = $2 AND j.kind = 'capture'
+           AND j.amount_units = $2",
+    )
+    .bind(id)
+    .bind(COST)
+    .fetch_one(&lab.fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(capture_count, 1);
+    lab.balance(FUNDS - COST, 0).await;
+    drop(socket);
+    drop(core);
     lab.cleanup().await;
 }
 
