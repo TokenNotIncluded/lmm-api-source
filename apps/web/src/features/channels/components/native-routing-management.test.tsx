@@ -4321,5 +4321,42 @@ test('fetched channels apply selected routes to the editor without publishing', 
     form.textContent ?? '',
     /Disable the channel before removing its last configured model/
   )
+  const mapping = required(
+    [...form.querySelectorAll('details')].find(
+      (item) => item.firstElementChild?.textContent === 'Model Mapping'
+    )
+  )
+  await act(async () => {
+    mapping.open = true
+  })
+  const pick = async (label: string, text: string) => {
+    const input = required(
+      mapping.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)
+    )
+    await act(async () => input.focus())
+    const option = required(
+      [...mapping.querySelectorAll('[role=option]')].find(
+        (item) => item.textContent === text
+      )
+    )
+    await act(async () =>
+      option.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    )
+  }
+  await pick('Upstream model', 'unpublished-model')
+  await pick('Model name', 'model-a · default')
+  await act(async () => button(mapping, 'Confirm').click())
+  assert.equal(removalAvailable(), false)
+  assert.match(models.textContent ?? '', /model-a/)
+  assert.match(models.textContent ?? '', /1 selected/)
+  const mappedRow = required(
+    [...form.querySelectorAll('li')].find(
+      (item) => item.firstElementChild?.textContent === 'unpublished-model'
+    )
+  )
+  assert.equal(
+    mappedRow.querySelector<HTMLInputElement>('input[type=checkbox]')?.checked,
+    true
+  )
   assert.equal(writes, 0)
 })

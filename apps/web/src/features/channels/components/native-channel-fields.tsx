@@ -1,10 +1,11 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useMutation } from '@tanstack/react-query'
-import { useMemo, useState, type ReactNode } from 'react'
+import { useId, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Combobox } from '@/components/ui/combobox'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -24,6 +25,7 @@ import {
   nativeProtocols,
   readChannelDraft,
   toggleChannelAttachment,
+  updateChannelAttachment,
   type NativeChannelDraft,
 } from '../lib/native-routing-form'
 import {
@@ -70,6 +72,7 @@ function ChannelModelCatalog({
   routes,
   draft,
   onApply,
+  onMap,
   onRemove,
   onCreate,
 }: {
@@ -79,25 +82,46 @@ function ChannelModelCatalog({
   routes: NativeConfiguration['routing']['routes']
   draft: NativeChannelDraft | null
   onApply: (routes: NativeConfiguration['routing']['routes']) => void
+  onMap: (
+    route: NativeConfiguration['routing']['routes'][number],
+    model: string
+  ) => void
   onRemove: (attachments: NativeChannelDraft['attachments']) => void
   onCreate?: (model: string) => void
 }) {
   const { t } = useTranslation()
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<number[]>([])
+  const [mappingModel, setMappingModel] = useState('')
+  const [mappingRouteId, setMappingRouteId] = useState('')
+  const mappingId = useId()
   const catalog = useMutation({ mutationFn: fetchModels })
   const availableModels = catalog.data ?? savedModels
   const models = new Set(availableModels)
+  const attached = useMemo(
+    () =>
+      new Map(
+        draft?.attachments.map((item) => [item.route_id, item.upstream_model])
+      ),
+    [draft?.attachments]
+  )
   const routesByModel = useMemo(() => {
     const index = new Map<string, typeof routes>()
     for (const route of routes) {
-      const matches = index.get(route.model)
+      const model = attached.get(route.id) ?? route.model
+      const matches = index.get(model)
       if (matches) matches.push(route)
-      else index.set(route.model, [route])
+      else index.set(model, [route])
     }
     return index
-  }, [routes])
-  const attached = new Set(draft?.attachments.map((item) => item.route_id))
+  }, [attached, routes])
+  const mappingRoute = routes.find(
+    (route) => String(route.id) === mappingRouteId
+  )
+  const canMap =
+    mappingRoute &&
+    models.has(mappingModel) &&
+    attached.get(mappingRoute.id) !== mappingModel
   const missing =
     catalog.isSuccess && models.size > 0
       ? (draft?.attachments.filter(
@@ -127,6 +151,8 @@ function ChannelModelCatalog({
           disabled={disabled || catalog.isPending}
           onClick={() => {
             setSelected([])
+            setMappingModel('')
+            setMappingRouteId('')
             catalog.mutate()
           }}
         >
@@ -181,6 +207,61 @@ function ChannelModelCatalog({
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
+          )}
+          {draft && models.size > 0 && routes.length > 0 && (
+            <details className='border-border rounded-md border p-3'>
+              <summary className='min-h-8 cursor-pointer text-sm font-medium'>
+                {t('Model Mapping')}
+              </summary>
+              <fieldset
+                disabled={disabled || catalog.isPending}
+                className='space-y-2'
+              >
+                <label htmlFor={`${mappingId}-upstream`} className='text-sm'>
+                  {t('Upstream model')}
+                </label>
+                <Combobox
+                  id={`${mappingId}-upstream`}
+                  aria-label={t('Upstream model')}
+                  placeholder={t('Search models')}
+                  emptyText={t('No models found')}
+                  options={[...models].map((model) => ({
+                    value: model,
+                    label: model,
+                  }))}
+                  value={mappingModel}
+                  onValueChange={(model) => setMappingModel(model ?? '')}
+                />
+                <label htmlFor={`${mappingId}-route`} className='text-sm'>
+                  {t('Model name')}
+                </label>
+                <Combobox
+                  id={`${mappingId}-route`}
+                  aria-label={t('Model name')}
+                  placeholder={t('Search models')}
+                  emptyText={t('No models found')}
+                  options={routes.map((route) => ({
+                    value: String(route.id),
+                    label: `${route.model} · ${route.group}`,
+                  }))}
+                  value={mappingRouteId}
+                  onValueChange={(id) => setMappingRouteId(id ?? '')}
+                />
+                <Button
+                  type='button'
+                  variant='outline'
+                  disabled={!canMap || disabled}
+                  onClick={() => {
+                    if (!canMap) return
+                    onMap(mappingRoute, mappingModel)
+                    setMappingRouteId('')
+                    setMappingModel('')
+                  }}
+                >
+                  {t('Confirm')}
+                </Button>
+              </fieldset>
+            </details>
           )}
           {filtered.length > 0 ? (
             <ul className='bg-muted/40 max-h-64 overflow-y-auto rounded-md p-3'>
@@ -433,6 +514,27 @@ export function NativeChannelFields({
           routes={configuration.routing.routes}
           draft={readChannelDraft(document)}
           onCreate={onCreateModel}
+          onMap={(route, model) => {
+            const current = readChannelDraft(document)
+            if (!current) return
+            const attached = toggleChannelAttachment(
+              current,
+              route,
+              true,
+              configuration
+            )
+            onChange(
+              stringifyNativeDocument(
+                updateChannelAttachment(
+                  attached,
+                  route.id,
+                  { upstream_model: model },
+                  configuration.bindings.contexts
+                ),
+                2
+              )
+            )
+          }}
           onRemove={(attachments) => {
             const current = readChannelDraft(document)
             if (!current) return
