@@ -473,9 +473,14 @@ test('financial and RPC acceptance run independently and remain required in Core
   const [financial, afterFinancial] = remainder.split('\n  rpc:\n');
   const [rpc] = afterFinancial.split(/\n  [\w-]+:\n/, 1);
   assert.doesNotMatch(rust, /run: .*test-core-rpc-docker/);
+  const [dispatch, called] = source.split('  workflow_call:');
+  assert.match(dispatch, /browser_only:\n[^\n]*\n        type: boolean\n        default: false/);
+  assert.doesNotMatch(called.split('\npermissions:')[0], /browser_only:/);
   for (const job of [financial, rpc]) {
     assert.match(job, /runs-on: ubuntu-24\.04/);
-    assert.doesNotMatch(job, /(?:^    (?:if|needs):|continue-on-error:)/m);
+    const browserOnlyGuard = '    if: ${{ !inputs.browser_only }}\n';
+    assert.ok(job.startsWith(browserOnlyGuard));
+    assert.doesNotMatch(job.slice(browserOnlyGuard.length), /(?:^    (?:if|needs):|continue-on-error:)/m);
   }
   assert.match(financial, /bash scripts\/install-ci-postgresql18\.sh/);
   assert.match(financial, /docker pull postgres:18-alpine@sha256:[0-9a-f]{64}/);
