@@ -11,6 +11,7 @@ use lmm_core::{
     http::{Capabilities, PublicStatus, configured_router_with_rpc},
     legacy_auth::{self, LegacyAuthConfig},
     model_http::{ChargePolicy, ModelGateway, ProviderPolicy, UpstreamCredential},
+    options_http::{self, OptionsHttp, RuntimeOptions},
     relay::Limits,
     routing::{Endpoint, PriceSnapshot, Router as ServingRouter},
 };
@@ -161,6 +162,11 @@ async fn browser_onboarding_wallet(pool: PgPool) {
     lmm_core::console_compat::record_initialization(&pool, env!("CARGO_PKG_VERSION"))
         .await
         .unwrap();
+    sqlx::query("SELECT core_console.write_display_exchange_rate($1)")
+        .bind("7.25")
+        .execute(&pool)
+        .await
+        .unwrap();
     let hash = identity
         .hash_installer_password(PASSWORD.into())
         .await
@@ -249,6 +255,17 @@ async fn browser_onboarding_wallet(pool: PgPool) {
     .merge(lmm_core::console_compat::router(
         lmm_core::console_compat::ConsoleCompat::new(pool.clone(), identity.clone()),
     ))
+    .merge(options_http::router(OptionsHttp::new(
+        pool.clone(),
+        identity.clone(),
+        RuntimeOptions {
+            server_address: WEB_ORIGIN.into(),
+            registration_enabled: identity.registration_enabled(),
+            password_register_enabled: identity.password_register_enabled(),
+            oauth_register_enabled: identity.oauth_register_enabled(),
+            registration_disabled_methods: identity.oauth_registration_disabled_methods().to_vec(),
+        },
+    )))
     .merge(legacy_auth::router(identity, auth))
     .merge(managed_router(pool.clone(), management))
     .merge(paid);
