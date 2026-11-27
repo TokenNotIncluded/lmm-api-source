@@ -180,8 +180,20 @@ export function readChannelDraft(document: string): NativeChannelDraft | null {
 
 export function newNativeContext(
   upstream: { id: number; endpoint: string; protocol: string },
-  model: string
+  model: string,
+  publishedContexts: readonly NativeContext[] = []
 ): NativeContext {
+  const published = publishedContexts.find(
+    (context) =>
+      context.upstream_id === upstream.id && context.upstream_model === model
+  )
+  if (published) {
+    return {
+      ...published,
+      endpoint: upstream.endpoint,
+      protocol: upstream.protocol,
+    }
+  }
   return {
     upstream_id: upstream.id,
     upstream_model: model,
@@ -214,16 +226,9 @@ export function updateChannelAttachment(
       (context) => context.upstream_model === patch.upstream_model
     )
     if (!destination) {
-      const published = publishedContexts.find(
-        (context) =>
-          context.upstream_id === draft.id &&
-          context.upstream_model === patch.upstream_model
-      )
       contexts = [
         ...contexts,
-        published
-          ? { ...published, endpoint: draft.endpoint, protocol: draft.protocol }
-          : newNativeContext(draft, patch.upstream_model),
+        newNativeContext(draft, patch.upstream_model, publishedContexts),
       ]
     }
     if (
@@ -243,7 +248,9 @@ export function toggleChannelAttachment(
   draft: NativeChannelDraft,
   route: { id: number; model: string; speeds: string[] },
   enabled: boolean,
-  configuration?: Pick<NativeConfiguration, 'model_limits'>
+  configuration?: Pick<NativeConfiguration, 'model_limits'> & {
+    bindings?: Pick<NativeConfiguration['bindings'], 'contexts'>
+  }
 ): NativeChannelDraft {
   if (!enabled) {
     const attachments = draft.attachments.filter(
@@ -279,6 +286,13 @@ export function toggleChannelAttachment(
     ],
     contexts: draft.contexts.some((item) => item.upstream_model === route.model)
       ? draft.contexts
-      : [...draft.contexts, newNativeContext(draft, route.model)],
+      : [
+          ...draft.contexts,
+          newNativeContext(
+            draft,
+            route.model,
+            configuration?.bindings?.contexts
+          ),
+        ],
   }
 }

@@ -97,21 +97,30 @@ speed field rather than adding a suffix to the JSON model field.
 Smaller priority wins. Within a priority tier, selection is weighted random with
 an unbiased integer draw using the existing `rand` dependency. Fallbacks are
 weighted draws without replacement; only after a tier is exhausted is a lower
-priority considered. Each route can have at most 64 targets, one target per
-upstream, and at most 8 total attempts. A zero weight, disabled target, disabled
-upstream, unhealthy/unknown state, incompatible passthrough, or unsupported speed
-excludes a candidate. All unavailable means an error, never a fallback model.
+priority considered. Each route can have at most 64 targets, one per upstream.
+A zero weight, disabled target or upstream, unhealthy or unknown state,
+incompatible passthrough, or unsupported speed excludes a candidate. Routing
+returns an error when all candidates are unavailable.
 
-The complete ordered candidate list is pinned at request start. Live health and
-operational changes may remove candidates later, but cannot add a new target.
-The candidate count is bounded by the configured attempt limit. A candidate
-removed after planning is not replaced by a new lookup.
+Routing pins the ordered candidate list at request start. With global reliability
+enabled, ordinary HTTP routes prefer other eligible destinations before filling
+unused attempts with spare credentials from the same targets. Live health and
+operational changes may remove a candidate before dispatch.
 
 ## Failure and replay policy
 
-The default policy is one attempt and no retries. A configured retry cause may be
-`Connect`, `Timeout`, `RateLimited`, or `ServerError`. Authentication failures,
-client errors, invalid responses, and cancellation always stop the plan.
+Without `routing_reliability`, each route's `failover.max_attempts` sets its
+attempt budget (1–8, default 1). The public text gateway permits up to eight
+attempts across all authorized group plans. Setting `routing_reliability`
+replaces both limits with `1 + retry_times`. A value of zero permits only the
+initial dispatch. A value of ten permits up to eleven dispatches in total.
+
+With a global policy and an HTTP status, `retry_status_codes` selects retryable
+responses. A configured `401`, for example, can advance to another pinned
+credential after a confirmed rejection. Without a global policy or without an
+HTTP status, the route's `failover.retry_on` selects among `connect`, `timeout`,
+`rate_limited`, and `server_error`. Every retry also requires safe delivery
+evidence and an available candidate within the attempt budget.
 
 `NotSent` means no request bytes reached the provider. `Rejected` means the
 provider is known not to have accepted work; a status code alone is not always
@@ -123,12 +132,11 @@ permissions are set. A denied retry ends the plan permanently.
 
 ### Model HTTP retry and session affinity
 
-The public text gateway retains the actual `RoutePlan` through forwarding.
-Its `retry_on` causes and bounded candidate order govern retries; the gateway
-does not re-read the live catalog to find another target after a failure.
-All group plans come from one immutable release and the whole request has at
-most eight candidate bindings. Request replay permission remains denied even
-when a route sets `allow_replay_after_send`.
+The public text gateway pins all authorized group plans from one release. It
+filters candidates for protocol and billing compatibility before freezing
+bindings up to the request's attempt budget. A retry uses those bindings in
+order. The gateway keeps request replay permission denied even when a route
+sets `allow_replay_after_send`.
 
 The first selected sales quote and billing group remain fixed through every
 attempt, including a cross-group fallback. A backup group's price does not
@@ -159,8 +167,8 @@ An external provider context may explicitly set
 operator reviews that supplier's guarantee that those responses precede work
 acceptance and tool side effects. There are no vendor-name defaults. A listed
 status still requires a complete, bounded JSON error envelope with no output,
-usage or tool-receipt fields. The route's corresponding `retry_on` cause must
-also allow retry. A status code by itself leaves delivery unknown. The durable
+usage or tool-receipt fields. That evidence establishes rejection. The active
+retry policy must separately permit the next attempt. The durable
 failure record stores the response digest and status, not its body.
 
 Clients can opt into affinity with `X-LMM-Session-ID`, an opaque nonempty ASCII

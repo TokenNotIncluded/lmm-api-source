@@ -71,6 +71,33 @@ test('removing one model binding retains a provider context used by another grou
   assert.deepEqual(none.expected_version, { routing: 5, pricing: 3 })
 })
 
+test('reselecting the last binding restores the exact published supplier contract', () => {
+  const draft = fixture()
+  const source = draft.contexts[0]
+  const published = {
+    ...source,
+    max_input_tokens: Number(source.max_input_tokens),
+    max_output_tokens: Number(source.max_output_tokens),
+  }
+  const route = { id: 1, model: 'shared', speeds: ['standard'] }
+  const removed = toggleChannelAttachment(
+    { ...draft, attachments: [draft.attachments[0]] },
+    route,
+    false
+  )
+  assert.deepEqual(removed.contexts, [])
+  const contexts = [
+    { ...published, upstream_id: 7, contract_revision: 'other-channel' },
+    { ...published, upstream_model: 'other', contract_revision: 'other-model' },
+    published,
+  ]
+  const restored = toggleChannelAttachment(removed, route, true, {
+    bindings: { contexts },
+  })
+  assert.deepEqual(restored.contexts, [source])
+  assert.deepEqual(restored.expected_version, draft.expected_version)
+})
+
 test('mapping a new upstream model requires its own contract without overwriting a shared destination', () => {
   const draft = fixture()
   const mapped = updateChannelAttachment(draft, 1, {
