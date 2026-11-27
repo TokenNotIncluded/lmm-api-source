@@ -2,6 +2,11 @@ name: OpenCode LMM OAuth plugin
 
 on:
   workflow_dispatch:
+    inputs:
+      v2_only:
+        description: Run only the native V2 OAuth and transport acceptance
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -13,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        host-version: ['1.18.34', '1.19.4']
+        host-version: ${{ fromJSON(inputs.v2_only && '["2.1.4"]' || '["1.18.34","1.19.4","2.1.4"]') }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -29,7 +34,8 @@ jobs:
         working-directory: packages/opencode-lmm-auth
       - run: npm run build && npm run typecheck && npm test && npm run pack:check
         working-directory: packages/opencode-lmm-auth
-      - name: Install supported OpenCode host
+      - name: Install legacy OpenCode host
+        if: matrix.host-version != '2.1.4'
         env:
           HOST_VERSION: ${{ matrix.host-version }}
         run: |
@@ -38,6 +44,33 @@ jobs:
           # Keep npm lifecycle hooks disabled; run only this pinned package
           # setup script so its platform binary is installed for the host test.
           node "$(npm root --global)/opencode-ai/postinstall.mjs"
-      - name: Verify real host and OAuth integration
+      - name: Verify legacy host and OAuth integration
+        if: matrix.host-version != '2.1.4'
         run: npm run test:host && npm run test:integration
         working-directory: packages/opencode-lmm-auth
+
+      - name: Verify native OpenCode V2 login, restart, and three transports
+        if: matrix.host-version == '2.1.4'
+        working-directory: packages/opencode-lmm-auth
+        run: |
+          set -euo pipefail
+          host="$RUNNER_TEMP/opencode-v2-host"
+          npm install --prefix "$host" --ignore-scripts --no-package-lock --no-audit --no-fund @opencode/cli@2.1.4
+          node "$host/node_modules/@opencode/cli/postinstall.mjs"
+          export OPENCODE_V2_BIN="$host/node_modules/@opencode/cli/bin/opencode.exe"
+          export LMM_V2_TEST_OUTPUT="$RUNNER_TEMP/opencode-v2-evidence"
+          install -d -m 700 "$LMM_V2_TEST_OUTPUT"
+          npm run test:v2
+      - name: Collect native V2 result
+        if: always() && matrix.host-version == '2.1.4'
+        run: |
+          set -euo pipefail
+          jq --arg commit "$GITHUB_SHA" \
+            '{commit:$commit, binaryVersion, success, stage, behavior, archive, checks:[.checks[] | {name,exitCode}]}' \
+            "$RUNNER_TEMP"/opencode-v2-evidence/native-v2-*/result.json > "$RUNNER_TEMP/opencode-v2-receipt.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always() && matrix.host-version == '2.1.4'
+        with:
+          name: opencode-v2-native-receipt
+          path: ${{ runner.temp }}/opencode-v2-receipt.json
+          if-no-files-found: error
