@@ -6,6 +6,10 @@ on:
         description: Run the Chromium onboarding and same-request wallet receipt gate.
         type: boolean
         default: false
+      browser_only:
+        description: Run only the Chromium onboarding and wallet job.
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       split_rust_targets:
@@ -23,6 +27,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   protocol:
+    if: ${{ !inputs.browser_only }}
     name: ${{ startsWith(matrix.targets, 'integration-') && format('Rust targets ({0})', matrix.targets) ||
       matrix.targets == 'model-unit' && 'Rust model unit tests' ||
       matrix.targets == 'model-responses' && 'Rust Responses unit tests' ||
@@ -377,6 +382,7 @@ jobs:
           retention-days: 7
 
   financial-import:
+    if: ${{ !inputs.browser_only }}
     name: Reviewed financial import and PostgreSQL
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -408,6 +414,7 @@ jobs:
           retention-days: 7
 
   rpc:
+    if: ${{ !inputs.browser_only }}
     name: Native protobuf container acceptance
     runs-on: ubuntu-24.04
     timeout-minutes: 55
@@ -557,7 +564,7 @@ jobs:
           retention-days: 7
 
   browser-onboarding-wallet:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser_onboarding_wallet }}
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.browser_onboarding_wallet || inputs.browser_only) }}
     name: Browser onboarding and same-request wallet receipt
     runs-on: ubuntu-24.04
     timeout-minutes: 75

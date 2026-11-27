@@ -109,7 +109,7 @@ function rejected(status: number, code = '', data?: unknown): never {
 async function mount(
   handler: (config: ApiRequestConfig) => unknown | Promise<unknown>,
   role = 100,
-  Component = NativePaymentSettings,
+  Component: React.ComponentType = NativePaymentSettings,
   serverAddress?: string | Promise<string>
 ) {
   signedIn(role)
