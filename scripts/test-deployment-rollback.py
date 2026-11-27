@@ -29,6 +29,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/backend/"):
             service = self.path.rsplit("/", 1)[-1]
+            audit = getattr(self.server, "rollback_audit", None)
+            if audit is not None:
+                with audit.open("a") as sink:
+                    sink.write(f"ready {service}\n")
             content_type = "text/html" if service == "html" else "application/json"
             body = (b"<!doctype html>SPA fallback" if service == "html" else
                     json.dumps({"status": "ready", "service": service}).encode())
@@ -80,6 +84,76 @@ def verify_backend_readiness(work, server):
     print("PASS: recognized readiness, wrong service rejected, HTML fallback rejected")
 
 
+
+def verify_backend_rollback(work, server):
+    fake_bin = work / "rollback-bin"
+    fake_bin.mkdir()
+    audit = work / "rollback-actions"
+    audit.touch()
+    systemctl = fake_bin / "systemctl"
+    systemctl.write_text(r"""#!/bin/sh
+set -eu
+case "$1" in
+  show)
+    printf 'Id=%s\nLoadState=loaded\nActiveState=failed\nSubState=failed\nResult=start-limit-hit\n' "$2"
+    ;;
+  reset-failed)
+    printf 'clear %s\n' "$2" >> "$LMM_ROLLBACK_AUDIT"
+    ;;
+  start|restart)
+    grep -Fxq "clear $2" "$LMM_ROLLBACK_AUDIT"
+    if [ "$2" = lmm-extensions.service ]; then
+      grep -Fxq 'ready lmm-core' "$LMM_ROLLBACK_AUDIT"
+    fi
+    printf 'restart %s\n' "$2" >> "$LMM_ROLLBACK_AUDIT"
+    ;;
+  *) exit 1 ;;
+esac
+""")
+    systemctl.chmod(0o755)
+    components = [{
+        "name": name,
+        "service": f"lmm-{name}.service",
+        "health_url": f"http://127.0.0.1:{server.server_port}/backend/lmm-{name}",
+    } for name in ("core", "extensions", "web")]
+    playbook = work / "backend-rollback.yml"
+    playbook.write_text(json.dumps([{
+        "hosts": "localhost",
+        "connection": "local",
+        "gather_facts": False,
+        "environment": {
+            "PATH": str(fake_bin) + os.pathsep + os.environ["PATH"],
+            "LMM_ROLLBACK_AUDIT": str(audit),
+        },
+        "tasks": [{
+            "ansible.builtin.include_tasks": str(ROOT / "deployment/automation/rollback.yml"),
+            "loop": components,
+            "loop_control": {"loop_var": "component"},
+        }],
+    }]))
+    server.rollback_audit = audit
+    try:
+        result = subprocess.run(
+            [os.environ.get("ANSIBLE_PLAYBOOK_BIN", "ansible-playbook"),
+             "-i", "localhost,", str(playbook)],
+            capture_output=True, text=True,
+        )
+    finally:
+        del server.rollback_audit
+    if result.returncode:
+        raise AssertionError(result.stdout + result.stderr)
+    assert audit.read_text().splitlines() == [
+        "clear lmm-core.service",
+        "restart lmm-core.service",
+        "ready lmm-core",
+        "clear lmm-extensions.service",
+        "restart lmm-extensions.service",
+        "ready lmm-extensions",
+        "ready lmm-web",
+    ], audit.read_text()
+    print("PASS: cleared systemd start limits and verified restored Core before restarting extensions")
+
+
 def main():
     revision = "a" * 40
     with tempfile.TemporaryDirectory(prefix="lmm-deploy-fixture-") as temp:
@@ -97,6 +171,7 @@ def main():
                   "components": {"web": {"health_url": f"http://127.0.0.1:{server.server_port}/index.html"}}}
         try:
             verify_backend_readiness(work, server)
+            verify_backend_rollback(work, server)
             cases = [(1, "accepted-candidate", True, True),
                      (2, "rejected-candidate", False, True),
                      (3, "rejected-candidate", False, False)]
