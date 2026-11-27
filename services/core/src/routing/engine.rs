@@ -120,20 +120,44 @@ struct Group {
     aliases: HashMap<String, String>,
 }
 
-fn uniform_group_multiplier(prices: &PriceSnapshot, name: &str, group: &Group) -> Option<u32> {
-    let mut multiplier = None;
-    for route in group.routes.values().filter(|route| route.config.enabled) {
-        for speed in &route.config.speeds {
-            let (current, _) = prices
-                .template(&route.config.model, name, *speed)?
-                .multipliers_ppm();
-            if multiplier.is_some_and(|previous| previous != current) {
-                return None;
-            }
-            multiplier = Some(current);
+fn uniform_group_multiplier(
+    prices: &PriceSnapshot,
+    name: &str,
+    group: &Group,
+    image_rules: &[crate::billing::image_price::ImagePriceRule],
+) -> Option<f64> {
+    const PPM: u64 = 1_000_000;
+    let text = group
+        .routes
+        .values()
+        .filter(|route| route.config.enabled)
+        .flat_map(|route| route.config.speeds.iter().map(move |speed| (route, *speed)))
+        .map(|(route, speed)| {
+            prices
+                .template(&route.config.model, name, speed)
+                .map(|rule| (u64::from(rule.multipliers_ppm().0), PPM))
+        });
+    let images = image_rules
+        .iter()
+        .filter(|rule| rule.billing_group == name)
+        .map(|rule| {
+            Some((
+                rule.group_multiplier.numerator,
+                rule.group_multiplier.denominator,
+            ))
+        });
+    let mut multiplier: Option<(u64, u64)> = None;
+    for ratio in text.chain(images) {
+        let (numerator, denominator) = ratio?;
+        if multiplier.is_some_and(|(previous_num, previous_den)| {
+            u128::from(previous_num) * u128::from(denominator)
+                != u128::from(numerator) * u128::from(previous_den)
+        }) {
+            return None;
         }
+        multiplier = Some((numerator, denominator));
     }
-    multiplier
+    multiplier.map(|(numerator, denominator)| numerator as f64 / denominator as f64)
 }
 
 impl Group {
@@ -1095,13 +1119,15 @@ impl Router {
     pub(crate) fn group_price_multipliers(
         &self,
         names: Vec<String>,
-    ) -> Result<Vec<(String, Option<u32>)>, RoutingError> {
+        image_rules: &[crate::billing::image_price::ImagePriceRule],
+    ) -> Result<Vec<(String, Option<f64>)>, RoutingError> {
         let active = self.snapshot()?;
         Ok(names
             .into_iter()
             .filter_map(|name| {
                 let group = active.groups.get(&name).filter(|group| group.enabled)?;
-                let multiplier = uniform_group_multiplier(&active.prices, &name, group);
+                let multiplier =
+                    uniform_group_multiplier(&active.prices, &name, group, image_rules);
                 Some((name, multiplier))
             })
             .collect())

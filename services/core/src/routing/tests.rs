@@ -115,14 +115,62 @@ fn group_price_multiplier_requires_agreement_and_preserves_zero() {
     let router = build(config.clone(), prices.clone());
     let groups = || vec!["default".into(), "unknown".into()];
     assert_eq!(
-        router.group_price_multipliers(groups()).unwrap(),
-        vec![("default".into(), Some(0))]
+        router.group_price_multipliers(groups(), &[]).unwrap(),
+        vec![("default".into(), Some(0.0))]
     );
     prices.rules[0].group_multiplier_ppm = 250_000;
     let router = build(config, prices);
     assert_eq!(
-        router.group_price_multipliers(groups()).unwrap(),
+        router.group_price_multipliers(groups(), &[]).unwrap(),
         vec![("default".into(), None)]
+    );
+}
+
+#[test]
+fn group_price_multiplier_combines_image_and_text_tariffs() {
+    use crate::billing::image_price::{ExactRatio, ImageCountBasis, ImageEndpoint, ImagePriceRule};
+
+    let (mut config, prices) = fixture(1);
+    config.groups.push(ModelGroup {
+        name: "images".into(),
+        enabled: true,
+    });
+    let router = build(config, prices);
+    let groups = || vec!["default".into(), "images".into()];
+    let image = ImagePriceRule {
+        upstream_id: 1,
+        vendor: "fixture".into(),
+        billing_group: "images".into(),
+        upstream_model: "image".into(),
+        semantic_model: "image".into(),
+        endpoint: ImageEndpoint::Generations,
+        size: "1024x1024".into(),
+        quality: "standard".into(),
+        usd_micros_per_image: ExactRatio {
+            numerator: 1,
+            denominator: 1,
+        },
+        group_multiplier: ExactRatio {
+            numerator: 1,
+            denominator: 20,
+        },
+        max_n: 1,
+        count_basis: ImageCountBasis::ReturnedPayloads,
+        max_budget: crate::billing::Credits::try_from(100).unwrap(),
+        source_revision: "fixture".into(),
+    };
+    let mut equivalent = image.clone();
+    equivalent.group_multiplier = ExactRatio {
+        numerator: 5,
+        denominator: 100,
+    };
+    let mut text_conflict = image.clone();
+    text_conflict.billing_group = "default".into();
+    assert_eq!(
+        router
+            .group_price_multipliers(groups(), &[image, equivalent, text_conflict])
+            .unwrap(),
+        vec![("default".into(), None), ("images".into(), Some(0.05))]
     );
 }
 

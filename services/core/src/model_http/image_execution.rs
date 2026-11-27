@@ -388,6 +388,9 @@ impl ImageService {
             .into_iter()
             .collect()
     }
+    pub(crate) fn pricing_config(&self) -> Arc<ImagePriceConfig> {
+        self.prices.clone()
+    }
     /// Safe immutable tariff metadata only; never provider identity or credentials.
     pub(crate) fn pricing_projection(
         &self,

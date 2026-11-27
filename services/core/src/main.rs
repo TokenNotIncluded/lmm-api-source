@@ -453,7 +453,9 @@ async fn run_core(inherited_listener: Option<std::net::TcpListener>) -> Result<(
         model_gateway = configured_models;
         if let Some(gateway) = &mut model_gateway {
             gateway.verify_legacy_key_aliases().await?;
-            store = store.with_dashboard_routing(gateway.dashboard_routing());
+            store = store
+                .with_dashboard_routing(gateway.dashboard_routing())
+                .with_dashboard_images(gateway.image_service());
             // Trusted recovery keeps indeterminate upstream holds reserved.
             // A failed recovery prevents listener binding/readiness.
             gateway.recover_expired(64).await?;

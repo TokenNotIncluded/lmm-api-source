@@ -447,6 +447,13 @@ impl IdentityStore {
         self.dashboard_routing = Some(routing);
         self
     }
+    pub fn with_dashboard_images(
+        mut self,
+        images: Option<&crate::model_http::image_execution::ImageService>,
+    ) -> Self {
+        self.dashboard_image_prices = images.map(|images| images.pricing_config());
+        self
+    }
     // The caller owns the transaction. The same validated implementation backs
     // dashboard creation and a browser-confirmed, operation-bound creation.
     async fn create_dashboard_key_in_transaction(
@@ -762,8 +769,12 @@ impl IdentityStore {
             vec![("auto".to_owned(), None)]
         } else if let Some(routing) = self.dashboard_routing.as_deref() {
             let candidates = routing_group_names_in_transaction(&mut tx, actor.user_id).await?;
+            let images = self
+                .dashboard_image_prices
+                .as_deref()
+                .map_or(&[][..], |prices| prices.rules.as_slice());
             routing
-                .group_price_multipliers(candidates)
+                .group_price_multipliers(candidates, images)
                 .map_err(|_| IdentityError::Storage)?
         } else {
             groups(&mut tx, actor.user_id, None)
@@ -781,7 +792,7 @@ impl IdentityStore {
             .map(|(name, multiplier)| {
                 let ratio = match (name.as_str(), multiplier) {
                     ("auto", _) | (_, None) => json!("model-specific"),
-                    (_, Some(ppm)) => json!(f64::from(ppm) / 1_000_000.0),
+                    (_, Some(multiplier)) => json!(multiplier),
                 };
                 (name.clone(), json!({"desc": name, "ratio": ratio}))
             })
