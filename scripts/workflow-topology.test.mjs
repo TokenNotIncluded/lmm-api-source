@@ -164,6 +164,29 @@ test('distribution builds use the checked source and shipped TOML resources', ()
   }
 });
 
+test('Core archives require exact OpenRouter streaming and wallet tests from the frozen checkout', () => {
+  const build = workflow('microservice-distribution').split('  build:\n')[1];
+  const title = '      - name: Require OpenRouter streaming and wallet receipts for the Core archive';
+  const gate = build.split(title)[1]?.split('      - name:')[0];
+  assert.ok(gate, 'Core stream and wallet gate is missing');
+  assert.match(gate, /if: matrix\.component == 'core'/);
+  assert.match(gate, /set -euo pipefail/);
+  assert.match(gate, /cargo \+1\.100\.0 test --locked .* -- --exact /);
+  assert.ok(gate.includes('grep -Fx -- "test $name ... ok" "$log"'));
+  for (const name of [
+    'openrouter_repeated_finish_carries_authoritative_usage_once',
+    'openrouter_tool_stream_rejects_malformed_arguments_usage_and_conflicting_finish',
+    'openrouter_stream_usage_tail_settles_once_through_chat_gateway',
+    'openrouter_fragmented_tool_and_repeated_finish_capture_once',
+    'prepared_contract_tier_cache_maximum_and_reasoning_use_frozen_terms',
+    'malformed_tool_json_with_usage_and_done_remains_frozen',
+  ]) assert.ok(gate.includes(name), name);
+  for (const boundary of [
+    '      - name: Build and inspect an independent preview archive',
+    '      - name: Preserve preview archives only',
+  ]) assert.ok(build.indexOf(title) < build.indexOf(boundary), boundary);
+});
+
 test('Manual qualification verifies Core and Extensions', () => {
   const source = workflow('core-protocol');
   const triggers = source.match(/^on:\n((?:[ \t]+[^\n]*\n)+)/m)?.[1];

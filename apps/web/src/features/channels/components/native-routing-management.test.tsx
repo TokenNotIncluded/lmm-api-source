@@ -2779,7 +2779,9 @@ test('channel editing exposes common fields and preserves bindings, context meta
   })
   const protocol = required(
     [...form.querySelectorAll('label')]
-      .find((item) => item.querySelector('span')?.textContent === 'Protocol')
+      .find(
+        (item) => item.querySelector('span')?.textContent === 'Upstream API'
+      )
       ?.querySelector('select')
   )
   assert.equal(protocol.value, 'openai_chat')
@@ -3200,7 +3202,7 @@ test('channel drafts survive current-section clicks and require confirmation bef
     primary
       .slice(0, 4)
       .map((label) => label.querySelector('span')?.textContent),
-    ['Name', 'Protocol', 'Base URL', 'API key']
+    ['Name', 'Upstream API', 'Base URL', 'API key']
   )
   assert.ok(
     form.querySelector<HTMLInputElement>('input[type=password]')?.required

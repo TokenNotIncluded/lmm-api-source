@@ -63,7 +63,7 @@ jobs:
       matrix:
         component: [core, extensions, cli, web]
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: ${{ matrix.component == 'core' && 90 || 30 }}
     env:
       COMPONENT: ${{ matrix.component }}
       PACKAGE_VERSION: ${{ inputs.version }}
@@ -85,6 +85,54 @@ jobs:
         run: |
           echo "SOURCE_REVISION=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
+      - name: Require OpenRouter streaming and wallet receipts for the Core archive
+        if: matrix.component == 'core'
+        working-directory: services/core
+        env:
+          CARGO_INCREMENTAL: '0'
+          CARGO_PROFILE_DEV_DEBUG: '0'
+          CARGO_PROFILE_TEST_DEBUG: '0'
+          CARGO_TARGET_DIR: ${{ runner.temp }}/openrouter-wallet-target
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.100.0 --profile minimal
+          sudo --preserve-env=GITHUB_ACTIONS python3 ../../scripts/prepare-ci-apt.py
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends protobuf-compiler
+
+          db=$(docker run --detach --rm --publish 127.0.0.1::5432 \
+            --env POSTGRES_PASSWORD=postgres \
+            postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873)
+          trap 'docker rm --force "$db" >/dev/null; rm -rf -- "$CARGO_TARGET_DIR"' EXIT
+          for _ in {1..60}; do
+            if docker exec "$db" pg_isready -h 127.0.0.1 -U postgres -q; then break; fi
+            sleep 1
+          done
+          docker exec "$db" pg_isready -h 127.0.0.1 -U postgres -q
+          address=$(docker port "$db" 5432/tcp)
+          export DATABASE_URL="postgres://postgres:postgres@$address/postgres"
+
+          require_test() {
+            local name=$1
+            shift
+            local log="$RUNNER_TEMP/openrouter-wallet-$name.log"
+            cargo +1.100.0 test --locked "$@" "$name" -- --exact --format=pretty --color=never 2>&1 | tee "$log"
+            grep -Fx -- "test $name ... ok" "$log"
+          }
+
+          for name in \
+            relay::openrouter_tests::openrouter_stream_images_arrive_before_finish_and_keep_usage_only_tail \
+            relay::openrouter_tests::openrouter_repeated_finish_carries_authoritative_usage_once \
+            relay::openrouter_tests::openrouter_tool_stream_rejects_malformed_arguments_usage_and_conflicting_finish \
+            relay::openrouter_tests::openrouter_image_content_after_finish_is_not_silently_accepted \
+            model_http::selected_bound_tests::openrouter_stream_usage_tail_settles_once_through_chat_gateway \
+            model_http::selected_bound_tests::openrouter_fragmented_tool_and_repeated_finish_capture_once \
+            model_http::selected_bound_tests::prepared_financial_tests::prepared_contract_tier_cache_maximum_and_reasoning_use_frozen_terms \
+            routing::tiered::tests::openai_v4_frozen_tariff_restores_exact_price_and_rejects_anthropic_or_new_mode \
+            routing::tiered::tests::frozen_tariff_keeps_exact_rates_and_rejects_unknown_fields; do
+            require_test "$name" --lib
+          done
+          require_test malformed_tool_json_with_usage_and_done_remains_frozen --test model_http
       - name: Build core or extension binaries using their Docker compiler stage
         if: matrix.component == 'core' || matrix.component == 'extensions'
         run: |
