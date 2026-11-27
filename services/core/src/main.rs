@@ -20,7 +20,7 @@ mod admin;
 mod hex_codec;
 mod public_listener_activation;
 
-const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml] [serve | init-db | upgrade-db | upgrade-history | upgrade-offline | create-first-owner | bootstrap-user | complete-setup | install-tool-market-builtins | install-usage-receipt-index | rebuild-channel-usage | plan-admin-activation | apply-admin-activation | plan-admin-key-continuity | apply-admin-key-continuity | publish-subscription-pancake-price | schema-manifest | check-db]\n\n\
+const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml] [serve | init-db | upgrade-db | upgrade-history | upgrade-offline | create-first-owner | bootstrap-user | complete-setup | install-tool-market-builtins | install-usage-receipt-index | rebuild-channel-usage | reconcile-model-usage | plan-admin-activation | apply-admin-activation | plan-admin-key-continuity | apply-admin-key-continuity | publish-subscription-pancake-price | schema-manifest | check-db]\n\n\
 Commands:\n\
   serve           Start the core service (the default without arguments).\n\
   schema-manifest Print the compiled schema contract as JSON; accepts no config options and performs no I/O except stdout.\n\
@@ -74,6 +74,7 @@ enum Command {
     InstallToolMarketBuiltins,
     InstallUsageReceiptIndex,
     RebuildChannelUsage,
+    ReconcileModelUsage,
     PlanAdminActivation,
     ApplyAdminActivation,
     PlanAdminKeyContinuity,
@@ -108,6 +109,7 @@ const OPERATIONS: &[(&str, Command)] = &[
         Command::InstallUsageReceiptIndex,
     ),
     ("rebuild-channel-usage", Command::RebuildChannelUsage),
+    ("reconcile-model-usage", Command::ReconcileModelUsage),
     ("plan-admin-activation", Command::PlanAdminActivation),
     ("apply-admin-activation", Command::ApplyAdminActivation),
     ("plan-admin-key-continuity", Command::PlanAdminKeyContinuity),
@@ -241,6 +243,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         Command::CheckDb => std::process::exit(admin::check_database(arguments.config.as_deref())),
         Command::Serve => None,
+        Command::ReconcileModelUsage => {
+            if arguments.config.is_none() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "reconcile-model-usage requires explicit --config",
+                ).into());
+            }
+            Some(admin::Operation::reconcile_model_usage(io::stdin().lock())?)
+        }
         Command::InitDb => Some(admin::Operation::InitDb),
         Command::UpgradeDb => {
             if arguments.config.is_none() {

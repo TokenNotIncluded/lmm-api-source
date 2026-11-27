@@ -241,6 +241,7 @@ impl ReceiptValidation {
             && provenance.as_ref().is_some_and(|proof| {
                 proof["legacy_precharge"]["policy"] == "cc52_tiered_wallet_v1"
             });
+        let final_event: Option<Value> = row.try_get("final_event")?;
         let (pricing_proof, pricing_observation) = if legacy_expression {
             let proof = contract::read_attribution(
                 provenance,
@@ -261,7 +262,28 @@ impl ReceiptValidation {
                 {
                     return Err(InvalidReceipt);
                 }
-                Some(decode(observation["raw_usage"].clone())?)
+                let raw = decode(observation["raw_usage"].clone())?;
+                if final_event.as_ref().is_some_and(|event| {
+                    event["evidence"] == crate::billing::charging::OPERATOR_RECONCILE_EVENT
+                }) {
+                    let (input_cap, output_cap) = proof.bounds();
+                    if observation["input_token_ceiling"].as_u64() != Some(input_cap)
+                        || observation["output_token_ceiling"].as_u64() != Some(output_cap)
+                        || observation["settlement_eligible"] != false
+                    {
+                        return Err(InvalidReceipt);
+                    }
+                    let (billable, corrected) =
+                        crate::billing::charging::corrected_observation(&raw, output_cap)
+                            .map_err(|_| InvalidReceipt)?;
+                    let recorded: Usage = decode(final_event.as_ref().ok_or(InvalidReceipt)?["usage"].clone())?;
+                    if recorded != billable {
+                        return Err(InvalidReceipt);
+                    }
+                    Some(corrected)
+                } else {
+                    Some(raw)
+                }
             } else {
                 None
             };
@@ -269,7 +291,6 @@ impl ReceiptValidation {
         } else {
             (None, None)
         };
-        let final_event = row.try_get("final_event")?;
         Ok(Self {
             request: ValidatedRequest {
                 id,

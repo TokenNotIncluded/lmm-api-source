@@ -28,6 +28,20 @@ IP 字符串 `localization` 和布尔 `need_content`；Fetch 接受最长 8192 �
 `timeout_ms` 不小于全局 `timeout_seconds × 1000`。供应商密钥放在独立私密文件，
 配置中的 `contract_revision`、上下文上界与费率来自安装方审核的供应商合同。
 
+## 历史成功调用补结
+
+`lmm-core --config /absolute/core.toml reconcile-model-usage` 从标准输入
+接收 JSON，必填 `request_ids`、`route_id` 和 `reason`。每批最多 500 个
+请求 ID。省略 `confirmation_digest` 时只读预览，返回逐笔冻结费率计算结果、
+需补扣金额及多余预留。核对后把同一批参数和预览的 `confirmation_digest`
+一起提交，Core 会重新计算并比对摘要。
+
+该入口只接受已进入待核对的旧钱包阶梯文本请求，要求原始派发和上游完成
+回执一致，且有实测输入、输出和缓存读取量。缺失缓存写入按零计价，
+可计费输出以原冻结上限为限，原始回执完整保留。补扣遵守原授权上限、
+预算和可用余额。在任何一笔失败时回滚整批。成功后以相同摘要重放会
+返回原结果。该命令在本机运维侧执行。
+
 ## 单位与价格冻结
 
 | 字段 | 单位 |

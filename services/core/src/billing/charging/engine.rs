@@ -7,6 +7,8 @@ mod cache_evidence;
 mod image;
 #[path = "model_unknown.rs"]
 mod model_unknown;
+#[path = "operator_reconcile.rs"]
+pub(super) mod operator_reconcile;
 #[path = "route_attempts.rs"]
 mod route_attempts;
 use super::{
@@ -1207,6 +1209,21 @@ impl Charging {
             return Err(Error::Invalid);
         }
         let amount = Self::terminal_amount_in_transaction(c, &charge, usage).await?;
+        self.post_settlement(c, charge, usage, outcome, evidence, amount).await
+    }
+
+    async fn post_settlement(
+        &self,
+        c: &mut PgConnection,
+        charge: Charge,
+        usage: Usage,
+        outcome: Outcome,
+        evidence: Option<&str>,
+        amount: i64,
+    ) -> Result<Charge> {
+        let image_no_receipt = charge.price.image.is_some()
+            && usage == Usage::default()
+            && matches!(outcome, Outcome::Failed | Outcome::Cancelled);
         if amount > charge.reserved {
             return Err(Error::NeedReservation);
         }

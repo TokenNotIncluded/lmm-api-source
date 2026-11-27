@@ -37,6 +37,7 @@ pub enum Operation {
     CreateFirstOwner(first_owner::Request),
     InstallUsageReceiptIndex([u8; 32]),
     RebuildChannelUsage,
+    ReconcileModelUsage(lmm_core::billing::charging::OperatorReconcileRequest),
     UpgradeDatabase(Box<lmm_core::core_schema::UpgradeRequest>),
     PlanAdminActivation(PlanAdminActivationRequest),
     ApplyAdminActivation(Box<ApplyAdminActivationRequest>),
@@ -51,6 +52,13 @@ pub enum Operation {
 }
 
 impl Operation {
+    pub fn reconcile_model_usage(input: impl Read) -> io::Result<Self> {
+        admin_approval::read_bounded_json(input)
+            .map(Self::ReconcileModelUsage)
+            .map_err(approval_io)
+    }
+
+
     pub fn plan_admin_key_continuity(input: impl Read) -> io::Result<Self> {
         admin_approval::read_bounded_json(input)
             .map(Self::PlanAdminKeyContinuity)
@@ -229,6 +237,16 @@ pub async fn run(operation: Operation) -> Result<(), Box<dyn Error>> {
         Operation::InstallUsageReceiptIndex(prior) => {
             lmm_core::core_schema::install_usage_receipt_index(&pool, prior).await?;
             println!("Usage receipt index installed; schema receipts verified atomically.");
+        }
+        Operation::ReconcileModelUsage(request) => {
+            lmm_core::core_schema::check(&pool).await?;
+            let charging = lmm_core::billing::charging::Charging::new(
+                pool,
+                std::sync::Arc::new(lmm_core::billing::transactional_ledger::TransactionalLedger),
+            );
+            let receipt = charging.operator_reconcile(request).await?;
+            serde_json::to_writer(io::stdout().lock(), &receipt)?;
+            println!();
         }
         Operation::RebuildChannelUsage => {
             let requests = lmm_core::core_schema::rebuild_channel_usage(&pool).await?;

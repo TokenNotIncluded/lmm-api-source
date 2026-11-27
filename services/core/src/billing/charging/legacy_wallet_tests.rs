@@ -1002,3 +1002,106 @@ async fn read_derived_attribution(pool: &PgPool, charge: &Charge) -> contract::R
     .unwrap()
     .unwrap()
 }
+
+#[sqlx::test(migrations = false)]
+async fn operator_reconcile_caps_output_and_posts_once_on_real_wallet(pool: PgPool) {
+    fixture(&pool).await;
+    let wallet = WalletLedger::from_pool(pool.clone());
+    wallet.open_wallet(102).await.unwrap();
+    credit_wallet(&wallet, "operator-reconcile", 1_000).await;
+    let engine = Charging::new(pool.clone(), Arc::new(TransactionalLedger));
+    let id = "ab".repeat(32);
+    let (mut spec, basis, proof) = prepared_legacy(&id, 1_000);
+    let expression = r#"tier("standard", p*2+c*4+cc*2.5)"#;
+    spec.price.rounding = None;
+    spec.price.input_per_million = 0;
+    spec.price.cached_per_million = 0;
+    spec.price.output_per_million = 0;
+    spec.price.tiered = Some(serde_json::from_value(serde_json::json!({
+        "tariff": {
+            "revision": 2,
+            "source_digest": contract::digest(expression.as_bytes()),
+            "uses_cache_read": false,
+            "uses_cache_write": true,
+            "tiers": [{"up_to_input_tokens": null, "rates": {
+                "input": {"numerator": 2, "denominator": 1},
+                "output": {"numerator": 4, "denominator": 1},
+                "cache_read": {"numerator": 0, "denominator": 1},
+                "cache_write": {"numerator": 5, "denominator": 2}
+            }}]
+        },
+        "input_semantics": "inclusive",
+        "group_multiplier_ppm": 1000000, "speed_multiplier_ppm": 1000000,
+        "credits_per_usd": 500000
+    })).unwrap());
+    spec.reserve = spec.price.reservation_ceiling(basis).unwrap();
+    let estimate = contract::LegacyTieredEstimate {
+        source_expression: expression.into(),
+        options: super::super::legacy_precharge::SourceOptions {
+            preconsumed_tokens: 5,
+            count_token: true,
+            get_media_token: true,
+            get_media_token_not_stream: false,
+        },
+        prompt_tokens: 5,
+        explicit_max_tokens: Some(20),
+        group_ppm: 1_000_000,
+        group_ratio_bits: 1.0_f64.to_bits(),
+        source_free_model: false,
+        trust: None,
+    };
+    let proof = proof.with_legacy_precharge(LegacyPrechargeAuthorization::Cc52TieredWalletV1 {
+        source_contract_sha256: "05".repeat(32),
+        estimate_sha256: contract::typed_digest(&estimate).unwrap(),
+        estimated_hold: estimate.hold().unwrap(),
+        operator_max_billable: 1_000,
+        derive_native_reservation: false,
+        estimate,
+    }).unwrap();
+    let charge = engine.reserve_prepared_model_with_context(
+        PERSONAL, &spec, &WORKER, None, None, basis, &proof,
+    ).await.unwrap();
+    engine.start(&id, &WORKER).await.unwrap();
+    engine.record_route_dispatch(&id, &WORKER, 1, "legacy-route", "default", &"03".repeat(32))
+        .await.unwrap();
+    let raw = serde_json::to_value(crate::relay::Usage {
+        input_tokens: Some(100),
+        output_tokens: Some(30),
+        cached_input_tokens: Some(0),
+        ..Default::default()
+    }).unwrap();
+    engine.record_provider_observation(&id, &WORKER, "legacy-route", &raw, 100, 20)
+        .await.unwrap();
+    engine.mark_unknown(&id, &WORKER).await.unwrap();
+    let input = |confirmation_digest| OperatorReconcileRequest {
+        request_ids: vec![id.clone()],
+        route_id: "legacy-route".into(),
+        reason: "Isolated verified upstream overrun".into(),
+        confirmation_digest,
+    };
+
+    let before = wallet.balance(102).await.unwrap();
+    let preview = engine.operator_reconcile(input(None)).await.unwrap();
+    let amount = preview["settle_credits"].as_i64().unwrap();
+    assert_eq!(amount, 140);
+    assert_eq!(preview["supplement_credits"], amount - charge.reserved);
+    assert_eq!(preview["entries"][0]["observed_output"], 30);
+    assert_eq!(wallet.balance(102).await.unwrap(), before);
+    assert_eq!(engine.resolve(&id).await.unwrap().unwrap().state, "reconcile");
+    assert_eq!(engine.operator_reconcile(input(Some("bad".into()))).await.unwrap_err(), Error::Conflict);
+    assert_eq!(wallet.balance(102).await.unwrap(), before);
+    let digest = preview["confirmation_digest"].as_str().unwrap().to_owned();
+    let applied = engine.operator_reconcile(input(Some(digest.clone()))).await.unwrap();
+    assert_eq!(applied["mode"], "applied");
+    let resolved = engine.resolve(&id).await.unwrap().unwrap();
+    assert_eq!((resolved.settled, resolved.usage.output), (140, 20));
+    let after = wallet.balance(102).await.unwrap();
+    assert_eq!(after.debt_units, 0);
+    let replay = engine.operator_reconcile(input(Some(digest))).await.unwrap();
+    assert_eq!(replay, applied);
+    assert_eq!(wallet.balance(102).await.unwrap(), after);
+    let stored: serde_json::Value = sqlx::query_scalar(
+        "SELECT detail->'raw_usage' FROM core_charging.usage_events WHERE request_id=$1 AND event_id='provider-observation:terminal'",
+    ).bind(id).fetch_one(&pool).await.unwrap();
+    assert_eq!(stored, raw);
+}
