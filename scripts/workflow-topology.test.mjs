@@ -499,7 +499,7 @@ test('automatic Core checks partition every Rust target across independent runne
   const source = workflow('core-protocol');
   assert.match(workflow('ci'), /uses: \.\/\.github\/workflows\/core-protocol\.yml\n    with:\n      split_rust_targets: true/);
   assert.match(source, /split_rust_targets:[\s\S]*?type: boolean\n        default: false/);
-  assert.match(source, /fail-fast: false\n      matrix:\n        targets: .*inputs\.split_rust_targets && '\["unit","model-unit","schema-identity","integration-1","integration-2","integration-3","integration-4"\]' \|\| '\["all"\]'/);
+  assert.match(source, /fail-fast: false\n      matrix:\n        targets: .*inputs\.split_rust_targets && '\["unit","model-unit","model-responses","schema-identity","integration-1","integration-2","integration-3","integration-4"\]' \|\| '\["all"\]'/);
   assert.ok(source.includes('RUST_TARGET_GROUP: ${{ matrix.targets }}'));
   assert.match(source, /timeout-minutes: 150/);
   assert.doesNotMatch(source, /continue-on-error:/);
@@ -543,7 +543,9 @@ test('automatic Core checks partition every Rust target across independent runne
   ]);
   assert.deepEqual(calls('unit', { packages: [{ name: 'lmm-core', targets: [] }] }).slice(1),
     [runner + '--bins --examples --']);
-  assert.deepEqual(calls('model-unit'), [runner + '--lib -- model_http::']);
+  assert.deepEqual(calls('model-unit'), [runner + '--lib -- model_http:: --skip model_http::responses_']);
+  assert.deepEqual(calls('model-responses'), [runner + '--lib -- model_http::responses_']);
+  assert.match(source, /cargo build --locked --bin lmm-core\n\s+cargo test --locked --lib --no-run/);
   assert.deepEqual(calls('schema-identity'), [runner + '--lib -- core_schema:: identity:: --skip model_http::']);
   assert.deepEqual(calls('integration-1'), [runner + '--test alpha --test gamma --']);
   assert.deepEqual(calls('integration-2'), [runner + '--test beta --']);
