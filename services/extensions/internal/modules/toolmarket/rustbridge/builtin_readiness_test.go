@@ -10,15 +10,19 @@ import (
 )
 
 func TestBuiltinAndImageReadinessRequireExactLivePurposeACK(t *testing.T) {
+	toolCount := 0
+	for _, definition := range market.CompiledBuiltinDefinitions() {
+		toolCount += len(definition.Tools)
+	}
 	for _, test := range []struct {
 		name string
 		body string
 		gate bool
 		want bool
 	}{
-		{"registry", fmt.Sprintf(`{"protocol":1,"service":"builtins","ready":true,"tools":29,"catalog_digest":%q}`, market.CompiledBuiltinCatalogDigest()), true, true},
-		{"registry digest substitution", `{"protocol":1,"service":"builtins","ready":true,"tools":29,"catalog_digest":"unrelated"}`, true, false},
-		{"registry incomplete", fmt.Sprintf(`{"protocol":1,"service":"builtins","ready":true,"tools":28,"catalog_digest":%q}`, market.CompiledBuiltinCatalogDigest()), true, false},
+		{"registry", fmt.Sprintf(`{"protocol":1,"service":"builtins","ready":true,"tools":%d,"catalog_digest":%q}`, toolCount, market.CompiledBuiltinCatalogDigest()), true, true},
+		{"registry digest substitution", fmt.Sprintf(`{"protocol":1,"service":"builtins","ready":true,"tools":%d,"catalog_digest":"unrelated"}`, toolCount), true, false},
+		{"registry incomplete", fmt.Sprintf(`{"protocol":1,"service":"builtins","ready":true,"tools":%d,"catalog_digest":%q}`, toolCount-1, market.CompiledBuiltinCatalogDigest()), true, false},
 		{"image", `{"protocol":2,"service":"images","ready":true}`, false, true},
 		{"image false", `{"protocol":2,"service":"images","ready":false}`, false, false},
 		{"image duplicate", `{"protocol":2,"service":"images","ready":false,"ready":true}`, false, false},

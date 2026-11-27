@@ -270,10 +270,11 @@ pub(crate) struct KeyConsumption {
 
 impl KeyConsumption {
     pub(crate) fn total(&self) -> Result<i64> {
+        // Preserve the storage error if the persisted buckets overflow in aggregate.
         self.settled
             .checked_add(self.pending)
             .and_then(|used| used.checked_add(self.opening))
-            .ok_or(Error::Invalid)
+            .ok_or(Error::Storage)
     }
 }
 
