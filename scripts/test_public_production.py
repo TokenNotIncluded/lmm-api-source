@@ -14,11 +14,12 @@ spec.loader.exec_module(module)
 class AcceptanceTest(unittest.TestCase):
     def setUp(self):
         self.responses = {
+            "/health/ready": module.Response(200, "application/json", b'{"status":"ready","database":true}'),
             "/api/status": module.Response(200, "application/json", json.dumps({"success": True, "data": {"version": "0.2.51"}}).encode(), {"X-Request-Id": "fixture-request"}),
             "/app.js": module.Response(200, "application/javascript", b"console.log('loaded')"),
             "/app.css": module.Response(200, "text/css", b"body{margin:0}"),
         }
-        for path in ("/", "/login", "/console"):
+        for path in ("/", "/sign-in", "/console"):
             self.responses[path] = module.Response(200, "text/html", b'<script src="/app.js"></script><link rel="stylesheet" href="/app.css">')
         self.visited = []
 
@@ -33,6 +34,16 @@ class AcceptanceTest(unittest.TestCase):
         self.assertEqual(result["assets"], 2)
         self.assertEqual(result["pages"], 3)
         self.assertEqual(self.visited.count("/app.js"), 1)
+        self.assertIn("/sign-in", self.visited)
+        self.assertNotIn("/login", self.visited)
+
+    def test_public_readiness_requires_a_ready_database(self):
+        self.responses["/health/ready"] = module.Response(
+            200, "application/json", b'{"status":"ready","database":false}'
+        )
+        with self.assertRaisesRegex(ValueError, "database is not ready"):
+            module.verify(self.fetch)
+
 
     def test_private_release_identity_headers_are_rejected_on_public_status(self):
         self.responses["/api/status"] = module.Response(

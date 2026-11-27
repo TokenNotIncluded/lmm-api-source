@@ -12,6 +12,7 @@ import urllib.request
 
 ORIGIN = "https://api.lmm.best"
 MAX_BODY = 8 * 1024 * 1024
+APP_PAGES = ("/", "/sign-in", "/console")
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,13 @@ def response_header(response, name):
 
 
 def verify(fetch, expected_version=None):
+    readiness = fetch(ORIGIN + "/health/ready")
+    if readiness.status != 200 or "json" not in readiness.content_type:
+        raise ValueError("readiness endpoint did not return HTTP 200 JSON")
+    ready = json.loads(readiness.body)
+    if not isinstance(ready, dict) or ready.get("status") != "ready" or ready.get("database") is not True:
+        raise ValueError("public Core or database is not ready")
+
     status = fetch(ORIGIN + "/api/status")
     if status.status != 200 or "json" not in status.content_type:
         raise ValueError("status endpoint did not return HTTP 200 JSON")
@@ -74,7 +82,7 @@ def verify(fetch, expected_version=None):
     if not request_id or not re.fullmatch(r"[A-Za-z0-9._:-]{1,256}", request_id):
         raise ValueError("public status response has no usable request ID")
     assets = set()
-    for path in ("/", "/login", "/console"):
+    for path in APP_PAGES:
         response = fetch(ORIGIN + path)
         if response.status != 200 or "text/html" not in response.content_type:
             raise ValueError(f"public page {path} is not HTTP 200 HTML")
@@ -104,7 +112,7 @@ def verify(fetch, expected_version=None):
         total += len(response.body)
         if total > 64 * 1024 * 1024:
             raise ValueError("public assets exceed the total probe size limit")
-    return {"origin": ORIGIN, "backend_version": data["version"], "pages": 3, "assets": len(assets), "asset_bytes": total}
+    return {"origin": ORIGIN, "backend_version": data["version"], "pages": len(APP_PAGES), "assets": len(assets), "asset_bytes": total}
 
 
 def main():
