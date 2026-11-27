@@ -152,6 +152,80 @@ jobs:
           test -s "$RUNNER_TEMP/cc-switch-plan.json"
           cargo +1.100.0 test --locked --test cc_switch -- --nocapture | tee "$RUNNER_TEMP/cc-switch-tests"
           grep -Fqx 'test schema_24_inspection_distinguishes_database_selection_from_live_application_and_never_emits_keys ... ok' "$RUNNER_TEMP/cc-switch-tests"
+          for gate in \
+            cc_switch::bindings::tests::add_is_readonly_until_confirmed_and_commits_an_exact_recoverable_receipt_without_activation \
+            cc_switch::bindings::tests::sync_keeps_user_names_extra_fields_native_model_choice_and_other_provider_selection \
+            cc_switch::bindings::tests::restore_sync_merges_by_model_identity_preserving_following_user_edits \
+            oauth::applications::tests::codex_pipe_emits_only_the_confirmed_live_token_and_never_a_replaced_grant; do
+            cargo +1.100.0 test --locked --lib "$gate" -- --exact | tee "$RUNNER_TEMP/cc-switch-binding-test"
+            grep -Fqx "test $gate ... ok" "$RUNNER_TEMP/cc-switch-binding-test"
+          done
+  native-cli-wallet:
+    name: Native ${{ matrix.client }} CLI and Core wallet
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - client: codex
+            package: '@openai/codex'
+            version: '0.166.0'
+            gate: real_cli::codex_exec_settles_one_native_responses_request
+          - client: claude
+            package: '@anthropic-ai/claude-code'
+            version: '2.1.79'
+            gate: real_cli::claude_print_settles_one_native_messages_request
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Install the reviewed stock executable and Core toolchain
+        env:
+          PACKAGE_NAME: ${{ matrix.package }}
+          PACKAGE_VERSION: ${{ matrix.version }}
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/native-cli" --ignore-scripts --no-audit --no-fund "$PACKAGE_NAME@$PACKAGE_VERSION"
+          rustup toolchain install 1.100.0 --profile minimal
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends protobuf-compiler
+      - name: Require one terminal result and its PostgreSQL capture
+        working-directory: services/core
+        env:
+          NATIVE_CLI_BIN: ${{ runner.temp }}/native-cli/node_modules/.bin/${{ matrix.client }}
+          NATIVE_CLI_VERSION: ${{ matrix.version }}
+          NATIVE_CLI_RECEIPT: ${{ runner.temp }}/native-cli-receipt.json
+          GATE: ${{ matrix.gate }}
+        run: |
+          set -euo pipefail
+          test -x "$NATIVE_CLI_BIN"
+          cargo test --locked --test native_model_http "$GATE" -- --exact --ignored --nocapture | tee "$RUNNER_TEMP/native-cli-result"
+          grep -Fqx "test $GATE ... ok" "$RUNNER_TEMP/native-cli-result"
+          test -s "$NATIVE_CLI_RECEIPT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: native-${{ matrix.client }}-wallet-${{ github.sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/native-cli-receipt.json
+          if-no-files-found: error
+          retention-days: 7
   installer:
     runs-on: ubuntu-24.04
     timeout-minutes: 10

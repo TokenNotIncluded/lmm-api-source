@@ -188,7 +188,35 @@ fn configured_gateway(
     priority: bool,
     input_token_ceiling: i64,
 ) -> ModelGateway {
-    let mut pricing: PriceConfig = serde_json::from_value(json!({"version":1,"rules":[{"id":1,"model":"native-model","group":"allowed","speed":"standard","rates":{"input":2000000,"output":4000000,"cache_read":500000,"cache_write":0,"request":0},"group_multiplier_ppm":1000000,"speed_multiplier_ppm":1000000}]})).unwrap();
+    scoped_gateway(
+        pool,
+        server,
+        protocol,
+        key_id,
+        priority,
+        CliRoute {
+            model: "native-model",
+            group: "allowed",
+            input: input_token_ceiling,
+            output: 20,
+        },
+    )
+}
+struct CliRoute<'a> {
+    model: &'a str,
+    group: &'a str,
+    input: i64,
+    output: u32,
+}
+fn scoped_gateway(
+    pool: &PgPool,
+    server: &Server,
+    protocol: Protocol,
+    key_id: i64,
+    priority: bool,
+    options: CliRoute<'_>,
+) -> ModelGateway {
+    let mut pricing: PriceConfig = serde_json::from_value(json!({"version":1,"rules":[{"id":1,"model":options.model,"group":options.group,"speed":"standard","rates":{"input":2000000,"output":4000000,"cache_read":500000,"cache_write":0,"request":0},"group_multiplier_ppm":1000000,"speed_multiplier_ppm":1000000}]})).unwrap();
     let mut speeds = vec![Speed::Standard];
     let policy = priority.then(|| {
         let mut fast = pricing.rules[0].clone();
@@ -223,7 +251,7 @@ fn configured_gateway(
         routing_reliability: None,
         version: 1,
         groups: vec![ModelGroup {
-            name: "allowed".into(),
+            name: options.group.into(),
             enabled: true,
         }],
         upstreams: vec![UpstreamConfig {
@@ -235,8 +263,8 @@ fn configured_gateway(
         }],
         routes: vec![ModelRoute {
             id: 1,
-            model: "native-model".into(),
-            group: "allowed".into(),
+            model: options.model.into(),
+            group: options.group.into(),
             enabled: true,
             speeds: speeds.clone(),
             targets: vec![RouteTarget {
@@ -262,15 +290,15 @@ fn configured_gateway(
             reference: CredentialRef { id: 7, revision: 1 },
             secret: "synthetic-upstream-key".into(),
         }],
-        BTreeMap::from([(key_id, "allowed".into())]),
+        BTreeMap::from([(key_id, options.group.into())]),
         Limits {
             total_timeout: Duration::from_secs(3),
             hook_timeout: Duration::from_secs(2),
-            max_output_tokens: 20,
+            max_output_tokens: options.output,
             ..Default::default()
         },
         ChargePolicy {
-            input_token_ceiling,
+            input_token_ceiling: options.input,
             lease_seconds: 30,
         },
     )
@@ -888,3 +916,6 @@ fn four_protocol_gateway(
 mod gemini_tier_controls;
 #[path = "native_model_http/official_publication.rs"]
 mod official_publication;
+
+#[path = "native_model_http/real_cli.rs"]
+mod real_cli;
