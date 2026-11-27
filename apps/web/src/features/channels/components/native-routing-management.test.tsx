@@ -4239,6 +4239,7 @@ test('fetched channels apply selected routes to the editor without publishing', 
   }
   let writes = 0
   let catalogReads = 0
+  let returnedModels = ['model-a', 'model-b', 'unpublished-model']
   api.request = (async (options: { method: string; url: string }) => {
     if (options.method !== 'GET') writes++
     if (options.url === '/api/channel/fetch_models/1') catalogReads++
@@ -4247,7 +4248,7 @@ test('fetched channels apply selected routes to the editor without publishing', 
         success: true,
         data:
           options.url === '/api/channel/fetch_models/1'
-            ? ['model-a', 'model-b', 'unpublished-model']
+            ? returnedModels
             : options.url.includes('statistics=true')
               ? page
               : config,
@@ -4269,6 +4270,7 @@ test('fetched channels apply selected routes to the editor without publishing', 
   )
   assert.match(form.textContent ?? '', /saved-only-model/)
   assert.equal(catalogReads, 0)
+  assert.doesNotMatch(form.textContent ?? '', /Remove from draft/)
   await act(async () => button(form, 'Fetch Models').click())
   await until(() => form.textContent?.includes('unpublished-model') === true)
   assert.doesNotMatch(form.textContent ?? '', /saved-only-model/)
@@ -4289,5 +4291,35 @@ test('fetched channels apply selected routes to the editor without publishing', 
   )
   assert.match(models.textContent ?? '', /model-b/)
   assert.match(models.textContent ?? '', /2 selected/)
+  const removalAvailable = () =>
+    [...form.querySelectorAll('button')].some(
+      (item) => item.textContent === 'Remove from draft'
+    )
+
+  returnedModels = []
+  await act(async () => button(form, 'Fetch Models').click())
+  await until(() => form.textContent?.includes('No models found') === true)
+  assert.equal(removalAvailable(), false)
+
+  returnedModels = ['model-a']
+  await act(async () => button(form, 'Fetch Models').click())
+  await until(removalAvailable)
+  assert.match(
+    form.textContent ?? '',
+    /Models missing from the upstream catalogmodel-b/
+  )
+  await act(async () => button(form, 'Remove from draft').click())
+  assert.doesNotMatch(models.textContent ?? '', /model-b/)
+  assert.match(models.textContent ?? '', /1 selected/)
+  assert.equal(removalAvailable(), false)
+
+  returnedModels = ['unpublished-model']
+  await act(async () => button(form, 'Fetch Models').click())
+  await until(removalAvailable)
+  assert.equal(button(form, 'Remove from draft').disabled, true)
+  assert.match(
+    form.textContent ?? '',
+    /Disable the channel before removing its last configured model/
+  )
   assert.equal(writes, 0)
 })

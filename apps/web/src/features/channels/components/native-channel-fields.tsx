@@ -24,6 +24,7 @@ import {
   nativeProtocols,
   readChannelDraft,
   toggleChannelAttachment,
+  type NativeChannelDraft,
 } from '../lib/native-routing-form'
 import {
   parseNativeDocument,
@@ -67,16 +68,18 @@ function ChannelModelCatalog({
   fetchModels,
   savedModels,
   routes,
-  attachedRouteIds,
+  draft,
   onApply,
+  onRemove,
   onCreate,
 }: {
   disabled: boolean
   fetchModels?: () => Promise<string[]>
   savedModels?: readonly string[]
   routes: NativeConfiguration['routing']['routes']
-  attachedRouteIds: readonly number[]
+  draft: NativeChannelDraft | null
   onApply: (routes: NativeConfiguration['routing']['routes']) => void
+  onRemove: (attachments: NativeChannelDraft['attachments']) => void
   onCreate?: (model: string) => void
 }) {
   const { t } = useTranslation()
@@ -94,7 +97,15 @@ function ChannelModelCatalog({
     }
     return index
   }, [routes])
-  const attached = new Set(attachedRouteIds)
+  const attached = new Set(draft?.attachments.map((item) => item.route_id))
+  const missing =
+    catalog.isSuccess && models.size > 0
+      ? (draft?.attachments.filter(
+          (item) => !models.has(item.upstream_model)
+        ) ?? [])
+      : []
+  const removingLastModel =
+    draft?.enabled === true && missing.length === draft.attachments.length
   const selection = new Set(selected)
   const selectedRoutes = routes.filter(
     (route) =>
@@ -126,6 +137,37 @@ function ChannelModelCatalog({
         <p role='alert' className='text-destructive text-sm'>
           {getServerErrorMessage(catalog.error) ?? t('Failed to load data')}
         </p>
+      )}
+      {missing.length > 0 && (
+        <div className='border-border space-y-2 rounded-md border p-3'>
+          <p className='text-sm font-medium'>
+            {t('Models missing from the upstream catalog')}
+          </p>
+          <ul className='max-h-32 space-y-1 overflow-y-auto font-mono text-xs'>
+            {[...new Set(missing.map((item) => item.upstream_model))].map(
+              (model) => (
+                <li key={model} className='break-all'>
+                  {model}
+                </li>
+              )
+            )}
+          </ul>
+          {removingLastModel && (
+            <p className='text-muted-foreground text-xs'>
+              {t(
+                'Disable the channel before removing its last configured model.'
+              )}
+            </p>
+          )}
+          <Button
+            type='button'
+            variant='outline'
+            disabled={disabled || removingLastModel}
+            onClick={() => onRemove(missing)}
+          >
+            {t('Remove from draft')}
+          </Button>
+        </div>
       )}
       {availableModels && (
         <>
@@ -387,16 +429,32 @@ export function NativeChannelFields({
         <ChannelModelCatalog
           disabled={disabled}
           fetchModels={fetchModels}
-          savedModels={
-            configuration.bindings.discoveries[savedChannel.id]?.models
-          }
+          savedModels={savedModels}
           routes={configuration.routing.routes}
-          attachedRouteIds={
-            readChannelDraft(document)?.attachments.map(
-              (item) => item.route_id
-            ) ?? []
-          }
+          draft={readChannelDraft(document)}
           onCreate={onCreateModel}
+          onRemove={(attachments) => {
+            const current = readChannelDraft(document)
+            if (!current) return
+            onChange(
+              stringifyNativeDocument(
+                attachments.reduce(
+                  (next, item) =>
+                    toggleChannelAttachment(
+                      next,
+                      {
+                        id: item.route_id,
+                        model: item.upstream_model,
+                        speeds: item.speeds,
+                      },
+                      false
+                    ),
+                  current
+                ),
+                2
+              )
+            )
+          }}
           onApply={(routes) => {
             const current = readChannelDraft(document)
             if (!current) return
