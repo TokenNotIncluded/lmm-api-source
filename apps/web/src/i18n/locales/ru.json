@@ -11982,6 +11982,7 @@
     "to generate": "чтобы создать",
     "To Lower": "В нижний регистр",
     "To Lowercase": "В нижний регистр",
+    "To manage custom OAuth providers, enable federated authentication in Core and configure its keyring.": "Чтобы управлять собственными провайдерами OAuth, включите федеративную аутентификацию в Core и настройте хранилище ключей.",
     "To OpenAI Chat": "В OpenAI Chat",
     "To OpenAI Responses": "В OpenAI Responses",
     "to override billing when a user in one group uses a token of another group.": "для переопределения выставления счетов, когда пользователь одной группы использует токен другой группы.",

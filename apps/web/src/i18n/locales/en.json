@@ -11982,6 +11982,7 @@
     "to generate": "to generate",
     "To Lower": "To Lower",
     "To Lowercase": "To Lowercase",
+    "To manage custom OAuth providers, enable federated authentication in Core and configure its keyring.": "To manage custom OAuth providers, enable federated authentication in Core and configure its keyring.",
     "To OpenAI Chat": "To OpenAI Chat",
     "To OpenAI Responses": "To OpenAI Responses",
     "to override billing when a user in one group uses a token of another group.": "to override billing when a user in one group uses a token of another group.",

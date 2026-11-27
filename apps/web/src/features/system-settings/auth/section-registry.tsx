@@ -28,9 +28,9 @@ const BotProtectionSection = lazyNamedSection(
   () => import('./bot-protection-section'),
   'BotProtectionSection'
 )
-const CustomOAuthSection = lazyNamedSection(
+const NativeCustomOAuthSection = lazyNamedSection(
   () => import('./custom-oauth/custom-oauth-section'),
-  'CustomOAuthSection'
+  'NativeCustomOAuthSection'
 )
 const OAuthSection = lazyNamedSection(
   () => import('./oauth-section'),
@@ -146,9 +146,7 @@ const AUTH_SECTIONS = [
   {
     id: 'custom-oauth',
     titleKey: 'Custom OAuth',
-    build: (settings: AuthSettings) => (
-      <CustomOAuthSection serverAddress={settings.ServerAddress} />
-    ),
+    build: () => <NativeCustomOAuthSection />,
   },
 ] as const
 

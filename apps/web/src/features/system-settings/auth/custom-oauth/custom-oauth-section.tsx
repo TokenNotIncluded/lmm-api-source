@@ -16,12 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { isAxiosError } from 'axios'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { CopyButton } from '@/components/copy-button'
 import { ErrorState } from '@/components/error-state'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { useStatus } from '@/hooks/use-status'
 
 import { SettingsSection } from '../../components/settings-section'
 import { buildOAuthCallbackUrl } from '../oauth-callback-url'
@@ -32,6 +34,23 @@ import type { CustomOAuthProvider } from './types'
 
 type CustomOAuthSectionProps = {
   serverAddress: string
+  nativeFederationDisabled?: boolean
+}
+
+export function NativeCustomOAuthSection() {
+  const { status, capabilitiesReady } = useStatus()
+  return (
+    <CustomOAuthSection
+      serverAddress={
+        typeof status?.server_address === 'string' ? status.server_address : ''
+      }
+      nativeFederationDisabled={
+        capabilitiesReady &&
+        status?.capability_scope === 'configured_components_only' &&
+        status.native_federated_auth !== true
+      }
+    />
+  )
 }
 
 export function CustomOAuthSection(props: CustomOAuthSectionProps) {
@@ -79,9 +98,27 @@ export function CustomOAuthSection(props: CustomOAuthSectionProps) {
   }
 
   if (error) {
+    const forbidden = isAxiosError(error) && error.response?.status === 403
+    const disabled =
+      forbidden &&
+      error.response?.data?.code === 'AUTH_FORBIDDEN' &&
+      props.nativeFederationDisabled
     return (
       <ErrorState
-        title={t('Failed to load settings')}
+        title={
+          disabled
+            ? t('Custom OAuth Providers')
+            : forbidden
+              ? t('Access Forbidden')
+              : t('Failed to load settings')
+        }
+        description={
+          disabled
+            ? t(
+                'To manage custom OAuth providers, enable federated authentication in Core and configure its keyring.'
+              )
+            : undefined
+        }
         onRetry={() => void refetch()}
       />
     )

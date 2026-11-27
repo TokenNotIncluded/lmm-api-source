@@ -11982,6 +11982,7 @@
     "to generate": "để tạo",
     "To Lower": "Chữ thường",
     "To Lowercase": "Chuyển chữ thường",
+    "To manage custom OAuth providers, enable federated authentication in Core and configure its keyring.": "Để quản lý nhà cung cấp OAuth tùy chỉnh, hãy bật xác thực liên kết trong Core và cấu hình kho khóa.",
     "To OpenAI Chat": "Sang OpenAI Chat",
     "To OpenAI Responses": "Sang OpenAI Responses",
     "to override billing when a user in one group uses a token of another group.": "để ghi đè việc thanh toán khi một người dùng trong một nhóm sử dụng token của một nhóm khác.",

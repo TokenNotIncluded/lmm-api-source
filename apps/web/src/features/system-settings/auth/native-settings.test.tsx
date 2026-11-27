@@ -43,6 +43,7 @@ Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
 })
 
 let section = 'humangrant'
+let federationEnabled = true
 const router = await import('@tanstack/react-router')
 moduleMock.module('@tanstack/react-router', () => ({
   ...router,
@@ -58,7 +59,12 @@ moduleMock.module('../components/settings-page', () => ({
 }))
 moduleMock.module('@/hooks/use-status', () => ({
   useStatus: () => ({
-    status: { server_address: 'https://console.example.test' },
+    capabilitiesReady: true,
+    status: {
+      server_address: 'https://console.example.test',
+      capability_scope: 'configured_components_only',
+      ...(federationEnabled && { native_federated_auth: true }),
+    },
   }),
 }))
 
@@ -82,6 +88,7 @@ let dispose: (() => Promise<void>) | undefined
 afterEach(async () => {
   await dispose?.()
   dispose = undefined
+  federationEnabled = true
   api.defaults.adapter = priorAdapter
   globalThis.fetch = priorFetch
   useAuthStore.setState({ auth: priorAuth })
@@ -158,6 +165,8 @@ test('HumanGrant route loads its native settings without the generic options gat
 
 test('custom OAuth route reads and saves a native provider with its exact revision', async () => {
   section = 'custom-oauth'
+  // On a mixed deployment, the protected provider endpoint owns this decision.
+  federationEnabled = false
   const requests: string[] = []
   const writes: Record<string, unknown>[] = []
   const provider = {
@@ -248,3 +257,28 @@ test('failed provider reads show recovery instead of an empty editable provider 
   assert.ok(!container.textContent?.includes('Add Provider'))
   assert.ok(container.textContent?.includes('Retry'))
 })
+
+for (const enabled of [false, true]) {
+  test(`a forbidden provider read with native federation ${enabled ? 'enabled' : 'disabled'} explains the failure inline`, async () => {
+    section = 'custom-oauth'
+    federationEnabled = enabled
+    api.defaults.adapter = async (config) => {
+      assert.equal(config.url, '/api/custom-oauth-provider/')
+      assert.equal(config.skipErrorHandler, true)
+      throw Object.assign(new Error('This operation is not allowed'), {
+        isAxiosError: true,
+        config,
+        response: { status: 403, data: { code: 'AUTH_FORBIDDEN' } },
+      })
+    }
+    const container = await mount()
+    await until(() => container.textContent?.includes('Retry') === true)
+    assert.equal(container.textContent?.includes('Access Forbidden'), enabled)
+    assert.equal(
+      container.textContent?.includes('configure its keyring'),
+      !enabled
+    )
+    assert.ok(!container.textContent?.includes('Add Provider'))
+    assert.ok(!container.textContent?.includes('Failed to load settings'))
+  })
+}

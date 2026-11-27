@@ -95,7 +95,10 @@ function providerChanges(data: Partial<CustomOAuthFormValues>) {
 export async function getCustomOAuthProviders(): Promise<
   ApiResponse<CustomOAuthProvider[]>
 > {
-  const res = await api.get('/api/custom-oauth-provider/')
+  const res = await api.get('/api/custom-oauth-provider/', {
+    skipBusinessError: true,
+    skipErrorHandler: true,
+  })
   return providerResponse(
     res.data,
     z.array(customOAuthProviderSchema),

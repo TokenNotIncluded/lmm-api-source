@@ -21,7 +21,6 @@ import { Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { LoadingState } from '@/components/loading-state'
-import { useStatus } from '@/hooks/use-status'
 
 import { SettingsPage, SettingsPageFrame } from '../components/settings-page'
 import type { AuthSettings } from '../types'
@@ -97,7 +96,7 @@ export function AuthSettings() {
     return (
       <SettingsPageFrame title={t('Custom OAuth')}>
         <Suspense fallback={<LoadingState />}>
-          <NativeCustomOAuthSection />
+          {getAuthSectionContent('custom-oauth', defaultAuthSettings)}
         </Suspense>
       </SettingsPageFrame>
     )
@@ -111,13 +110,4 @@ export function AuthSettings() {
       getSectionMeta={getAuthSectionMeta}
     />
   )
-}
-
-function NativeCustomOAuthSection() {
-  const { status } = useStatus()
-  return getAuthSectionContent('custom-oauth', {
-    ...defaultAuthSettings,
-    ServerAddress:
-      typeof status?.server_address === 'string' ? status.server_address : '',
-  })
 }

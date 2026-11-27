@@ -11982,6 +11982,7 @@
     "to generate": "生成",
     "To Lower": "轉小寫",
     "To Lowercase": "轉小寫",
+    "To manage custom OAuth providers, enable federated authentication in Core and configure its keyring.": "若要管理自訂 OAuth 提供者，請在 Core 中啟用聯合身分驗證並設定金鑰環。",
     "To OpenAI Chat": "轉 OpenAI Chat",
     "To OpenAI Responses": "轉 OpenAI Responses",
     "to override billing when a user in one group uses a token of another group.": "當一個分組中的用戶使用另一個分組的令牌時，用於覆蓋收費。",
