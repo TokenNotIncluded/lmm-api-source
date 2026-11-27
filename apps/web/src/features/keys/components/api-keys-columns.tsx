@@ -353,7 +353,7 @@ export function useApiKeysColumns(
       header: () => t('Actions'),
       cell: ({ row }) =>
         isAssistantRuntimeKey(row.original) ? null : (
-          <DataTableRowActions row={row} />
+          <DataTableRowActions apiKey={row.original} />
         ),
       meta: { pinned: 'right' as const },
     },

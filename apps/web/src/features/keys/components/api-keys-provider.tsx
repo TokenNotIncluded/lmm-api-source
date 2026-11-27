@@ -43,7 +43,6 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useRef,
   useState,
   type Dispatch,
@@ -57,7 +56,7 @@ import { refreshCurrentAccount } from '@/features/onboarding/use-auth-user-refre
 import { useDialogState } from '@/hooks/use-dialog'
 import { formatApiKey } from '@/lib/api-key-format'
 
-import { fetchTokenKey, fetchTokenKeysBatch } from '../api'
+import { fetchTokenKeysBatch } from '../api'
 import { ERROR_MESSAGES } from '../constants'
 import type { ApiKey, ApiKeysDialogType } from '../types'
 
@@ -68,16 +67,7 @@ type ApiKeysContextType = {
   setCurrentRow: Dispatch<SetStateAction<ApiKey | null>>
   refreshTrigger: number
   triggerRefresh: () => void
-  resolvedKey: string
-  setResolvedKey: Dispatch<SetStateAction<string>>
-  revealOpenKeyId: number | null
-  setRevealOpenKeyId: Dispatch<SetStateAction<number | null>>
-  resolveRealKey: (id: number) => Promise<string | null>
   resolveRealKeysBatch: (ids: number[]) => Promise<Record<number, string>>
-  resolvedKeys: Record<number, string>
-  loadingKeys: Record<number, boolean>
-  copiedKeyId: number | null
-  markKeyCopied: (id: number) => void
 }
 
 const ApiKeysContext = createContext<ApiKeysContextType | null>(null)
@@ -89,31 +79,8 @@ export function ApiKeysProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useDialogState<ApiKeysDialogType>(null)
   const [currentRow, setCurrentRow] = useState<ApiKey | null>(null)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
-  const [resolvedKey, setResolvedKey] = useState('')
-  const [revealOpenKeyId, setRevealOpenKeyId] = useState<number | null>(null)
-
-  const [resolvedKeys, setResolvedKeys] = useState<Record<number, string>>({})
-  const [loadingKeys, setLoadingKeys] = useState<Record<number, boolean>>({})
-  const pendingRequests = useRef<Record<number, Promise<string | null>>>({})
-
-  const [copiedKeyId, setCopiedKeyId] = useState<number | null>(null)
-  const copiedTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
-
-  useEffect(() => {
-    return () => clearTimeout(copiedTimerRef.current)
-  }, [])
-
-  const markKeyCopied = useCallback((id: number) => {
-    setCopiedKeyId(id)
-    clearTimeout(copiedTimerRef.current)
-    copiedTimerRef.current = setTimeout(() => setCopiedKeyId(null), 2000)
-  }, [])
-
   const triggerRefresh = useCallback(() => {
     secretGeneration.current += 1
-    setResolvedKeys({})
-    setResolvedKey('')
-    setRevealOpenKeyId(null)
     setRefreshTrigger((prev) => prev + 1)
     void refreshCurrentAccount()
     void Promise.all(
@@ -133,89 +100,27 @@ export function ApiKeysProvider({ children }: { children: ReactNode }) {
     ).catch(() => undefined)
   }, [queryClient])
 
-  const resolveRealKey = useCallback(
-    async (id: number): Promise<string | null> => {
-      if (resolvedKeys[id]) return resolvedKeys[id]
-      if (id in pendingRequests.current) return pendingRequests.current[id]
-
-      const generation = secretGeneration.current
-      const request = (async () => {
-        setLoadingKeys((prev) => ({ ...prev, [id]: true }))
-        try {
-          const res = await fetchTokenKey(id)
-          if (generation !== secretGeneration.current) return null
-          if (res.success && res.data?.key) {
-            const fullKey = formatApiKey(res.data.key)
-            setResolvedKeys((prev) => ({ ...prev, [id]: fullKey }))
-            return fullKey
-          }
-          toast.error(res.message || t(ERROR_MESSAGES.UNEXPECTED))
-          return null
-        } catch {
-          toast.error(t(ERROR_MESSAGES.UNEXPECTED))
-          return null
-        } finally {
-          delete pendingRequests.current[id]
-          setLoadingKeys((prev) => {
-            const next = { ...prev }
-            delete next[id]
-            return next
-          })
-        }
-      })()
-
-      pendingRequests.current[id] = request
-      return request
-    },
-    [resolvedKeys, t]
-  )
-
   const resolveRealKeysBatch = useCallback(
     async (ids: number[]): Promise<Record<number, string>> => {
-      const uncachedIds = ids.filter((id) => !resolvedKeys[id])
-      if (uncachedIds.length === 0) {
-        const result: Record<number, string> = {}
-        for (const id of ids) result[id] = resolvedKeys[id]
-        return result
-      }
-
-      setLoadingKeys((prev) => {
-        const next = { ...prev }
-        for (const id of uncachedIds) next[id] = true
-        return next
-      })
-
       const generation = secretGeneration.current
       try {
-        const res = await fetchTokenKeysBatch(uncachedIds)
+        const res = await fetchTokenKeysBatch(ids)
         if (generation !== secretGeneration.current) return {}
         if (res.success && res.data?.keys) {
-          const newKeys: Record<number, string> = {}
-          for (const [idStr, key] of Object.entries(res.data.keys)) {
-            newKeys[Number(idStr)] = formatApiKey(key)
-          }
-          setResolvedKeys((prev) => ({ ...prev, ...newKeys }))
-
-          const result: Record<number, string> = { ...newKeys }
-          for (const id of ids) {
-            if (resolvedKeys[id]) result[id] = resolvedKeys[id]
-          }
-          return result
+          return Object.fromEntries(
+            Object.entries(res.data.keys).map(([id, key]) => [
+              id,
+              formatApiKey(key),
+            ])
+          )
         }
         toast.error(res.message || t(ERROR_MESSAGES.UNEXPECTED))
-        return {}
       } catch {
         toast.error(t(ERROR_MESSAGES.UNEXPECTED))
-        return {}
-      } finally {
-        setLoadingKeys((prev) => {
-          const next = { ...prev }
-          for (const id of uncachedIds) delete next[id]
-          return next
-        })
       }
+      return {}
     },
-    [resolvedKeys, t]
+    [t]
   )
 
   return (
@@ -227,16 +132,7 @@ export function ApiKeysProvider({ children }: { children: ReactNode }) {
         setCurrentRow,
         refreshTrigger,
         triggerRefresh,
-        resolvedKey,
-        setResolvedKey,
-        revealOpenKeyId,
-        setRevealOpenKeyId,
-        resolveRealKey,
         resolveRealKeysBatch,
-        resolvedKeys,
-        loadingKeys,
-        copiedKeyId,
-        markKeyCopied,
       }}
     >
       {children}

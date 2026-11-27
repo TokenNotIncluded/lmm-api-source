@@ -88,10 +88,11 @@ import { cn } from '@/lib/utils'
 import {
   createApiKey,
   updateApiKey,
+  updateApiKeyStatus,
   getApiKey,
   getTokenAutoGroups,
 } from '../api'
-import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
+import { API_KEY_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
 import {
   buildApiKeyGroupOptions,
   getApiKeyFormSchema,
@@ -344,6 +345,39 @@ function ApiKeysMutateDrawerForm({
     setWarningOpen(false)
   }
 
+  const editableKey = apiKeyData?.success ? apiKeyData.data : undefined
+  const keyEnabled = editableKey?.status === API_KEY_STATUS.ENABLED
+  async function toggleKeyStatus() {
+    if (!editableKey || isSubmitting || apiKeyFetching) return
+    setIsSubmitting(true)
+    try {
+      const nextStatus = keyEnabled
+        ? API_KEY_STATUS.DISABLED
+        : API_KEY_STATUS.ENABLED
+      const result = await updateApiKeyStatus(editableKey.id, nextStatus)
+      if (!result.success) {
+        toast.error(result.message || t(ERROR_MESSAGES.STATUS_UPDATE_FAILED))
+        return
+      }
+      queryClient.setQueryData(['api-key', editableKey.id], {
+        ...apiKeyData,
+        data: { ...editableKey, status: result.data?.status ?? nextStatus },
+      })
+      toast.success(
+        t(
+          keyEnabled
+            ? SUCCESS_MESSAGES.API_KEY_DISABLED
+            : SUCCESS_MESSAGES.API_KEY_ENABLED
+        )
+      )
+      triggerRefresh()
+    } catch {
+      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   const saveApiKey = async (
     data: ApiKeyFormValues,
     confirmedWarningCount = warningConfirmations
@@ -546,6 +580,20 @@ function ApiKeysMutateDrawerForm({
                 icon={<KeyRound className='size-4' />}
                 iconTone='info'
               />
+              {isUpdate && editableKey && (
+                <div className='flex items-center justify-between gap-3'>
+                  <span className='text-sm font-medium'>{t('Status')}</span>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    onClick={() => void toggleKeyStatus()}
+                    disabled={isSubmitting || apiKeyFetching}
+                  >
+                    {keyEnabled ? t('Disable') : t('Enable')}
+                  </Button>
+                </div>
+              )}
               <FormField
                 control={form.control}
                 name='name'

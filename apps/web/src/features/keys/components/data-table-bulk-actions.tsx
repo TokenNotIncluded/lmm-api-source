@@ -48,6 +48,10 @@ export function DataTableBulkActions<TData extends RowData>({
   const [isCopying, setIsCopying] = useState(false)
   const selectedRows = table.getFilteredSelectedRowModel().rows
 
+  const hasRetrievableKeys = selectedRows.some(
+    (row) => !(row.original as ApiKey).one_time_reveal
+  )
+
   const handleBatchCopy = useCallback(async () => {
     if (selectedRows.length === 0) return
 
@@ -91,29 +95,31 @@ export function DataTableBulkActions<TData extends RowData>({
   return (
     <>
       <BulkActionsToolbar table={table} entityName='API key'>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant='outline'
-                size='icon'
-                className='size-8'
-                onClick={handleBatchCopy}
-                disabled={isCopying}
-                aria-label={t('Copy selected keys')}
-              />
-            }
-          >
-            {isCopying ? (
-              <Loader2 className='size-4 animate-spin' />
-            ) : (
-              <Copy className='size-4' />
-            )}
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>{t('Copy selected keys')}</p>
-          </TooltipContent>
-        </Tooltip>
+        {hasRetrievableKeys && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant='outline'
+                  size='icon'
+                  className='size-8'
+                  onClick={handleBatchCopy}
+                  disabled={isCopying}
+                  aria-label={t('Copy selected keys')}
+                />
+              }
+            >
+              {isCopying ? (
+                <Loader2 className='size-4 animate-spin' />
+              ) : (
+                <Copy className='size-4' />
+              )}
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>{t('Copy selected keys')}</p>
+            </TooltipContent>
+          </Tooltip>
+        )}
 
         <Tooltip>
           <TooltipTrigger

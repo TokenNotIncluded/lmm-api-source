@@ -207,12 +207,12 @@ function ApiKeysMobileList({
             </div>
 
             <div className='flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1'>
-              <div className='min-w-40 flex-1 [&_button]:min-h-11 [&_button:first-child]:max-w-full [&_button:first-child]:truncate [&_button:first-child]:px-0 [&_button:last-child]:min-w-11'>
+              <div className='min-w-40 flex-1'>
                 <ApiKeyCell apiKey={apiKey} />
               </div>
               {isAssistantRuntimeKey(apiKey) ? null : (
-                <div className='ml-auto [&_button]:min-h-11 [&_button]:min-w-11 [&>div]:ml-0'>
-                  <DataTableRowActions row={row} />
+                <div className='ml-auto [&_button]:min-h-11 [&_button]:min-w-11'>
+                  <DataTableRowActions apiKey={apiKey} />
                 </div>
               )}
             </div>

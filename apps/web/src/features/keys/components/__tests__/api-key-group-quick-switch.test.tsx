@@ -339,25 +339,17 @@ describe('API key group quick switch', () => {
     assert.equal(queryClient.getQueryState(['unrelated'])?.isInvalidated, false)
   })
 
-  test('single and batch reveals preserve issued native/prefixed keys and normalize legacy secrets', async () => {
+  test('a selected batch export preserves issued native/prefixed keys and normalizes legacy secrets', async () => {
     const native = `lmmk_${'a1'.repeat(32)}`
     const keys = { 42: native, 43: 'sk-prefixed-secret', 44: 'bare-secret' }
     api.post = (async (url: string, body: unknown) => {
-      if (url === '/api/token/42/key') {
-        return { data: { success: true, data: { key: native } } }
-      }
       assert.equal(url, '/api/token/batch/keys')
-      assert.deepEqual(body, { ids: [43, 44] })
+      assert.deepEqual(body, { ids: [42, 43, 44] })
       return {
-        data: { success: true, data: { keys: { 43: keys[43], 44: keys[44] } } },
+        data: { success: true, data: { keys } },
       }
     }) as typeof api.post
     await renderQuickSwitch(baseApiKey)
-    let resolved: string | null = null
-    await act(async () => {
-      resolved = await context.resolveRealKey(42)
-    })
-    assert.equal(resolved, native)
     let batch: Record<number, string> = {}
     await act(async () => {
       batch = await context.resolveRealKeysBatch([42, 43, 44])
@@ -367,7 +359,6 @@ describe('API key group quick switch', () => {
       43: 'sk-prefixed-secret',
       44: 'sk-bare-secret',
     })
-    assert.deepEqual(context.resolvedKeys, batch)
     assert.equal(
       JSON.stringify(
         queryClient
@@ -379,27 +370,25 @@ describe('API key group quick switch', () => {
     )
   })
 
-  test('mutation discards a key reveal that completes after refresh', async () => {
+  test('mutation discards a batch export that completes after refresh', async () => {
     let finish: (value: unknown) => void = () => undefined
     api.post = (() =>
       new Promise<unknown>((resolve) => {
         finish = resolve
       })) as typeof api.post
     await renderQuickSwitch(baseApiKey)
-    let request: Promise<string | null> = Promise.resolve(null)
+    let request: Promise<Record<number, string>> = Promise.resolve({})
     await act(async () => {
-      request = context.resolveRealKey(42)
+      request = context.resolveRealKeysBatch([42])
     })
     await act(async () => {
       context.triggerRefresh()
     })
     await act(async () => {
-      finish({ data: { success: true, data: { key: 'test-secret' } } })
+      finish({ data: { success: true, data: { keys: { 42: 'test-secret' } } } })
       await request
     })
-    assert.equal(await request, null)
-    assert.deepEqual(context.resolvedKeys, {})
-    assert.equal(context.resolvedKey, '')
+    assert.deepEqual(await request, {})
   })
 
   test('selecting a warning-gated group requires confirmation before calling the update endpoint', async () => {

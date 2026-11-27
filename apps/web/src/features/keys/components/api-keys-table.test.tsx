@@ -55,6 +55,7 @@ const {
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
+const { ApiKeysDialogs } = await import('./api-keys-dialogs')
 const { ApiKeysProvider } = await import('./api-keys-provider')
 const { ApiKeysTable } = await import('./api-keys-table')
 const i18n = createInstance()
@@ -79,16 +80,22 @@ const recoveredKey = {
   group: 'default',
 }
 const originalGet = api.get
+const originalPost = api.post
+const originalPut = api.put
+const originalDelete = api.delete
 let cleanup: (() => Promise<void>) | undefined
 afterEach(async () => {
   await cleanup?.()
   cleanup = undefined
   api.get = originalGet
+  api.post = originalPost
+  api.put = originalPut
+  api.delete = originalDelete
   document.body.replaceChildren()
 })
 after(() => dom.close())
 const flush = () => new Promise((resolve) => setTimeout(resolve, 25))
-async function mount(search = '') {
+async function mount(search = '', includeDialogs = false) {
   const rootRoute = createRootRoute({ component: Outlet })
   const authRoute = createRoute({
     getParentRoute: () => rootRoute,
@@ -102,6 +109,7 @@ async function mount(search = '') {
     component: () => (
       <ApiKeysProvider>
         <ApiKeysTable creationMode='manual' />
+        {includeDialogs && <ApiKeysDialogs />}
       </ApiKeysProvider>
     ),
   })
@@ -213,4 +221,180 @@ test('filtered empty lists provide clearing on both layouts and restore an unfil
   assert.equal(router.state.location.search.filter, undefined)
   assert.equal(router.state.location.search.status, undefined)
   assert.match(container.textContent ?? '', /Create your first API key/)
+})
+
+for (const [action, layout, oneTime] of [
+  ['Configure', 'desktop', true],
+  ['Delete', 'mobile', false],
+] as const) {
+  test(`the ${layout} saved-key menu opens ${action} without retrieving a secret`, async () => {
+    const key = { ...recoveredKey, one_time_reveal: oneTime }
+    const posts: string[] = []
+    const deletes: string[] = []
+    const puts: unknown[] = []
+    let holdDetailRefresh: Promise<void> | undefined
+    api.get = (async (url: string) => {
+      let data: unknown
+      if (url.startsWith('/api/token/?')) data = { items: [key], total: 1 }
+      else if (url === '/api/token/9') {
+        await holdDetailRefresh
+        data = { ...key }
+      } else if (url === '/api/user/self/groups') {
+        data = { default: { desc: 'Default', ratio: 1 } }
+      } else if (url === '/api/token/auto-groups') {
+        data = { groups: ['default'], max_count: 3 }
+      } else if (url === '/api/user/models') data = []
+      else if (url === '/api/status' || url === '/api/user/self') data = {}
+      else throw new Error(`Unexpected GET ${url}`)
+      return { data: { success: true, data } }
+    }) as typeof api.get
+    api.post = (async (url: string) => {
+      posts.push(url)
+      return { data: { success: false } }
+    }) as typeof api.post
+    api.put = (async (url: string, body: { id: number; status: number }) => {
+      puts.push({ url, body })
+      key.status = body.status
+      return { data: { success: true } }
+    }) as typeof api.put
+    api.delete = (async (url: string) => {
+      deletes.push(url)
+      return { data: { success: true } }
+    }) as typeof api.delete
+    dom.happyDOM.setViewport({ width: layout === 'mobile' ? 390 : 1280 })
+    const { container } = await mount('', true)
+    assert.doesNotMatch(
+      container.innerHTML,
+      /sk-synthetic|Copy API key|Reveal API key/i
+    )
+    const menus = [
+      ...container.querySelectorAll<HTMLButtonElement>(
+        'button[aria-label="Open menu"]'
+      ),
+    ]
+    const menu = menus.find(
+      (node) => Boolean(node.closest('tbody')) === (layout === 'desktop')
+    )
+    assert.ok(menu)
+    await act(async () => menu.click())
+    const actions = [
+      ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ]
+    assert.deepEqual(
+      actions.map((node) => node.textContent?.trim()),
+      ['Configure', 'Delete']
+    )
+    const item = actions.find((node) => node.textContent?.trim() === action)
+    assert.ok(item)
+    await act(async () => {
+      item.click()
+      await flush()
+    })
+    await act(async () => {
+      await flush()
+    })
+    if (action === 'Configure') {
+      const drawer = document.querySelector('[role="dialog"]')
+      assert.ok(drawer)
+      assert.ok(drawer.textContent?.includes('Update API Key'))
+      const name = drawer.querySelector<HTMLInputElement>(
+        'input[value="Recovered key"]'
+      )
+      assert.ok(name)
+      await act(async () => {
+        const setValue = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          'value'
+        )?.set
+        assert.ok(setValue)
+        setValue.call(name, 'Edited draft')
+        name.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      let allowRefresh!: () => void
+      holdDetailRefresh = new Promise<void>((resolve) => {
+        allowRefresh = resolve
+      })
+      await act(async () => {
+        button(drawer, 'Disable').click()
+        await flush()
+      })
+      assert.deepEqual(puts, [
+        { url: '/api/token/?status_only=true', body: { id: 9, status: 2 } },
+      ])
+      assert.ok(button(drawer, 'Enable').disabled)
+      await act(async () => {
+        allowRefresh()
+        await flush()
+      })
+      assert.equal(name.value, 'Edited draft')
+      await act(async () => {
+        button(drawer, 'Enable').click()
+        await flush()
+      })
+      assert.deepEqual(puts, [
+        { url: '/api/token/?status_only=true', body: { id: 9, status: 2 } },
+        { url: '/api/token/?status_only=true', body: { id: 9, status: 1 } },
+      ])
+      assert.equal(name.value, 'Edited draft')
+      assert.ok(button(drawer, 'Disable'))
+    } else {
+      const dialog = document.querySelector('[role="alertdialog"]')
+      assert.ok(dialog)
+      assert.ok(
+        dialog.textContent?.includes(
+          'This will permanently delete API key Recovered key'
+        )
+      )
+      assert.deepEqual(deletes, [])
+      await act(async () => {
+        button(dialog, 'Delete').click()
+        await flush()
+      })
+      assert.deepEqual(deletes, ['/api/token/9/'])
+    }
+    assert.deepEqual(posts, [])
+  })
+}
+
+test('batch copy is available only when selection includes a retrievable key', async () => {
+  dom.happyDOM.setViewport({ width: 1280 })
+  const keys = [
+    { ...recoveredKey, id: 9, one_time_reveal: true },
+    {
+      ...recoveredKey,
+      id: 10,
+      name: 'Legacy batch key',
+      one_time_reveal: false,
+    },
+  ]
+  api.get = (async (url: string) => {
+    const data = url.startsWith('/api/token/?')
+      ? { items: keys, total: keys.length }
+      : {}
+    return { data: { success: true, data } }
+  }) as typeof api.get
+  const calls: unknown[] = []
+  api.post = (async (url: string, body: unknown) => {
+    calls.push({ url, body })
+    return {
+      data: { success: true, data: { keys: { 10: 'sk-synthetic-batch' } } },
+    }
+  }) as typeof api.post
+  const { container } = await mount()
+  const rows = () =>
+    container.querySelectorAll<HTMLElement>('[aria-label="Select row"]')
+  assert.equal(rows().length, 2)
+  await act(async () => rows()[0].click())
+  const selector = '[aria-label="Copy selected keys"]'
+  assert.equal(document.querySelector(selector), null)
+  await act(async () => rows()[1].click())
+  const copy = document.querySelector<HTMLElement>(selector)
+  assert.ok(copy)
+  await act(async () => {
+    copy.click()
+    await flush()
+  })
+  assert.deepEqual(calls, [
+    { url: '/api/token/batch/keys', body: { ids: [10] } },
+  ])
 })
