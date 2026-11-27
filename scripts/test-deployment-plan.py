@@ -37,6 +37,21 @@ class DeploymentPlanTests(unittest.TestCase):
             matrix = json.loads(output.split("matrix=", 1)[1].splitlines()[0])
             self.assertEqual([x["component"] for x in matrix["include"]], ["web"])
 
+    def test_automatic_web_scope_uses_only_a_proven_base_and_all_targets(self):
+        base, revision = "a" * 40, "b" * 40
+        with patch.dict(os.environ, {"SELECT_TARGETS": "all", "SELECT_COMPONENTS": "all",
+                                     "DEPLOY_BASE_REVISION": base, "DEPLOY_REVISION": revision,
+                                     "DEPLOY_WEB_BASE": ""}), patch.object(deploy.subprocess, "run") as proof:
+            proof.return_value.returncode = 0
+            self.assertEqual(deploy.selection(), ("web", base))
+            self.assertEqual(proof.call_args.args[0][-4:], ["--base", base, "--revision", revision])
+            proof.return_value.returncode = 1
+            self.assertEqual(deploy.selection(), ("all", ""))
+            proof.reset_mock()
+            with patch.dict(os.environ, {"SELECT_TARGETS": "origin"}):
+                self.assertEqual(deploy.selection(), ("all", ""))
+                proof.assert_not_called()
+
     def test_unknown_selection_and_duplicate_names_fail_before_any_ssh(self):
         with patch.dict(os.environ, {"DEPLOY_TARGETS": json.dumps([target("node")]),
                                     "SELECT_TARGETS": "missing", "SELECT_COMPONENTS": "all"}):

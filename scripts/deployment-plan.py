@@ -7,19 +7,36 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENTS = ("core", "extensions", "web")
 
 
-def selected_targets():
+def selection():
+    components = os.environ.get("SELECT_COMPONENTS") or "all"
+    explicit_base = os.environ.get("DEPLOY_WEB_BASE", "")
+    if components != "all" or explicit_base or os.environ.get("SELECT_TARGETS", "all") != "all":
+        return components, explicit_base
+    installed = os.environ.get("DEPLOY_BASE_REVISION", "")
+    revision = os.environ.get("DEPLOY_REVISION", "")
+    if installed and revision:
+        proof = subprocess.run([sys.executable, str(ROOT / "scripts/is-web-only-update.py"),
+                                "--base", installed, "--revision", revision], cwd=ROOT)
+        if proof.returncode == 0:
+            return "web", installed
+    return components, ""
+
+
+def selected_targets(selection_components=None):
     targets = json.loads(os.environ["DEPLOY_TARGETS"])
     if not isinstance(targets, list) or not targets:
         raise ValueError("DEPLOY_TARGETS must be a nonempty JSON array")
     names = set()
     wanted = os.environ.get("SELECT_TARGETS", "all") or "all"
     wanted = set(wanted.split(",")) if wanted != "all" else None
-    components = os.environ.get("SELECT_COMPONENTS", "all") or "all"
+    components = selection_components or selection()[0]
     components = set(components.split(",")) if components != "all" else set(COMPONENTS)
     if not components or not components <= set(COMPONENTS):
         raise ValueError("unknown selected component")
@@ -60,7 +77,8 @@ def selected_targets():
 
 
 def plan():
-    targets = selected_targets()
+    components, web_base = selection()
+    targets = selected_targets(components)
     matrix = {}
     for target in targets:
         for component in target["components"]:
@@ -76,6 +94,8 @@ def plan():
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[A-Za-z0-9][A-Za-z0-9.-]*)?", version):
         raise ValueError("version must be a semantic version")
     result = {"matrix": json.dumps({"include": list(matrix.values())}, separators=(",", ":")), "version": version}
+    if web_base:
+        result["web_base"] = web_base
     with open(os.environ["GITHUB_OUTPUT"], "a") as stream:
         for key, value in result.items():
             stream.write(f"{key}={value}\n")
@@ -87,10 +107,10 @@ def inventory(artifacts, output):
     distribution = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(distribution)
     revision = os.environ["DEPLOY_REVISION"]
-    web_base = os.environ.get("DEPLOY_WEB_BASE", "")
+    selection_components, web_base = selection()
     if web_base and (
         not re.fullmatch(r"[0-9a-f]{40}", web_base)
-        or os.environ.get("SELECT_COMPONENTS") != "web"
+        or selection_components != "web"
         or os.environ.get("SELECT_TARGETS", "all") != "all"
     ):
         raise ValueError("Web-only deployment requires a verified base and all configured targets")
@@ -118,7 +138,7 @@ def inventory(artifacts, output):
             "files": manifest["files"],
         }
     hosts = {}
-    for target in selected_targets():
+    for target in selected_targets(selection_components):
         components = []
         for name, config in target["components"].items():
             platform = "any" if name == "web" else "linux-" + target.get("arch", "amd64")

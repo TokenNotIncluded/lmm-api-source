@@ -440,7 +440,7 @@ jobs:
           fi
           python3 -B scripts/test-core-rpc-docker.py --output-root "$evidence" --build-timeout-seconds 2400 2>&1 | tee "$RUNNER_TEMP/core-rpc-docker.log"
       - name: Export the native artifacts verified by the RPC fixture
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         run: |
           receipt="$RUNNER_TEMP/core-rpc-docker-evidence/result.json"
           jq -e '.result == "PASS"' "$receipt" >/dev/null
@@ -457,6 +457,14 @@ jobs:
               mkdir "$output"
               docker cp "$container:/usr/bin/lmm-$component" "$output/lmm-$component"
               test "$(sha256sum "$output/lmm-$component" | cut -d ' ' -f1)" = "$expected"
+              if [[ "$component" == core ]]; then
+                docker tag "$image" lmm-core-ci:verified
+                docker run --rm "$image" schema-manifest > "$output/schema.json"
+                docker run --rm --entrypoint sh "$image" -ec '
+                  test -s /usr/share/licenses/lmm/LICENSE
+                  test -s /usr/share/licenses/lmm/NOTICE
+                  test -s /usr/share/licenses/lmm/THIRD-PARTY-LICENSES.md'
+              fi
               if [[ "$component" == extensions ]]; then
                 mkdir "$output/lib" "$output/licenses"
                 docker cp "$container:/usr/lib/lmm/extensions/extore" "$output/lib/"
@@ -471,6 +479,28 @@ jobs:
                 '{revision: $revision, component: $component, platform: "linux-amd64"}' > "$output/receipt.json"
             )
           done
+      - name: Generate the runtime SBOM for the qualified Core image
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: anchore/sbom-action@57aae528053a48a3f6235f2d9461b05fbcb7366d # v0.23.1
+        with:
+          image: lmm-core-ci:verified
+          syft-version: v1.42.3
+          format: spdx-json
+          output-file: ${{ runner.temp }}/rpc-core-amd64/sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Bind Core binary, schema and SBOM to the pinned build
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        run: python3 -B scripts/core-ci-material.py record "$RUNNER_TEMP/rpc-core-amd64"
+      - name: Preserve Core for a later exact-revision distribution
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: qualified-core-amd64-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rpc-core-amd64
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: error
       - name: Preserve the verified Core artifact for deployment
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

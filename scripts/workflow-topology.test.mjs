@@ -111,7 +111,8 @@ test('retired single-server deployment tools cannot bypass the preview boundary'
     assert.throws(() => read(path), /ENOENT/, path);
   }
   const preview = workflow('microservice-distribution');
-  assert.match(preview, /component: \[core, extensions, cli, web\]/);
+  assert.ok(preview.includes(`components='["core","extensions","cli","web"]'`));
+  assert.ok(preview.includes('component: ${{ fromJSON(needs.contracts.outputs.components) }}'));
   assert.match(preview, /scripts\/build-distribution\.py verify/);
   assert.match(preview, /Preserve preview archives only/);
   assert.doesNotMatch(preview, /LMM_WEB_DEPLOY|PRODUCTION_SSH|gh release|pacman|systemctl/);

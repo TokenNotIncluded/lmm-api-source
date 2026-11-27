@@ -2,6 +2,10 @@ name: Microservice preview distributions
 on:
   workflow_dispatch:
     inputs:
+      installed_base:
+        description: Verified installed source SHA for Web-only scope detection
+        default: ''
+        type: string
       version:
         description: Preview archive version, not a release tag
         default: 0.1.0-preview
@@ -9,6 +13,10 @@ on:
         type: string
   workflow_call:
     inputs:
+      installed_base:
+        description: Verified installed source SHA for Web-only scope detection
+        default: ''
+        type: string
       version:
         default: 0.1.0-preview
         type: string
@@ -26,22 +34,35 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
+      components: ${{ steps.source.outputs.components }}
       source_revision: ${{ steps.source.outputs.revision }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
+          fetch-depth: 0
           ref: ${{ inputs.source_ref || github.sha }}
           persist-credentials: false
       - name: Freeze the source used by all build jobs
         id: source
-        run: echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        env:
+          INSTALLED_BASE: ${{ inputs.installed_base }}
+        run: |
+          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          components='["core","extensions","cli","web"]'
+          if python3 scripts/is-web-only-update.py --base "$INSTALLED_BASE" --revision "$(git rev-parse HEAD)"; then
+            components='["web"]'
+          fi
+          echo "components=$components" >> "$GITHUB_OUTPUT"
       - name: Initialize the pinned CLI only
+        if: steps.source.outputs.components != '["web"]'
         run: git submodule update --init --depth 1 -- apps/cli
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        if: steps.source.outputs.components != '["web"]'
         with:
           go-version: '1.27.2'
           cache-dependency-path: services/extensions/go.sum
       - name: Source, documents and archive contracts
+        if: steps.source.outputs.components != '["web"]'
         run: |
           python3 -B scripts/check-docs-brand.py
           python3 -B scripts/test_docs_brand.py
@@ -50,18 +71,26 @@ jobs:
           python3 -B scripts/test-core-boundaries.py
           node --test scripts/workflow-topology.test.mjs
           go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
+      - name: Check distribution and deployment scope contracts
+        run: |
+          python3 -B scripts/test-core-ci-material.py
+          python3 -B scripts/test-deployment-plan.py
       - name: Go policy and host checks
+        if: steps.source.outputs.components != '["web"]'
         working-directory: services/extensions
         run: |
           bash ../../scripts/check-go-format.sh .
           go vet ./internal/legal ./internal/app
           go test -mod=readonly -race -count=1 -v ./internal/legal ./internal/app ./internal/modules
   build:
+    permissions:
+      actions: read
+      contents: read
     needs: contracts
     strategy:
       fail-fast: false
       matrix:
-        component: [core, extensions, cli, web]
+        component: ${{ fromJSON(needs.contracts.outputs.components) }}
     runs-on: ubuntu-24.04
     timeout-minutes: ${{ matrix.component == 'core' && 90 || 30 }}
     env:
@@ -133,12 +162,26 @@ jobs:
             require_test "$name" --lib
           done
           require_test malformed_tool_json_with_usage_and_done_remains_frozen --test model_http
+      - name: Reuse the qualified Core for this exact source and compiler
+        id: qualified
+        if: matrix.component == 'core'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          material="$RUNNER_TEMP/qualified-core"
+          python3 -B scripts/fetch-core-ci-material.py "$material"
+          if [[ -d "$material" ]]; then
+            python3 -B scripts/core-ci-material.py verify "$material"
+            mkdir -p out/core
+            cp "$material/lmm-core" out/core/lmm-core
+            echo "reused=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Build core or extension binaries using their Docker compiler stage
-        if: matrix.component == 'core' || matrix.component == 'extensions'
+        if: (matrix.component == 'core' && steps.qualified.outputs.reused != 'true') || matrix.component == 'extensions'
         run: |
           docker buildx build -f "deployment/docker/${COMPONENT}.Dockerfile"             --target binaries --output "type=local,dest=out/${COMPONENT}" .
       - name: Build runtime image and inspect shipped resources
-        if: matrix.component == 'core' || matrix.component == 'extensions'
+        if: (matrix.component == 'core' && steps.qualified.outputs.reused != 'true') || matrix.component == 'extensions'
         run: |
           docker buildx build -f "deployment/docker/${COMPONENT}.Dockerfile" --load -t "lmm-preview-${COMPONENT}" .
           docker run --rm --entrypoint /bin/sh "lmm-preview-${COMPONENT}" -ec '
@@ -206,6 +249,11 @@ jobs:
             python3 scripts/build-distribution.py verify "$archive" --revision "$SOURCE_REVISION"
           done
           (cd out/distributions && sha256sum --check ./*.sha256)
+      - name: Preserve the qualified build evidence with the Core archive
+        if: steps.qualified.outputs.reused == 'true'
+        run: |
+          mkdir out/distributions/core-build-evidence
+          cp "$RUNNER_TEMP/qualified-core/"{build.json,schema.json,sbom.spdx.json} out/distributions/core-build-evidence/
       - name: Preserve preview archives only
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
