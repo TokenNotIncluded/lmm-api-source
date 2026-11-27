@@ -77,7 +77,8 @@ async fn capturing_supplier() -> (Server, Captures) {
 async fn native_gemini_ignores_top_level_tier_spellings_and_preserves_supplier_bytes(pool: PgPool) {
     let (_, _, _, key, key_id, _) = fixture(&pool, 10_000).await;
     let (server, captures) = capturing_supplier().await;
-    let gateway = gateway(&pool, &server, Protocol::Gemini, key_id);
+    // The loopback budget includes message framing and the full tool schema.
+    let gateway = configured_gateway(&pool, &server, Protocol::Gemini, key_id, false, 512);
 
     // Both strings are also valid user-defined schema property names. Their
     // non-alphabetic order is part of the existing native Gemini wire contract.
@@ -150,7 +151,7 @@ async fn native_gemini_ignores_top_level_tier_spellings_and_preserves_supplier_b
 async fn native_gemini_priority_requires_matching_receipt_and_keeps_disputed_holds(pool: PgPool) {
     let (_, ledger, _, key, key_id, account) = fixture(&pool, 10_000).await;
     let (server, captures) = capturing_supplier().await;
-    let gateway = gateway_with_priority(&pool, &server, Protocol::Gemini, key_id, true);
+    let gateway = configured_gateway(&pool, &server, Protocol::Gemini, key_id, true, 100);
     let mut held = 0;
     let mut settled = 0;
     for (index, (stream, tier, label)) in [
@@ -224,7 +225,11 @@ async fn native_gemini_priority_requires_matching_receipt_and_keeps_disputed_hol
                 "{}",
                 String::from_utf8_lossy(&bytes)
             );
-            assert!(String::from_utf8_lossy(&bytes).contains("native answer"));
+            assert!(
+                String::from_utf8_lossy(&bytes).contains("native answer"),
+                "stream={stream}, state={state}: {}",
+                String::from_utf8_lossy(&bytes)
+            );
             // 8 ordinary input, 2 cached, 20 output; rounded once after conversion.
             assert_eq!((state.as_str(), charge), ("settled", 97));
             settled += charge;

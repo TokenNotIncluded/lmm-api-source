@@ -250,7 +250,7 @@ fn independent_966_deferred_parser_retains_order_and_route_authority() {
     let mut body = String::from_utf8(client_body(ClientProtocol::Chat, &[ZA])).unwrap();
     body.pop();
     body.push_str(r#","speed":"standard"}"#);
-    let request =
+    let mut request =
         Request::parse_deferred_openai(ClientProtocol::Chat, body.as_bytes(), &Limits::default())
             .unwrap();
     let ordinary = encoded(&request, &route(UpstreamProtocol::Chat));
@@ -272,6 +272,12 @@ fn independent_966_deferred_parser_retains_order_and_route_authority() {
             allow_safety_identifier: false,
             allow_include_obfuscation: false,
         },
+    );
+    let ignored = encoded(&request, &allowed);
+    assert_eq!(ignored, ordinary);
+    assert_eq!(
+        request.apply_service_tier_policy(true).unwrap(),
+        Some(crate::routing::Speed::Standard)
     );
     let encoded = encoded(&request, &allowed);
     assert_eq!(
@@ -318,10 +324,15 @@ fn independent_966_uncharged_strict_transport_keeps_order_without_route_authorit
     );
     let mut body = String::from_utf8(client_body(ClientProtocol::Chat, &[ZA])).unwrap();
     body.pop();
-    body.push_str(r#","speed":"standard"}"#);
+    body.push_str(r#","speed":"fast"}"#);
     let deferred =
         Request::parse_deferred_openai(ClientProtocol::Chat, body.as_bytes(), &Limits::default())
             .unwrap();
+    let mut admitted = deferred.clone();
+    assert_eq!(
+        admitted.apply_service_tier_policy(true).unwrap(),
+        Some(crate::routing::Speed::Fast)
+    );
     for protocol in [
         UpstreamProtocol::Chat,
         UpstreamProtocol::Responses,
@@ -334,10 +345,14 @@ fn independent_966_uncharged_strict_transport_keeps_order_without_route_authorit
             plain.upstream_to(protocol, "wire-model").unwrap()
         );
         assert_eq!(schema_keys(&output, protocol, 0), ["zeta", "alpha"]);
-        assert!(
-            deferred.upstream_body_to(protocol, "wire-model").is_err(),
-            "uncharged transport has no selected-route compatibility authority"
+        assert_eq!(
+            deferred.upstream_body_to(protocol, "wire-model").unwrap(),
+            output
         );
+        assert!(matches!(
+            admitted.upstream_body_to(protocol, "wire-model"),
+            Err(RelayError::Unsupported(_))
+        ));
     }
 }
 

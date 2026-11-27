@@ -164,15 +164,16 @@ async fn server(protocol: Protocol, missing_usage: bool) -> Server {
     }
 }
 fn gateway(pool: &PgPool, server: &Server, protocol: Protocol, key_id: i64) -> ModelGateway {
-    gateway_with_priority(pool, server, protocol, key_id, false)
+    configured_gateway(pool, server, protocol, key_id, false, 100)
 }
 
-fn gateway_with_priority(
+fn configured_gateway(
     pool: &PgPool,
     server: &Server,
     protocol: Protocol,
     key_id: i64,
     priority: bool,
+    input_token_ceiling: i64,
 ) -> ModelGateway {
     let mut pricing: PriceConfig = serde_json::from_value(json!({"version":1,"rules":[{"id":1,"model":"native-model","group":"allowed","speed":"standard","rates":{"input":2000000,"output":4000000,"cache_read":500000,"cache_write":0,"request":0},"group_multiplier_ppm":1000000,"speed_multiplier_ppm":1000000}]})).unwrap();
     let mut speeds = vec![Speed::Standard];
@@ -245,7 +246,7 @@ fn gateway_with_priority(
             ..Default::default()
         },
         ChargePolicy {
-            input_token_ceiling: 100,
+            input_token_ceiling,
             lease_seconds: 30,
         },
     )

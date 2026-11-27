@@ -209,6 +209,28 @@ async fn vault_keys_persist_encrypt_rotate_retire_and_recover_into_real_transpor
         .await
         .is_err()
     );
+    // The fixed OAuth client sends the advertised name to the supplier.
+    // Publish the supplier's wire name as an explicit alias before recovery.
+    let config_path = "/core/v1/admin/routing/configuration";
+    let config = success(&app, "GET", config_path, &admin, Value::Null).await;
+    let mut routing = config["routing"].clone();
+    routing["version"] = json!(config["version"]["routing"].as_u64().unwrap() + 1);
+    routing["aliases"] =
+        json!([{"group":"default","model":"model-a","alias":"supplier-model-a"}]);
+    let mut change = json!({
+        "expected_version":config["version"],"routing":routing,
+        "prices":config["prices"],"bindings":config["bindings"]
+    });
+    let preview = success(
+        &app,
+        "POST",
+        &format!("{config_path}/preview"),
+        &admin,
+        change.clone(),
+    )
+    .await;
+    change["confirmation_digest"] = preview["confirmation_digest"].clone();
+    success(&app, "PUT", config_path, &admin, change).await;
     drop(app);
     // Only the cfg(test) transport maps this persisted HTTPS origin to the
     // numeric loopback server. Recovery and the handler keep the durable route.
@@ -245,15 +267,12 @@ async fn vault_keys_persist_encrypt_rotate_retire_and_recover_into_real_transpor
     let restored = ManagedChannels::recover(role.pool.clone(), restored_gateway.clone())
         .await
         .unwrap();
-    assert_eq!(
-        restored_gateway
-            .oauth_catalog_surface()
-            .project(&["default".into()], "https://resource.example", 1)
-            .unwrap()
-            .models
-            .len(),
-        1
-    );
+    let catalog = restored_gateway
+        .oauth_catalog_surface()
+        .project(&["default".into()], "https://resource.example", 1)
+        .unwrap();
+    assert_eq!(catalog.models.len(), 1);
+    assert_eq!(catalog.models[0].name, "supplier-model-a");
     let restored_app = managed_router(role.pool.clone(), restored);
     let probe = success(
         &restored_app,

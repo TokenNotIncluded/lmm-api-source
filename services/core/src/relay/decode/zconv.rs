@@ -369,11 +369,12 @@ impl Decoder {
         } else {
             "/usage"
         };
-        let admitted_anthropic_grade = self.protocol == UpstreamProtocol::Anthropic
+        let anthropic_usage = self.protocol == UpstreamProtocol::Anthropic
+            && value.pointer(usage_path).is_some_and(Value::is_object);
+        let gemini_grade = self.protocol == UpstreamProtocol::Gemini
             && self.expected_speed.is_some()
-            && value.pointer(usage_path).is_some_and(|usage| {
-                usage.get("service_tier").is_some() || usage.get("speed").is_some()
-            });
+            && value.pointer("/usageMetadata/serviceTier").is_some();
+        let project_native_usage = anthropic_usage || gemini_grade;
         let legacy_receipt = self.legacy_openrouter_usage && value.get("usage").is_some();
         let cost_details = matches!(
             self.protocol,
@@ -383,17 +384,27 @@ impl Decoder {
             .is_some_and(|usage| usage.get("cost_details").is_some());
         let project_openrouter = self.openrouter_stream && value.is_object();
         let payload =
-            if legacy_receipt || cost_details || project_openrouter || admitted_anthropic_grade {
+            if legacy_receipt || cost_details || project_openrouter || project_native_usage {
                 let mut content = value.clone();
-                if admitted_anthropic_grade {
-                    // admit() checked this attempt's speed and capacity. The authoritative
-                    // usage below still comes from the untouched provider receipt.
+                // admit() checked these provider fields. receipt() still reads the original.
+                if anthropic_usage {
                     let usage = content
                         .pointer_mut(usage_path)
                         .and_then(Value::as_object_mut)
                         .unwrap();
-                    usage.remove("speed");
-                    usage.remove("service_tier");
+                    if self.expected_speed.is_some() {
+                        usage.remove("speed");
+                        usage.remove("service_tier");
+                    }
+                    usage.remove("inference_geo");
+                    usage.remove("iterations");
+                    usage.remove("server_tool_use");
+                }
+                if gemini_grade {
+                    content["usageMetadata"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("serviceTier");
                 }
                 if project_openrouter {
                     self.project_openrouter_stream(&mut content)?;

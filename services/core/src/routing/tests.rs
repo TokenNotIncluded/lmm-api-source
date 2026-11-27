@@ -288,6 +288,14 @@ fn legacy_openai_attempt_policy_is_frozen_across_publication_and_retry() {
     let enabled: PayloadPolicy =
         serde_json::from_str(r#"{"legacy_openai":{"allow_speed":true}}"#).unwrap();
     let (mut config, prices) = fixture(1);
+    config.global_model_policy = Some(model_policy::GlobalModelPolicy {
+        pass_through_request_enabled: false,
+        honor_request_service_tier: true,
+        thinking_model_blacklist: Vec::new(),
+        chat_completions_to_responses_policy: Default::default(),
+        ping_interval_enabled: false,
+        ping_interval_seconds: 30,
+    });
     config.routes[0].targets[0].priority = 0;
     config.routes[0].targets[0].payload = disabled;
     config.routes[0].targets[1].priority = 1;
@@ -328,8 +336,17 @@ fn legacy_openai_attempt_policy_is_frozen_across_publication_and_retry() {
         &crate::relay::Limits::default(),
     )
     .unwrap();
-    for (attempt, allowed) in [(first, false), (second, true), (current, true)] {
-        let route = crate::relay::Route::new(
+    let mut admitted = request.clone();
+    assert_eq!(
+        admitted.apply_service_tier_policy(true).unwrap(),
+        Some(Speed::Standard)
+    );
+    for (attempt, honors, allows_speed) in [
+        (first, true, false),
+        (second, true, true),
+        (current, false, true),
+    ] {
+        let mut route = crate::relay::Route::new(
             "synthetic".into(),
             crate::relay::UpstreamProtocol::Chat,
             attempt.endpoint(),
@@ -339,8 +356,20 @@ fn legacy_openai_attempt_policy_is_frozen_across_publication_and_retry() {
         )
         .unwrap()
         .with_payload_policy(attempt.payload_policy());
-        let payload = request.upstream(&route).unwrap();
-        assert_eq!(payload.get("speed").is_some(), allowed);
+        route.model_attempt = Some(Arc::new(attempt));
+        assert!(request.upstream(&route).unwrap().get("speed").is_none());
+        if honors {
+            let payload = admitted.upstream(&route).unwrap();
+            assert_eq!(
+                payload.get("speed").cloned(),
+                allows_speed.then(|| serde_json::json!("standard"))
+            );
+        } else {
+            assert!(matches!(
+                admitted.upstream(&route),
+                Err(crate::relay::RelayError::RouteUnavailable)
+            ));
+        }
     }
 }
 

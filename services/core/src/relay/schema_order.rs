@@ -719,7 +719,7 @@ mod tests {
     #[test]
     fn deferred_capture_and_body_encoding_keep_the_selected_route_policy() {
         let body = br#"{"model":"m","service_tier":"default","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"answer","parameters":{"type":"object","properties":{"z":{"type":"string"},"a":{"type":"string"}}}}}]}"#;
-        let request =
+        let mut request =
             request::Request::parse_deferred_openai(ClientProtocol::Chat, body, &Limits::default())
                 .unwrap();
         use crate::routing::PayloadPolicy;
@@ -747,15 +747,24 @@ mod tests {
             ),
         ] {
             let route = route(UpstreamProtocol::Chat).with_payload_policy(policy);
-            let bytes = request.upstream_body(&route).unwrap();
-            let value: Value = serde_json::from_slice(&bytes).unwrap();
-            assert_eq!(value, request.upstream(&route).unwrap());
-            assert_eq!(value.get("service_tier").is_some(), allowed);
-            let text = String::from_utf8(bytes).unwrap();
-            assert!(
-                text.contains(r#""properties":{"z":{"type":"string"},"a":{"type":"string"}}"#),
-                "{text}"
-            );
+            for honor in [false, true] {
+                assert_eq!(
+                    request.apply_service_tier_policy(honor).unwrap(),
+                    honor.then_some(crate::routing::Speed::Standard)
+                );
+                let bytes = request.upstream_body(&route).unwrap();
+                let value: Value = serde_json::from_slice(&bytes).unwrap();
+                assert_eq!(value, request.upstream(&route).unwrap());
+                assert_eq!(
+                    value.get("service_tier").cloned(),
+                    (honor && allowed).then(|| json!("default"))
+                );
+                let text = String::from_utf8(bytes).unwrap();
+                assert!(
+                    text.contains(r#""properties":{"z":{"type":"string"},"a":{"type":"string"}}"#),
+                    "{text}"
+                );
+            }
         }
     }
 
@@ -793,7 +802,7 @@ mod tests {
                 "{text}"
             );
         }
-        let deferred = br#"{"model":"m","service_tier":"default","messages":[{"role":"user","content":"hi"}]}"#;
+        let deferred = br#"{"model":"m","service_tier":"default","safety_identifier":"account","messages":[{"role":"user","content":"hi"}]}"#;
         let request = request::Request::parse_deferred_openai(
             ClientProtocol::Chat,
             deferred,

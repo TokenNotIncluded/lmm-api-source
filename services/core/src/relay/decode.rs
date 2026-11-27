@@ -838,6 +838,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn gemini_stream_checks_grade_and_preserves_usage_counters() {
+        let decode = |usage: Value| {
+            let mut decoder = Decoder::new(UpstreamProtocol::Gemini, &Limits::default())
+                .with_expected_speed(Some(Speed::Fast));
+            decoder.frame(Frame {
+                event: None,
+                data: serde_json::json!({
+                    "candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"ok"}]},"finishReason":"STOP"}],
+                    "usageMetadata":usage
+                })
+                .to_string(),
+            })
+        };
+        let mut usage = serde_json::json!({
+            "serviceTier":"priority","promptTokenCount":10,"cachedContentTokenCount":2,
+            "candidatesTokenCount":20,"thoughtsTokenCount":0,"totalTokenCount":30
+        });
+        let events = decode(usage.clone()).unwrap();
+        let receipt = events
+            .iter()
+            .find_map(|event| match event {
+                Event::Usage(receipt) => Some(receipt),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(receipt.input_tokens, Some(10));
+        assert_eq!(receipt.cached_input_tokens, Some(2));
+        assert_eq!(receipt.output_tokens, Some(20));
+        usage["serviceTier"] = "standard".into();
+        assert!(decode(usage.clone()).is_err());
+        usage["serviceTier"] = "priority".into();
+        usage["unknownMeter"] = 1.into();
+        assert!(decode(usage).is_err());
+    }
+
+    #[test]
     fn actual_native_grade_must_match_the_selected_quote() {
         use reqwest::header::{HeaderMap, HeaderValue};
 
@@ -920,7 +956,15 @@ mod tests {
             Decoder::new(UpstreamProtocol::Anthropic, &Limits::default())
                 .with_expected_speed(Some(Speed::Standard))
         };
-        decoder().frame(start(usage.clone())).unwrap();
+        let events = decoder().frame(start(usage.clone())).unwrap();
+        assert!(events.iter().any(|event| matches!(event, Event::Usage(receipt)
+            if receipt.input_tokens == Some(3) && receipt.output_tokens == Some(0))));
+        let mut ungraded = usage.clone();
+        ungraded.as_object_mut().unwrap().remove("service_tier");
+        ungraded["iterations"] = serde_json::json!([]);
+        Decoder::new(UpstreamProtocol::Anthropic, &Limits::default())
+            .frame(start(ungraded))
+            .unwrap();
         usage["server_tool_use"]["web_search_requests"] = 1.into();
         assert_eq!(
             decoder().frame(start(usage)).unwrap_err(),
