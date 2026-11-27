@@ -1204,6 +1204,7 @@ mod tests {
         let (router, _) = surface(routing, prices);
         let credentials = BTreeMap::from([((1, 1), "synthetic-catalog-key".into())]);
         let limits = Limits {
+            total_timeout: Duration::from_secs(1),
             max_output_tokens: 12_345,
             ..Limits::default()
         };

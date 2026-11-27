@@ -501,6 +501,21 @@ async fn terminal<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
         assert_ne!(pair.1["type"], "error", "{}", pair.0);
     }
 }
+async fn delivered_controls(lab: &Lab, last_id: &str) -> Vec<String> {
+    for _ in 0..300 {
+        {
+            let controls = lab.peer.supplier.controls.lock().unwrap();
+            if controls.iter().any(|raw| {
+                serde_json::from_str::<Value>(raw).unwrap()["event_id"].as_str() == Some(last_id)
+            }) {
+                return controls.clone();
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    panic!("supplier did not receive control {last_id}")
+}
+
 async fn await_state(lab: &Lab, id: &str, state: &str) -> (String, String, i64, i64) {
     for _ in 0..300 {
         let rows = lab.charges().await;
@@ -1425,7 +1440,7 @@ async fn ws09_ping_frame_limits_pending_controls_and_shutdown_preserve_hold(pool
         "invalid_request: pending control limit"
     );
     assert_eq!(lab.money().await, before);
-    let sent = lab.peer.supplier.controls.lock().unwrap().clone();
+    let sent = delivered_controls(&lab, "pending-first-31").await;
     assert_eq!(
         sent.iter()
             .filter(
@@ -1454,29 +1469,8 @@ async fn ws09_ping_frame_limits_pending_controls_and_shutdown_preserve_hold(pool
     assert_eq!(error["stream_id"], "lane-A");
     let replacement = json!({"type":"input_audio_buffer.clear","event_id":"pending-replacement","stream_id":"lane-A"});
     send(&mut socket, replacement.clone()).await;
-    for _ in 0..300 {
-        if lab
-            .peer
-            .supplier
-            .controls
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|raw| raw == &replacement.to_string())
-        {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
-    assert!(
-        lab.peer
-            .supplier
-            .controls
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|raw| raw == &replacement.to_string())
-    );
+    let sent = delivered_controls(&lab, "pending-replacement").await;
+    assert!(sent.iter().any(|raw| raw == &replacement.to_string()));
     assert_eq!(lab.money().await, before);
     lab.peer.supplier.release.add_permits(1);
     terminal(&mut socket).await;
@@ -1522,7 +1516,7 @@ async fn ws09_ping_frame_limits_pending_controls_and_shutdown_preserve_hold(pool
         receive(&mut socket).await.1["error"]["message"],
         "invalid_request: pending control limit"
     );
-    let sent = lab.peer.supplier.controls.lock().unwrap().clone();
+    let sent = delivered_controls(&lab, "pending-after-cancel-31").await;
     assert_eq!(
         sent.iter()
             .filter(
