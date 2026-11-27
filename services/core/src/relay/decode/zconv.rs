@@ -82,7 +82,9 @@ impl Decoder {
             ..protocol.into()
         }
     }
-    fn key(&self, key: zconv::stream::Key, block: Kind) -> Key {
+    fn key(&self, event: &zconv::stream::Event) -> Key {
+        let key = event.key;
+        let block = event.block;
         match self.protocol {
             UpstreamProtocol::Chat => match block {
                 Kind::Text => (0, 0),
@@ -104,9 +106,27 @@ impl Decoder {
                     u64::from(key.part)
                 },
             ),
-            // Gemini signatures retain the text/thought key, but their
-            // block field defaults to Text. Match the key used by the delta.
-            UpstreamProtocol::Gemini => (u64::from(key.index == u32::MAX - 2), 0),
+            UpstreamProtocol::Gemini => {
+                let next = (self.blocks.len() as u64, 0);
+                if !matches!(event.kind, EventKind::Delta | EventKind::Signature) {
+                    return next;
+                }
+                // Only the leading part can continue the previous frame. An
+                // attached signature always refers to the part just decoded.
+                if (key.part == 0 || event.kind == EventKind::Signature)
+                    && let Some((&last, slot)) = self.blocks.last_key_value()
+                    && !slot.ended
+                    && matches!(
+                        (&slot.kind, block),
+                        (BlockKind::Text, Kind::Text)
+                            | (BlockKind::ReasoningSummary, Kind::ReasoningSummary)
+                    )
+                {
+                    last
+                } else {
+                    next
+                }
+            }
         }
     }
     fn images(&mut self, value: Value, out: &mut Vec<Event>) -> Result<(), RelayError> {
@@ -456,7 +476,7 @@ impl Decoder {
             if event.key.choice != 0 {
                 return Err(RelayError::Protocol("invalid candidate index"));
             }
-            let key = self.key(event.key, event.block);
+            let key = self.key(event);
             if matches!(event.kind, EventKind::ChoiceEnd | EventKind::Finish) && !receipt {
                 self.receipt(value, out)?;
                 receipt = true;
@@ -522,10 +542,9 @@ impl Decoder {
                     self.signature(key, &required(&payload, event.a)?, out)?;
                 }
                 EventKind::ToolComplete => {
-                    let key = (2, self.gemini_calls);
-                    self.gemini_calls += 1;
                     let id = span(&payload, event.a)?
-                        .unwrap_or_else(|| format!("call_gemini_{}", key.1));
+                        .unwrap_or_else(|| format!("call_gemini_{}", self.gemini_calls));
+                    self.gemini_calls += 1;
                     self.block(
                         key,
                         BlockKind::Tool {

@@ -194,6 +194,42 @@ fn gemini_complete_response_preserves_signed_parts_on_both_sides_of_a_tool() {
 }
 
 #[test]
+fn gemini_stream_separates_signed_parts_and_resumes_the_last_text_across_frames() {
+    let mut decoder = Decoder::new(UpstreamProtocol::Gemini, &Limits::default());
+    let first = json!({"responseId":"r1","modelVersion":"m","candidates":[{"index":0,
+        "content":{"role":"model","parts":[{"text":"pre","thoughtSignature":"sig-a"},
+            {"text":"before","thoughtSignature":"sig-b"},
+            {"functionCall":{"name":"lookup","args":{}}},{"text":"af"}]}}]});
+    let last = json!({"candidates":[{"index":0,"content":{"role":"model","parts":[
+        {"text":"ter","thoughtSignature":"sig-c"}]},"finishReason":"STOP"}]});
+    let mut parser = super::sse::Parser::new(Limits::default().event_bytes);
+    let mut events = Vec::new();
+    for byte in format!("data: {first}\r\n\r\ndata: {last}\r\n\r\n").bytes() {
+        if let Some(frame) = parser.feed(byte).unwrap() {
+            events.extend(decoder.frame(frame).unwrap());
+        }
+    }
+    parser.finish().unwrap();
+    events.extend(decoder.eof().unwrap());
+    let bytes = encode(ClientProtocol::Responses, true, events);
+    let packets = packets(&bytes);
+    let terminal = packets.last().unwrap();
+    assert_eq!(terminal["type"], "response.completed");
+    let output = terminal["response"]["output"].as_array().unwrap();
+    assert_eq!(output.len(), 4);
+    for (i, text, signature) in [
+        (0, "pre", "sig-a"),
+        (1, "before", "sig-b"),
+        (3, "after", "sig-c"),
+    ] {
+        assert_eq!(output[i]["content"][0]["text"], text);
+        assert_eq!(output[i]["provider_metadata"]["signature"], signature);
+    }
+    assert_eq!(output[2]["type"], "function_call");
+    assert_eq!(output[2]["call_id"], "call_gemini_0");
+}
+
+#[test]
 fn gemini_summary_survives_native_and_responses_json_and_stream_outputs() {
     for stream in [false, true] {
         for client in [ClientProtocol::Gemini, ClientProtocol::Responses] {
