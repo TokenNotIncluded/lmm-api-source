@@ -32,7 +32,7 @@ jobs:
           node --test scripts/workflow-topology.test.mjs
           python3 -B -m unittest discover -s scripts/ci -p 'test_core_cadence.py'
       - name: Show the pinned Core formatting diff
-        if: ${{ steps.changed.outputs.core_format == 'true' }}
+        if: ${{ !cancelled() && steps.changed.outputs.core_format == 'true' }}
         working-directory: services/core
         run: |
           cargo fmt --all
