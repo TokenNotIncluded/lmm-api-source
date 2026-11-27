@@ -71,7 +71,13 @@ impl CompatibilityProvider {
             if body["stream"] != true {
                 return Json(full).into_response();
             }
-            let events = if chat {
+            let events = if chat && body["model"] == "compat-4" {
+                vec![
+                    json!({"id":"synthetic-chat","provider":"Synthetic","choices":[{"index":0,"delta":{"role":"assistant","content":"synthetic answer"},"finish_reason":null}]}),
+                    json!({"id":"synthetic-chat","provider":"Synthetic","choices":[{"index":0,"delta":{},"finish_reason":"stop","native_finish_reason":"stop"}]}),
+                    json!({"id":"synthetic-chat","provider":"Synthetic","choices":[{"index":0,"delta":{"content":""},"finish_reason":"stop","native_finish_reason":"stop"}],"usage":full["usage"]}),
+                ]
+            } else if chat {
                 vec![
                     json!({"id":"synthetic-chat","choices":[{"index":0,"delta":{"role":"assistant","content":"synthetic answer"},"finish_reason":null}]}),
                     json!({"id":"synthetic-chat","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":full["usage"]}),
@@ -119,7 +125,7 @@ fn compatibility_gateway(f: &Fixture, base: &str, protocol: Protocol) -> ModelGa
     let original = gateway(f, base, vec![]);
     let mut document = original.bridge.routing.catalog_document().unwrap();
     document.routing.upstreams[0].protocol = protocol;
-    let policies: Vec<routing::PayloadPolicy> = vec![
+    let mut policies: Vec<routing::PayloadPolicy> = vec![
         serde_json::from_value(json!({"legacy_openai":{}})).unwrap(),
         serde_json::from_value(json!({"legacy_openai":{
             "allow_service_tier":true,"allow_inference_geo":true,"allow_speed":true,
@@ -129,6 +135,9 @@ fn compatibility_gateway(f: &Fixture, base: &str, protocol: Protocol) -> ModelGa
         routing::PayloadPolicy::Adapt,
         routing::PayloadPolicy::Passthrough,
     ];
+    if protocol == Protocol::OpenAiChat {
+        policies.push(routing::PayloadPolicy::OpenRouter);
+    }
     let route = document.routing.routes[0].clone();
     let price = document.pricing.rules[0].clone();
     document.routing.routes.clear();
@@ -237,6 +246,58 @@ async fn compatibility_call(
         String::from_utf8(bytes.to_vec()).unwrap(),
         request_id,
     )
+}
+
+#[sqlx::test(migrations = false)]
+async fn openrouter_stream_usage_tail_settles_once_through_chat_gateway(pool: PgPool) {
+    let f = fixture(pool, 10_000_000).await;
+    let provider = CompatibilityProvider::start().await;
+    let gateway = compatibility_gateway(&f, &provider.endpoint, Protocol::OpenAiChat);
+    let body = json!({
+        "model":"compat-4","messages":[{"role":"user","content":"hello"}],
+        "max_tokens":16,"stream":true,"stream_options":{"include_usage":true}
+    });
+    let (status, response, request_id) = compatibility_call(
+        &gateway,
+        &f,
+        true,
+        "openrouter-usage-tail",
+        body.to_string(),
+    )
+    .await;
+
+    assert_eq!(status, 200, "{response}");
+    assert!(response.contains("synthetic answer"), "{response}");
+    assert_eq!(response.matches("[DONE]").count(), 1);
+    assert_eq!(response.matches("\"finish_reason\":\"stop\"").count(), 1);
+    assert!(
+        response.contains("\"prompt_tokens\":2") && response.contains("\"completion_tokens\":3")
+    );
+    assert_eq!(provider.bodies.lock().unwrap().len(), 1);
+
+    let charge: (String, Option<String>, i64, i64, i64) = sqlx::query_as(
+        "SELECT state,outcome,settled,input_tokens,output_tokens FROM core_charging.requests WHERE id=$1",
+    ).bind(&request_id).fetch_one(&f.pool).await.unwrap();
+    assert_eq!(
+        charge,
+        ("settled".into(), Some("completed".into()), 2, 2, 3)
+    );
+    let final_events: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core_charging.usage_events WHERE request_id=$1 AND event_id='final'",
+    )
+    .bind(&request_id)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(final_events, 1);
+    // Chat has more than one terminal wire packet. Each checkpoint must
+    // carry the same evidence, while the accounting event remains unique.
+    let terminal_usage_matches: bool = sqlx::query_scalar(
+        "SELECT COALESCE(bool_and(provider_usage @> '{\"input_tokens\":2,\"output_tokens\":3}'::jsonb),false)
+         FROM core_model.output_checkpoints WHERE request_id=$1 AND terminal_observed",
+    ).bind(&request_id).fetch_one(&f.pool).await.unwrap();
+    assert!(terminal_usage_matches);
+    assert_balance(&f, 9_999_998, 0).await;
 }
 
 #[sqlx::test(migrations = false)]
