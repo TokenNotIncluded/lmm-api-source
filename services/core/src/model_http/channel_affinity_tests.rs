@@ -38,6 +38,15 @@ fn policies(gateway: &ModelGateway, keep: bool, switch: bool, capacity: usize) {
 async fn model_call(gateway: &ModelGateway, f: &Fixture, key: &str, id: &str) -> (u16, String) {
     let body = json!({"model":"small-model","prompt_cache_key":key,"max_tokens":16,
         "messages":[{"role":"user","content":"hello"}]});
+    model_call_body(gateway, f, body, id).await
+}
+
+async fn model_call_body(
+    gateway: &ModelGateway,
+    f: &Fixture,
+    body: Value,
+    id: &str,
+) -> (u16, String) {
     let request = axum::http::Request::builder()
         .method("POST")
         .uri("/v1/chat/completions")
@@ -460,4 +469,78 @@ fn prompt_cache_affinity_separates_users_grants_hint_sources_and_explicit_sessio
         ),
         None
     );
+}
+
+#[sqlx::test(migrations = false)]
+async fn prompt_cache_affinity_pg_keeps_a_warm_upstream_credential(pool: PgPool) {
+    use std::collections::HashSet;
+    type Prefixes = Arc<Mutex<HashSet<(String, String)>>>;
+
+    async fn supplier(
+        State(prefixes): State<Prefixes>,
+        headers: HeaderMap,
+        Json(body): Json<Value>,
+    ) -> Json<Value> {
+        let key = headers[header::AUTHORIZATION].to_str().unwrap().to_owned();
+        let prefix = body["messages"][0]["content"].as_str().unwrap().to_owned();
+        let turn = body["messages"][1]["content"].as_str().unwrap();
+        let cold = prefixes.lock().unwrap().insert((key, prefix));
+        Json(
+            json!({"id":format!("reply-{turn}"), "object":"chat.completion",
+            "choices":[{"index":0,"message":{"role":"assistant","content":turn},"finish_reason":"stop"}],
+            "usage":{"prompt_tokens":1026,"completion_tokens":1,"prompt_tokens_details":{"cached_tokens":if cold {0} else {1024}}}}),
+        )
+    }
+
+    let f = fixture(pool, 10_000_000).await;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/v1", listener.local_addr().unwrap());
+    let prefixes = Prefixes::default();
+    let app = Router::new()
+        .route("/v1/chat/completions", post(supplier))
+        .with_state(prefixes.clone());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let g = failover_gateway(&f, &base, &base, false, false, false);
+    let primary = CredentialRef { id: 7, revision: 1 };
+    let secondary = CredentialRef { id: 8, revision: 2 };
+    g.bridge
+        .credentials
+        .append(vec![UpstreamCredential {
+            reference: secondary,
+            secret: "synthetic-cache-key-two".into(),
+        }])
+        .unwrap();
+    g.bridge
+        .routing
+        .install_credential_pools(
+            g.bridge.routing.version().unwrap(),
+            &BTreeMap::from([(1, vec![primary, secondary])]),
+        )
+        .unwrap();
+    for (name, cache_key, expected) in [
+        ("round-robin", None, [0, 0, 1024, 1024, 0]),
+        ("affinity", Some("session-a"), [0, 1024, 1024, 1024, 0]),
+    ] {
+        let mut observed = Vec::new();
+        for (turn, word) in ["warm", "warm", "warm", "warm", "changed"]
+            .iter()
+            .enumerate()
+        {
+            let id = format!("credential-cache-{name}-{turn}");
+            let prefix = format!("{name} {word} ").repeat(1024);
+            let mut body = json!({"model":"small-model","max_tokens":16,
+                "messages":[{"role":"system","content":prefix},{"role":"user","content":id}]});
+            if let Some(key) = cache_key {
+                body["prompt_cache_key"] = json!(key);
+            }
+            let (status, id) = model_call_body(&g, &f, body, &id).await;
+            assert_eq!(status, 200);
+            let charge = g.bridge.charging.resolve(&id).await.unwrap().unwrap();
+            assert_eq!(charge.state, "settled");
+            observed.push(charge.usage.cached);
+        }
+        assert_eq!(observed, expected, "{name}");
+    }
+    assert_eq!(prefixes.lock().unwrap().len(), 5);
+    server.abort();
 }

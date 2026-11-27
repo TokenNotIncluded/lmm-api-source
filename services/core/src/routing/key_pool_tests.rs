@@ -326,3 +326,58 @@ fn key_snapshot_keeps_admission_ordinal_after_reorder_and_removal() {
         original,
     );
 }
+
+#[test]
+fn key_pool_affinity_honors_health_and_preserves_the_round_robin_cursor() {
+    use std::collections::{HashMap, HashSet};
+
+    let (mut config, prices) = fixture(1);
+    config.routes[0].targets.truncate(1);
+    let primary = config.upstreams[0].credential;
+    let secondary = CredentialRef {
+        id: 101,
+        revision: 1,
+    };
+    let router = build(config, prices);
+    let version = router.version().unwrap();
+    router
+        .install_credential_pools(version, &BTreeMap::from([(1, vec![primary, secondary])]))
+        .unwrap();
+
+    let select = |scope| {
+        router
+            .route_adapted_groups("model-a", &["default".into()], Protocol::OpenAiChat, scope)
+            .unwrap()
+            .into_iter()
+            .next()
+            .and_then(|mut plan| plan.start().ok())
+            .map(|attempt| attempt.credential_ref())
+    };
+    let scope = Some([19; 32]);
+    let pinned = select(scope).unwrap();
+    for _ in 0..4 {
+        assert_eq!(select(scope), Some(pinned));
+    }
+    let spread: HashSet<_> = (0..64).map(|n| select(Some([n; 32])).unwrap()).collect();
+    assert_eq!(spread.len(), 2);
+    assert_eq!(select(None), Some(primary));
+    assert_eq!(select(scope), Some(pinned));
+    assert_eq!(select(None), Some(secondary));
+
+    let remaining = if pinned == primary {
+        secondary
+    } else {
+        primary
+    };
+    for (close_channel, expected) in [(false, Some(remaining)), (true, None)] {
+        router
+            .install_health(
+                version,
+                &HashMap::from([(1, HashMap::from([(pinned, close_channel)]))]),
+            )
+            .unwrap();
+        assert_eq!(select(scope), expected);
+    }
+    router.install_health(version, &HashMap::new()).unwrap();
+    assert_eq!(select(scope), Some(pinned));
+}

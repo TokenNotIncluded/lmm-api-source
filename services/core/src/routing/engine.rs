@@ -53,13 +53,11 @@ struct CredentialPool {
     next: AtomicUsize,
 }
 
-impl CredentialPool {
-    fn select(&self) -> CredentialRef {
-        if self.references.len() == 1 {
-            return self.references[0];
-        }
-        self.references[self.next.fetch_add(1, Ordering::Relaxed) % self.references.len()]
-    }
+#[derive(Default)]
+struct RequestCredentials {
+    // Already scoped to the authenticated principal. No caller data is stored.
+    affinity: Option<[u8; 32]>,
+    selected: HashMap<u64, CredentialRef>,
 }
 
 struct Upstream {
@@ -77,15 +75,30 @@ impl Upstream {
             !entries.contains_key(&key) && !entries.values().any(|channel| *channel)
         })
     }
-    fn select_key(&self) -> Option<CredentialRef> {
-        if self.disabled_keys.read().is_ok_and(|keys| keys.is_empty()) {
-            return Some(self.credentials.select());
-        }
+    fn select_key(&self, affinity: Option<&[u8; 32]>) -> Option<CredentialRef> {
         let keys = &self.credentials.references;
-        let first = self.credentials.next.fetch_add(1, Ordering::Relaxed) % keys.len();
-        (0..keys.len())
-            .map(|i| keys[(first + i) % keys.len()])
-            .find(|&key| self.key_available(key))
+        let disabled = self.disabled_keys.read().ok()?;
+        if disabled.values().any(|close_channel| *close_channel) {
+            return None;
+        }
+        let first = if keys.len() == 1 {
+            0
+        } else if let Some(scope) = affinity {
+            let mut hash = Sha256::new();
+            hash.update(b"lmm-upstream-key-affinity-v1\0");
+            hash.update(scope);
+            hash.update(self.config.id.to_be_bytes());
+            let digest = hash.finalize();
+            let bucket = u64::from_be_bytes(digest[..8].try_into().unwrap());
+            (bucket % keys.len() as u64) as usize
+        } else {
+            self.credentials.next.fetch_add(1, Ordering::Relaxed) % keys.len()
+        };
+        keys[first..]
+            .iter()
+            .chain(&keys[..first])
+            .copied()
+            .find(|key| !disabled.contains_key(key))
     }
 }
 
@@ -729,7 +742,7 @@ impl Snapshot {
             &mut rand::rng(),
             RouteTransport::ResponsesHttp { pinned_target },
             require_speed_field,
-            &mut HashMap::new(),
+            &mut RequestCredentials::default(),
         )
     }
 
@@ -784,7 +797,10 @@ impl Snapshot {
         let mut plans = Vec::new();
         // All group alternatives belong to one request. Advance each channel's
         // pool once so unused group plans cannot starve a key from actual traffic.
-        let mut credentials = HashMap::new();
+        let mut credentials = RequestCredentials {
+            affinity,
+            ..Default::default()
+        };
         for group in groups {
             let request = RouteRequest {
                 model,
@@ -852,7 +868,7 @@ impl Router {
             rng,
             RouteTransport::Http { allow_passthrough },
             false,
-            &mut HashMap::new(),
+            &mut RequestCredentials::default(),
         )
     }
 
@@ -862,7 +878,7 @@ impl Router {
         rng: &mut R,
         transport: RouteTransport,
         require_speed_field: bool,
-        credentials: &mut HashMap<u64, CredentialRef>,
+        credentials: &mut RequestCredentials,
     ) -> Result<RoutePlan, RoutingError> {
         if !valid_group(request.group) {
             return Err(RoutingError::InvalidRequest);
@@ -993,13 +1009,14 @@ impl Router {
                 | RouteTransport::ResponsesWebSocket {
                     pinned_target: Some(pinned_target),
                 } => pinned_target.1,
-                _ => match credentials.get(&target.upstream.config.id) {
+                _ => match credentials.selected.get(&target.upstream.config.id) {
                     Some(&key) => key,
                     None => {
-                        let Some(key) = target.upstream.select_key() else {
+                        let Some(key) = target.upstream.select_key(credentials.affinity.as_ref())
+                        else {
                             continue;
                         };
-                        credentials.insert(target.upstream.config.id, key);
+                        credentials.selected.insert(target.upstream.config.id, key);
                         key
                     }
                 },
