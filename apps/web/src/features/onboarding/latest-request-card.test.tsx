@@ -115,7 +115,7 @@ for (const state of ['reserved', 'streaming', 'reconcile', 'released']) {
       const status = [...view.container.querySelectorAll('dt')].find(
         (element) => element.textContent === 'Status'
       )?.nextElementSibling?.textContent
-      assert.equal(status, state === 'reconcile' ? 'Unknown' : 'Incomplete')
+      assert.equal(status, state === 'reconcile' ? 'Reconciling' : 'Incomplete')
       assert.doesNotMatch(
         view.container.textContent ?? '',
         /Failed|Ask AI assistant|Successful API response observed/

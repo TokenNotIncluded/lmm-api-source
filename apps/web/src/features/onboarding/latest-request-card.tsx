@@ -15,7 +15,7 @@ const requestStatusLabels = {
   successful: 'Successful API response observed',
   recorded: 'Usage recorded; check details for the request outcome.',
   incomplete: 'Incomplete',
-  unknown: 'Unknown',
+  reconcile: 'Reconciling',
 } satisfies Record<ReturnType<typeof latestRequestStatus>, string>
 
 export function LatestRequestCard() {
