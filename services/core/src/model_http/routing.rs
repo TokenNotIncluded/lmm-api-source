@@ -292,6 +292,51 @@ pub(super) fn credit_price_with_calendar(
     Ok(price)
 }
 
+/// Resolve the selected wire and reject downstream usage partitions the supplier cannot report.
+pub(super) fn text_upstream_protocol(
+    client: Protocol,
+    wire: Protocol,
+) -> Result<UpstreamProtocol, RelayError> {
+    let upstream = match wire {
+        Protocol::OpenAiChat => UpstreamProtocol::Chat,
+        Protocol::OpenAiResponses => UpstreamProtocol::Responses,
+        Protocol::AnthropicMessages => UpstreamProtocol::Anthropic,
+        Protocol::Gemini => UpstreamProtocol::Gemini,
+        _ => {
+            return Err(RelayError::Unsupported(
+                "System One requires its native endpoint",
+            ));
+        }
+    };
+    if client == Protocol::AnthropicMessages && upstream == UpstreamProtocol::Gemini {
+        return Err(RelayError::Unsupported(
+            "Gemini usageMetadata does not report cache creation for Anthropic input_tokens",
+        ));
+    }
+    Ok(upstream)
+}
+
+pub(super) fn require_text_target_tariff(
+    payload: crate::routing::PayloadPolicy,
+    protocol: Protocol,
+    revision: Option<u32>,
+) -> Result<(), RelayError> {
+    if payload == crate::routing::PayloadPolicy::LegacyOpenRouterChatUsageV1
+        && (protocol != Protocol::OpenAiChat || revision != Some(3))
+    {
+        return Err(RelayError::Unsupported(
+            "legacy OpenRouter usage requires decimal revision3",
+        ));
+    }
+    if revision == Some(4) && !matches!(protocol, Protocol::OpenAiChat | Protocol::OpenAiResponses)
+    {
+        return Err(RelayError::Unsupported(
+            "twelve-hour cache pricing requires an OpenAI protocol route",
+        ));
+    }
+    Ok(())
+}
+
 /// Keep provider base prefixes and encode model identifiers as one segment.
 /// Only Gemini's streaming switch can add a query, always server-derived.
 pub(super) fn operation_endpoint(
@@ -359,35 +404,15 @@ impl Bridge {
             attempt.protocol(),
             &price,
         )?;
-        if attempt.payload_policy() == crate::routing::PayloadPolicy::LegacyOpenRouterChatUsageV1
-            && !price
-                .tiered
-                .as_ref()
-                .is_some_and(|t| t.tariff.revision == 3)
-        {
-            return Err(RelayError::Unsupported(
-                "legacy OpenRouter usage requires decimal revision3",
-            ));
-        }
+        require_text_target_tariff(
+            attempt.payload_policy(),
+            attempt.protocol(),
+            price.tiered.as_ref().map(|t| t.tariff.revision),
+        )?;
         if let Some(tariff) = &mut price.tiered {
-            if tariff.tariff.revision == 4
-                && !matches!(
-                    attempt.protocol(),
-                    Protocol::OpenAiChat | Protocol::OpenAiResponses
-                )
-            {
-                return Err(RelayError::Unsupported(
-                    "twelve-hour cache pricing requires an OpenAI protocol route",
-                ));
-            }
             tariff.input_semantics = if attempt.payload_policy()
                 == crate::routing::PayloadPolicy::LegacyOpenRouterChatUsageV1
             {
-                if attempt.protocol() != Protocol::OpenAiChat || tariff.tariff.revision != 3 {
-                    return Err(RelayError::Unsupported(
-                        "legacy OpenRouter usage requires decimal revision3",
-                    ));
-                }
                 crate::routing::InputSemantics::AnthropicText
             } else if attempt.protocol() == Protocol::AnthropicMessages {
                 crate::routing::InputSemantics::AnthropicText
@@ -416,32 +441,16 @@ impl Bridge {
         {
             return Err(RelayError::RouteUnavailable);
         }
-        let upstream = match attempt.payload_policy().wire_protocol(
+        let upstream = text_upstream_protocol(
             protocol,
-            attempt.protocol(),
-            model_policy,
-            attempt.upstream_id(),
-            &request.model,
-        ) {
-            Protocol::OpenAiChat => UpstreamProtocol::Chat,
-            Protocol::OpenAiResponses => UpstreamProtocol::Responses,
-            Protocol::AnthropicMessages => UpstreamProtocol::Anthropic,
-            Protocol::Gemini => UpstreamProtocol::Gemini,
-            Protocol::SystemOne
-            | Protocol::OpenAiEmbeddings
-            | Protocol::JinaRerank
-            | Protocol::DeepSeekSearch
-            | Protocol::DeepSeekFetch => {
-                return Err(RelayError::Unsupported(
-                    "System One requires its native endpoint",
-                ));
-            }
-        };
-        if request.client == ClientProtocol::Anthropic && upstream == UpstreamProtocol::Gemini {
-            return Err(RelayError::Unsupported(
-                "Gemini usageMetadata does not report cache creation for Anthropic input_tokens",
-            ));
-        }
+            attempt.payload_policy().wire_protocol(
+                protocol,
+                attempt.protocol(),
+                model_policy,
+                attempt.upstream_id(),
+                &request.model,
+            ),
+        )?;
         let reference = attempt.credential_ref();
         let secret = self
             .credentials

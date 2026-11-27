@@ -322,6 +322,13 @@ impl CatalogSurface {
         };
         let prices =
             PriceSnapshot::compile(document.pricing).map_err(|_| CatalogError::Unavailable)?;
+        let model_policy = document
+            .routing
+            .global_model_policy
+            .clone()
+            .map(|p| p.compile(&document.routing.upstreams))
+            .transpose()
+            .map_err(|_| CatalogError::Unavailable)?;
         let upstreams: BTreeMap<_, _> = document
             .routing
             .upstreams
@@ -375,6 +382,7 @@ impl CatalogSurface {
                     let apis: Vec<_> = [
                         (Protocol::OpenAiChat, "openai-completions"),
                         (Protocol::OpenAiResponses, "openai-responses"),
+                        (Protocol::AnthropicMessages, "anthropic-messages"),
                         (Protocol::SystemOne, "system-one"),
                         (Protocol::OpenAiEmbeddings, "openai-embeddings"),
                         (Protocol::JinaRerank, "jina-rerank"),
@@ -387,6 +395,7 @@ impl CatalogSurface {
                             route,
                             name,
                             client,
+                            model_policy.as_ref(),
                             &upstreams,
                             credentials,
                             limits.total_timeout,
@@ -675,6 +684,7 @@ fn api_supported(
     route: &ModelRoute,
     name: &str,
     client: Protocol,
+    model_policy: Option<&crate::routing::model_policy::Compiled>,
     upstreams: &BTreeMap<u64, &UpstreamConfig>,
     credentials: &BTreeMap<(u64, u64), String>,
     total_timeout: Duration,
@@ -798,7 +808,29 @@ fn api_supported(
                                 && super::input_api::endpoint(u.endpoint.as_str(), u.protocol)
                                     .is_ok()
                         } else {
-                            route_is_constructible(route, t, u, secret, quote)
+                            if provider_policy.is_some_and(|(policy, bound)| {
+                                policy
+                                    .validate_binding_at(
+                                        routing_version,
+                                        u.id,
+                                        &t.upstream_model,
+                                        u.protocol,
+                                        u.endpoint.as_str(),
+                                        bound,
+                                        0,
+                                    )
+                                    .is_err()
+                            }) {
+                                return false;
+                            }
+                            let wire = t.payload.wire_protocol(
+                                client,
+                                u.protocol,
+                                model_policy,
+                                u.id,
+                                name,
+                            );
+                            route_is_constructible(route, t, u, client, wire, secret, quote)
                         }
                     })
         })
@@ -808,47 +840,48 @@ fn route_is_constructible(
     route: &ModelRoute,
     target: &crate::routing::RouteTarget,
     upstream: &UpstreamConfig,
+    client: Protocol,
+    wire: Protocol,
     secret: &str,
     quote: PriceQuote,
 ) -> bool {
-    let protocol = match upstream.protocol {
-        Protocol::OpenAiChat => crate::relay::UpstreamProtocol::Chat,
-        Protocol::OpenAiResponses => crate::relay::UpstreamProtocol::Responses,
-        _ => return false,
-    };
-    // Match operation_endpoint's no-I/O URL boundary before the real relay
-    // constructor, including public-literal validation and explicit loopback.
-    let Ok(mut endpoint) =
-        crate::relay::honeypot_network::validate_base_url(upstream.endpoint.as_str(), true)
-    else {
+    let Ok(protocol) = super::routing::text_upstream_protocol(client, wire) else {
         return false;
     };
+    let revision = quote.tiered().map(|price| price.tariff().revision);
+    if super::routing::require_text_target_tariff(target.payload, upstream.protocol, revision)
+        .is_err()
     {
-        let Ok(mut segments) = endpoint.path_segments_mut() else {
+        return false;
+    }
+    // Use the same validated operation URL and credential as dispatch. The Gemini
+    // streaming operation alone has its own path and a server-owned query.
+    let valid = |stream| {
+        let Ok(endpoint) = super::routing::operation_endpoint(
+            upstream.endpoint.as_str(),
+            protocol,
+            &target.upstream_model,
+            stream,
+        ) else {
             return false;
         };
-        segments.pop_if_empty();
-        match protocol {
-            crate::relay::UpstreamProtocol::Chat => {
-                segments.push("chat").push("completions");
-            }
-            crate::relay::UpstreamProtocol::Responses => {
-                segments.push("responses");
-            }
-            _ => return false,
+        if quote.billing_mode() == BillingMode::UpstreamCost
+            && !crate::relay::honeypot_network::literal_ip(&endpoint)
+                .is_some_and(|ip| ip.is_loopback())
+        {
+            return false;
         }
-    }
-    // Use the real no-I/O route constructor, including sensitive HeaderValue
-    // validation. A credential ref being loaded does not prove a usable header.
-    crate::relay::Route::new(
-        crate::routing::route_key(route.id, target.id, upstream.id),
-        protocol,
-        endpoint.as_str(),
-        target.upstream_model.clone(),
-        secret,
-        quote.version(),
-    )
-    .is_ok()
+        crate::relay::Route::new(
+            crate::routing::route_key(route.id, target.id, upstream.id),
+            protocol,
+            endpoint.as_str(),
+            target.upstream_model.clone(),
+            secret,
+            quote.version(),
+        )
+        .is_ok()
+    };
+    valid(false) && (protocol != crate::relay::UpstreamProtocol::Gemini || valid(true))
 }
 
 fn pricing(
@@ -1175,7 +1208,14 @@ mod tests {
     #[test]
     fn client_protocols_public_metadata_matches_target_restrictions() {
         for (restriction, apis) in [
-            (None, vec!["openai-completions", "openai-responses"]),
+            (
+                None,
+                vec![
+                    "openai-completions",
+                    "openai-responses",
+                    "anthropic-messages",
+                ],
+            ),
             (
                 Some(vec![Protocol::OpenAiResponses]),
                 vec!["openai-responses"],
@@ -1312,7 +1352,11 @@ mod tests {
         let v = serde_json::to_value(view(&s)).unwrap();
         assert_eq!(
             v["models"][0]["apis"],
-            serde_json::json!(["openai-completions", "openai-responses"])
+            serde_json::json!([
+                "openai-completions",
+                "openai-responses",
+                "anthropic-messages"
+            ])
         );
         assert_eq!(v["models"][0]["pricing"]["input"].to_string(), "2.5");
         assert_eq!(v["models"][0]["pricing"]["output"].to_string(), "5");
@@ -1348,6 +1392,7 @@ mod tests {
         let mut other = r.upstreams[0].clone();
         other.id = 2;
         other.protocol = Protocol::Gemini;
+        other.credential.id = 2;
         r.upstreams.push(other);
         let mut target = r.routes[0].targets[0].clone();
         target.id = 2;
@@ -1559,7 +1604,11 @@ mod tests {
             assert_eq!(text.models.len(), 1);
             assert_eq!(
                 text.models[0].apis,
-                ["openai-completions", "openai-responses"]
+                [
+                    "openai-completions",
+                    "openai-responses",
+                    "anthropic-messages"
+                ]
             );
             assert_eq!(text.models[0].pricing.unit, "successful_requests");
             assert!(text.models[0].pricing.input.is_none());
@@ -1843,7 +1892,11 @@ mod tests {
                 assert_eq!(catalog.groups.len(), 1);
                 assert_eq!(
                     catalog.models[0].apis,
-                    ["openai-completions", "openai-responses"]
+                    [
+                        "openai-completions",
+                        "openai-responses",
+                        "anthropic-messages"
+                    ]
                 );
                 assert_eq!(
                     catalog.models[0]
@@ -1920,13 +1973,20 @@ mod tests {
                 // Chat's passthrough target is not selectable for Responses;
                 // retain the first Adapt target's actual Responses surface.
                 assert_eq!(catalog.models.len(), 1);
-                assert_eq!(catalog.models[0].apis, ["openai-responses"]);
+                assert_eq!(
+                    catalog.models[0].apis,
+                    ["openai-responses", "anthropic-messages"]
+                );
             } else if mode == 4 {
                 // A disabled raw target cannot be selected; the adapted route serves both APIs.
                 assert_eq!(catalog.models.len(), 1);
                 assert_eq!(
                     catalog.models[0].apis,
-                    ["openai-completions", "openai-responses"]
+                    [
+                        "openai-completions",
+                        "openai-responses",
+                        "anthropic-messages"
+                    ]
                 );
             } else {
                 assert!(catalog.models.is_empty(), "mode {mode}");
@@ -1967,15 +2027,44 @@ mod tests {
             let (_, surface) = surface(r, p);
             assert!(view(&surface).models.is_empty(), "{endpoint}");
         }
-        for protocol in [Protocol::AnthropicMessages, Protocol::Gemini] {
+    }
+    #[test]
+    fn oauth_catalog_admits_portable_text_across_all_eligible_supplier_targets() {
+        for (protocol, anthropic) in [
+            (Protocol::AnthropicMessages, true),
+            (Protocol::Gemini, false),
+        ] {
             let (mut r, p) = fixture("model");
             r.upstreams[0].endpoint = "https://synthetic.invalid/v1"
                 .to_owned()
                 .try_into()
                 .unwrap();
             r.upstreams[0].protocol = protocol;
-            let (_, s) = surface(r, p);
-            assert!(view(&s).models.is_empty());
+            for mixed in [false, true] {
+                let mut r = r.clone();
+                if mixed {
+                    let mut other = r.upstreams[0].clone();
+                    other.id = 2;
+                    other.protocol = Protocol::OpenAiChat;
+                    r.upstreams.push(other);
+                    let mut target = r.routes[0].targets[0].clone();
+                    target.id = 2;
+                    target.upstream_id = 2;
+                    target.priority = 99;
+                    r.routes[0].targets.push(target);
+                }
+                let (_, s) = surface(r, p.clone());
+                let catalog = view(&s);
+                assert_eq!(
+                    catalog.models.len(),
+                    1,
+                    "supplier={protocol:?} mixed={mixed}"
+                );
+                let apis = &catalog.models[0].apis;
+                assert_eq!(&apis[..2], ["openai-completions", "openai-responses"]);
+                assert_eq!(apis.contains(&"anthropic-messages"), anthropic);
+                assert_eq!(apis.len(), if anthropic { 3 } else { 2 });
+            }
         }
     }
     #[test]
