@@ -146,7 +146,7 @@ test('automatic checks and explicit source-release requests have bounded trigger
       assert.doesNotMatch(block[1], /pull_request|schedule:/);
       assert.match(source, /DEPLOY_TARGETS: \$\{\{ vars\.DEPLOY_TARGETS \}\}/);
       assert.match(source, /git merge-base --is-ancestor "\$revision" origin\/main/);
-      assert.match(source, /needs: \[plan, ci-gate, build\]/);
+      assert.match(source, /needs: \[plan, ci-gate, build, deploy-preflight\]/);
       assert.match(source, /cancel-in-progress: false/);
       assert.match(source, /ANSIBLE_HOST_KEY_CHECKING: 'True'/);
       assert.doesNotMatch(source, /ArchDmit|DmitUbuntu|native\.api\.lmm\.best|contents: write|id-token: write/);
@@ -661,4 +661,17 @@ test('financial and RPC acceptance run independently and remain required in Core
   assert.match(financial, /LMM_FINANCIAL_PG_TEST: "1"\n        run: python3 -B scripts\/run-reviewed-financial-tests\.py/);
   assert.match(rpc, /packages\/extore[\s\S]*python3 -B scripts\/check-extore-plugin-pin\.py/);
   assert.match(rpc, /run: \|[\s\S]*python3 -B scripts\/test-core-rpc-docker\.py/);
+});
+
+test('deployment runs the rollback fixture alongside packaging before production access', () => {
+  const source = workflow('deploy');
+  const preflight = source.match(/^  deploy-preflight:\n([\s\S]*?)(?=^  deploy:\n)/m)?.[1];
+  assert.ok(preflight);
+  assert.match(preflight, /needs: \[plan, ci-gate\]/);
+  assert.match(preflight, /ref: \$\{\{ needs\.plan\.outputs\.revision \}\}/);
+  assert.match(preflight, /scripts\/test-retain-web-static\.py/);
+  assert.match(preflight, /scripts\/test-deployment-rollback\.py/);
+  assert.doesNotMatch(preflight, /environment:|SSH_PRIVATE_KEY|secrets\./);
+  assert.match(source, /^  build:\n    needs: \[plan, ci-gate\]/m);
+  assert.match(source, /^  deploy:\n    needs: \[plan, ci-gate, build, deploy-preflight\]/m);
 });
