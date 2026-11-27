@@ -65,11 +65,11 @@ async function session(browser, username, destination) {
 
 async function request(page, identity, path, body, method = body === undefined ? 'GET' : 'POST', expectedStatus = 200) {
   const result = await page.evaluate(async ({ identity, path, body, method }) => {
-    let bearer
-    if (typeof identity === 'string') {
-      if (!path.startsWith('/v1/')) throw new Error('API key used outside the model API')
-      bearer = identity
-    } else {
+    async function currentBearer() {
+      if (typeof identity === 'string') {
+        if (!path.startsWith('/v1/')) throw new Error('API key used outside the model API')
+        return identity
+      }
       if (!/^\/(?:api|core)\//.test(path)) throw new Error('Invalid dashboard request path')
       const proof = await fetch('/api/user/auth/reconcile', {
         method: 'POST', credentials: 'same-origin', mode: 'same-origin', redirect: 'error',
@@ -83,17 +83,32 @@ async function request(page, identity, path, body, method = body === undefined ?
         || typeof bundle.access_token !== 'string') {
         throw new Error('The current browser session could not be verified')
       }
-      bearer = bundle.access_token
+      return bundle.access_token
     }
-    const response = await fetch(path, {
+    const send = bearer => fetch(path, {
       method, mode: 'same-origin', credentials: 'same-origin', redirect: 'error',
       headers: { Authorization: 'Bearer ' + bearer, 'Content-Type': 'application/json',
         ...(typeof identity === 'string' ? {} : { 'X-LMM-Credit-Unit': '500000' }) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     })
-    return { status: response.status, id: response.headers.get('x-request-id'), json: await response.json() }
+    const bearer = await currentBearer()
+    let response = await send(bearer)
+    let rotation = 'none'
+    if (typeof identity !== 'string' && method === 'GET' && response.status === 401) {
+      // Reload can rotate the current session after its read-only proof. Retry only
+      // after proving a different bearer belongs to the same user and session.
+      const current = await currentBearer()
+      if (current !== bearer) {
+        rotation = 'same-session credential rotated'
+        await response.body?.cancel()
+        response = await send(current)
+      } else {
+        rotation = 'same credential rejected'
+      }
+    }
+    return { status: response.status, id: response.headers.get('x-request-id'), json: await response.json(), rotation }
   }, { identity, path, body, method })
-  assert.equal(result.status, expectedStatus, path)
+  assert.equal(result.status, expectedStatus, path + ' (' + result.rotation + ')')
   return result
 }
 
@@ -127,6 +142,7 @@ async function onboard(browser) {
     { ...proposal, confirmation_digest: seedPreview.json.data.confirmation_digest }, 'PUT')
   assert.equal(seeded.json.success, true)
   await page.reload()
+  await page.getByRole('button', { name: 'Model onboarding', exact: true }).waitFor()
   const initial = await read()
   assert.equal(initial.routing.upstreams.length, 1)
   const channelId = initial.routing.upstreams[0].id
