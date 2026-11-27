@@ -97,6 +97,12 @@ pub(super) fn encode(
     let stop = serde_json::to_string(&request.stop).expect("string array serialization");
     let size = model.len()
         + stop.len()
+        + request
+            .messages
+            .iter()
+            .filter_map(|m| m.responses_input_id.as_ref())
+            .map(String::len)
+            .sum::<usize>()
         + schemas.iter().map(String::len).sum::<usize>()
         + request
             .tools
@@ -177,7 +183,11 @@ pub(super) fn encode(
             },
             end: 0,
             extensions: Span::EMPTY,
-            item_id: Presence::Missing,
+            item_id: if target == UpstreamProtocol::Responses {
+                present(m.responses_input_id.as_deref())
+            } else {
+                Presence::Missing
+            },
             item_status: Presence::Missing,
         }));
         for b in &m.content {

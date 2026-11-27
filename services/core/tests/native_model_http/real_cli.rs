@@ -108,6 +108,26 @@ fn request_shape(value: &Value) -> std::collections::BTreeSet<String> {
                 let key = schema_name(key);
                 let path = format!("{prefix}.{key}");
                 out.insert(path.clone());
+                if key == "client_metadata"
+                    && let Some(metadata) = field.as_object()
+                {
+                    for name in metadata.keys() {
+                        let label = match name.as_str() {
+                            "session_id"
+                            | "thread_id"
+                            | "turn_id"
+                            | "root_turn_id"
+                            | "parent_turn_id"
+                            | "x-codex-window-id"
+                            | "x-codex-installation-id"
+                            | "x-codex-turn-metadata"
+                            | "x-codex-parent-thread-id"
+                            | "x-openai-subagent" => name.as_str(),
+                            _ => "other",
+                        };
+                        out.insert(format!("{path}.{label}"));
+                    }
+                }
                 if key == "type"
                     && let Some(kind) = field.as_str()
                 {

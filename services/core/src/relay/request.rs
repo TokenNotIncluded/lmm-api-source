@@ -68,6 +68,8 @@ impl Role {
 }
 #[derive(Clone, Debug)]
 pub struct Message {
+    /// Native Responses identity for an inline input message; never used to retrieve history.
+    pub(super) responses_input_id: Option<String>,
     pub role: Role,
     pub content: Vec<InputBlock>,
 }
@@ -333,6 +335,28 @@ fn string(v: &Value) -> Result<String, RelayError> {
         .map(str::to_owned)
         .ok_or(RelayError::Invalid("expected a string"))
 }
+fn responses_input_id(
+    item: &Value,
+    role: Role,
+    content: &[InputBlock],
+) -> Result<Option<String>, RelayError> {
+    if role == Role::Assistant {
+        return Ok(None);
+    }
+    let Some(id) = item.get("id") else {
+        return Ok(None);
+    };
+    if !content
+        .iter()
+        .any(|part| !matches!(part, InputBlock::Text(text) if text.is_empty()))
+    {
+        return Err(RelayError::Invalid(
+            "input message ID requires inline content",
+        ));
+    }
+    name(id).map(Some)
+}
+
 fn name(v: &Value) -> Result<String, RelayError> {
     let s = string(v)?;
     if s.is_empty()
@@ -1157,6 +1181,7 @@ impl Request {
         let mut has_display_summary = false;
         if let Some(s) = v.get("instructions").filter(|v| !v.is_null()) {
             messages.push(Message {
+                responses_input_id: None,
                 role: Role::System,
                 content: vec![InputBlock::Text(string(s)?)],
             });
@@ -1237,13 +1262,18 @@ impl Request {
                             });
                         }
                     }
-                    messages.push(Message { role, content });
+                    messages.push(Message {
+                        responses_input_id: None,
+                        role,
+                        content,
+                    });
                 }
             }
             ClientProtocol::Responses => {
                 let input = &v["input"];
                 if let Some(s) = input.as_str() {
                     messages.push(Message {
+                        responses_input_id: None,
                         role: Role::User,
                         content: vec![InputBlock::Text(s.into())],
                     });
@@ -1283,7 +1313,7 @@ impl Request {
                                         }
                                     }
                                 } else {
-                                    keys(i, &["type", "role", "content"])?;
+                                    keys(i, &["type", "role", "content", "id"])?;
                                     None
                                 };
                                 if role == Role::Tool {
@@ -1293,7 +1323,12 @@ impl Request {
                                 if role == Role::Assistant && !content.is_empty() {
                                     responses_assistant_phases.push(phase);
                                 }
-                                messages.push(Message { role, content });
+                                let responses_input_id = responses_input_id(i, role, &content)?;
+                                messages.push(Message {
+                                    responses_input_id,
+                                    role,
+                                    content,
+                                });
                             }
                             "function_call" => {
                                 keys(
@@ -1310,6 +1345,7 @@ impl Request {
                                 )?;
                                 validate_replayed_output(i)?;
                                 messages.push(Message {
+                                    responses_input_id: None,
                                     role: Role::Assistant,
                                     content: vec![InputBlock::ToolCall {
                                         id: name(&i["call_id"])?,
@@ -1374,6 +1410,7 @@ impl Request {
                             "function_call_output" => {
                                 keys(i, &["type", "call_id", "output"])?;
                                 messages.push(Message {
+                                    responses_input_id: None,
                                     role: Role::Tool,
                                     content: vec![InputBlock::ToolResult {
                                         id: name(&i["call_id"])?,
@@ -2887,6 +2924,7 @@ mod zconv_tests {
                 ClientProtocol::Gemini
             };
             request.messages.push(Message {
+                responses_input_id: None,
                 role: Role::Assistant,
                 content: vec![
                     if target == UpstreamProtocol::Gemini {
@@ -3214,3 +3252,7 @@ mod zconv_tests {
 #[cfg(test)]
 #[path = "responses_format_tests.rs"]
 mod responses_format_tests;
+
+#[cfg(test)]
+#[path = "responses_input_id_tests.rs"]
+mod responses_input_id_tests;

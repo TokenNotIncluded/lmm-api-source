@@ -397,6 +397,7 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
         .filter(|value| !value.as_array().is_some_and(Vec::is_empty))
     {
         messages.push(Message {
+            responses_input_id: None,
             role: Role::System,
             content: blocks(s, Role::System, limits)?,
         });
@@ -412,6 +413,7 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
             _ => return Err(RelayError::Invalid("invalid message role")),
         };
         messages.push(Message {
+            responses_input_id: None,
             role,
             content: blocks(&m["content"], role, limits)?,
         });
