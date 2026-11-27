@@ -245,6 +245,27 @@ impl Decoder {
             {
                 return Err(RelayError::Protocol("invalid OpenRouter BYOK metadata"));
             }
+            if usage
+                .remove("server_tool_use_details")
+                .is_some_and(|value| {
+                    !value.is_null()
+                        && !value.as_object().is_some_and(|details| {
+                            details.iter().all(|(key, count)| {
+                                matches!(
+                                    key.as_str(),
+                                    "tool_calls_requested"
+                                        | "tool_calls_executed"
+                                        | "web_search_requests"
+                                ) && (count.is_null() || count.as_u64() == Some(0))
+                            })
+                        })
+                })
+                || usage
+                    .remove("deferred_tools_details")
+                    .is_some_and(|value| !value.is_null())
+            {
+                return Err(RelayError::Unsupported("OpenRouter server tool usage"));
+            }
             // OpenRouter may include zero-valued counters for modalities and
             // prediction fields absent from a text response. Nonzero counts
             // still need an explicit usage contract.
@@ -257,6 +278,7 @@ impl Decoder {
                     "completion_tokens_details",
                     &[
                         "audio_tokens",
+                        "image_tokens",
                         "accepted_prediction_tokens",
                         "rejected_prediction_tokens",
                     ][..],
@@ -286,6 +308,9 @@ impl Decoder {
             return Err(RelayError::Protocol(
                 "invalid OpenRouter native finish reason",
             ));
+        }
+        if choice.get("error").is_some_and(Value::is_null) {
+            choice.remove("error");
         }
         if let Some(delta) = choice.get_mut("delta").and_then(Value::as_object_mut) {
             delta.retain(|key, value| match key.as_str() {
@@ -389,9 +414,15 @@ impl Decoder {
                 ..Default::default()
             },
         )
-        .map_err(|e| match e {
+        .map_err(|error| match error {
             zconv::Error::LimitExceeded { .. } => RelayError::Limit("output block count"),
-            _ => RelayError::Protocol("invalid upstream stream event"),
+            _ => {
+                if project_openrouter {
+                    // The converter error carries static labels and offsets, not frame contents.
+                    eprintln!("core_openrouter_stream_decode_error {error:?}");
+                }
+                RelayError::Protocol("invalid upstream stream event")
+            }
         })?;
         let mut receipt = false;
         for event in &events[..used] {

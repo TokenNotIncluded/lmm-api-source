@@ -134,8 +134,11 @@ fn openrouter_repeated_finish_carries_authoritative_usage_once() {
     });
     let usage = json!({
         "id": "generation-1", "provider": "Example",
-        "choices": [{"index": 0, "delta": {"content": ""}, "finish_reason": "stop", "native_finish_reason": "stop"}],
-        "usage": {"prompt_tokens": 7, "completion_tokens": 2, "total_tokens": 9, "cost": 0}
+        "choices": [{"index": 0, "delta": {"content": ""}, "finish_reason": "stop", "native_finish_reason": "stop", "error": null}],
+        "usage": {"prompt_tokens": 7, "completion_tokens": 2, "total_tokens": 9, "cost": 0,
+            "completion_tokens_details": {"image_tokens": 0, "reasoning_tokens": 1},
+            "server_tool_use_details": {"tool_calls_requested": 0, "tool_calls_executed": 0},
+            "deferred_tools_details": null}
     });
     assert!(
         Decoder::new(UpstreamProtocol::Chat, &limits)
@@ -171,6 +174,9 @@ fn openrouter_repeated_finish_carries_authoritative_usage_once() {
     for usage in [
         json!({"prompt_tokens":7,"completion_tokens":2,"is_byok":"no"}),
         json!({"prompt_tokens":7,"completion_tokens":2,"prompt_tokens_details":{"audio_tokens":1}}),
+        json!({"prompt_tokens":7,"completion_tokens":2,"completion_tokens_details":{"image_tokens":1}}),
+        json!({"prompt_tokens":7,"completion_tokens":2,"server_tool_use_details":{"web_search_requests":1}}),
+        json!({"prompt_tokens":7,"completion_tokens":2,"deferred_tools_details":{"turns":1}}),
     ] {
         let mut decoder =
             Decoder::new(UpstreamProtocol::Chat, &limits).with_openrouter_stream(true);
