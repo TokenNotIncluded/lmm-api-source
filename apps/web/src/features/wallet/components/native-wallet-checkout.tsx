@@ -315,8 +315,9 @@ function NativeWalletCheckoutForm({
         document.hidden ||
         controller.signal.aborted ||
         !isCurrent()
-      )
+      ) {
         return
+      }
       polling = true
       attempts++
       try {
