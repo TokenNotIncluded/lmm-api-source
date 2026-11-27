@@ -178,6 +178,18 @@ fn assert_answer(client: Protocol, stream: bool, body: &str) {
     assert_eq!(finish, expected);
 }
 
+async fn assert_single_capture(pool: &PgPool, id: &str, amount: i64) {
+    let captures: Vec<i64> = sqlx::query_scalar(
+        "SELECT (command->'change'->>'amount')::bigint FROM core_charging.ledger_commands
+         WHERE request_id=$1 AND command->'change'->>'operation'='settle'",
+    )
+    .bind(id)
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    assert_eq!(captures, [amount], "expected one settlement for {id}");
+}
+
 #[sqlx::test(migrations = false)]
 async fn public_four_by_four_text_json_and_sse(pool: PgPool) {
     let (_, ledger, _, key, key_id, account) = fixture(&pool, 10_000).await;
@@ -267,8 +279,9 @@ async fn public_four_by_four_text_json_and_sse(pool: PgPool) {
                     ("settled".into(), 49, 10, 20, ingress_name(client).into())
                 );
                 official_publication::check_attempt(&pool, &id, 1, upstream).await;
+                assert_single_capture(&pool, &id, 49).await;
                 println!(
-                    "portable_protocol_case client={client:?} supplier={upstream:?} stream={stream} request_id={id} settled_credits=49"
+                    "portable_protocol_case client={client:?} supplier={upstream:?} stream={stream} request_id={id} settled_credits=49 captures=1"
                 );
                 settled += 49;
             }
@@ -332,7 +345,10 @@ async fn genuine_gemini_chat_keeps_history_after_core_settlement(pool: PgPool) {
     );
     let balance = ledger.balance(account).await.unwrap();
     assert_eq!((balance.available_units, balance.reserved_units), (951, 0));
-    println!("genuine_gemini_chat request_id={id} curated_response=true settled_credits={charge}");
+    assert_single_capture(&pool, id, 49).await;
+    println!(
+        "genuine_gemini_chat request_id={id} curated_response=true settled_credits={charge} captures=1"
+    );
 }
 
 #[sqlx::test(migrations = false)]

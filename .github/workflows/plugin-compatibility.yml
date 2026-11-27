@@ -1,14 +1,20 @@
 name: Plugin compatibility
 on:
   workflow_dispatch:
+    inputs:
+      google_sdk_only:
+        description: Run just the Google Gen AI SDK and public HTTP protocol matrix
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 concurrency:
-  group: plugin-compatibility-${{ github.ref }}
+  group: plugin-compatibility-${{ github.ref }}${{ inputs.google_sdk_only && '-google-sdk' || '' }}
   cancel-in-progress: true
 jobs:
   plugin:
+    if: ${{ !inputs.google_sdk_only }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
@@ -73,6 +79,7 @@ jobs:
               ;;
           esac
   pi-core-wallet:
+    if: ${{ !inputs.google_sdk_only }}
     name: Real Pi host and Core OAuth wallet
     runs-on: ubuntu-24.04
     timeout-minutes: 75
@@ -133,6 +140,33 @@ jobs:
           path: ${{ runner.temp }}/pi-core-receipt.json
           if-no-files-found: error
           retention-days: 7
+  google-genai-sdk:
+    name: Google Gen AI SDK history and Core wallet
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Install the Core toolchain
+        run: rustup toolchain install 1.100.0 --profile minimal
       - name: Verify curated chat history with Google's pinned JavaScript SDK
         working-directory: services/core
         run: |
@@ -148,7 +182,15 @@ jobs:
           gate=portable_matrix::genuine_gemini_chat_keeps_history_after_core_settlement
           cargo +1.100.0 test --locked --test native_model_http "$gate" -- --exact --ignored --nocapture | tee "$RUNNER_TEMP/gemini-chat-result"
           grep -Fqx "test $gate ... ok" "$RUNNER_TEMP/gemini-chat-result"
+      - name: Verify per-request captures across public HTTP protocols
+        working-directory: services/core
+        run: |
+          set -euo pipefail
+          gate=portable_matrix::public_four_by_four_text_json_and_sse
+          cargo +1.100.0 test --locked --test native_model_http "$gate" -- --exact --show-output | tee "$RUNNER_TEMP/public-protocol-matrix"
+          grep -Fqx "test $gate ... ok" "$RUNNER_TEMP/public-protocol-matrix"
   cc-switch-cli:
+    if: ${{ !inputs.google_sdk_only }}
     name: LMM CLI and native CC Switch configuration
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -176,6 +218,7 @@ jobs:
             grep -Fqx "test $gate ... ok" "$RUNNER_TEMP/cc-switch-binding-test"
           done
   native-cli-wallet:
+    if: ${{ !inputs.google_sdk_only }}
     name: Native ${{ matrix.client }} CLI and Core wallet
     runs-on: ubuntu-24.04
     timeout-minutes: 75
@@ -242,6 +285,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   installer:
+    if: ${{ !inputs.google_sdk_only }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -259,6 +303,7 @@ jobs:
           for script in *.sh; do bash -n "$script"; done
           node --test test-codewhale.mjs test-opencode.mjs test-opencode-entry.mjs
   magpie:
+    if: ${{ !inputs.google_sdk_only }}
     runs-on: ubuntu-24.04
     timeout-minutes: 65
     services:
