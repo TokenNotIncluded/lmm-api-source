@@ -753,5 +753,7 @@ mod tests {
         let saved = reports.lock().unwrap();
         assert_eq!(saved.len(), 1);
         assert_eq!(saved[0].outcome, Outcome::Failed);
+        assert_eq!(saved[0].delivery, crate::routing::DeliveryState::NotSent);
+        assert!(saved[0].emitted_bytes > 0);
     }
 }

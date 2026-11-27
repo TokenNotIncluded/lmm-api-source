@@ -566,9 +566,6 @@ impl Worker {
         };
         let done = keepalive.finish().await;
         self.report.emitted_bytes = self.report.emitted_bytes.saturating_add(done.emitted_bytes);
-        if done.emitted_bytes > 0 {
-            self.report.delivery = crate::routing::DeliveryState::ResponseStarted;
-        }
         match done.error {
             Some(error) => Err(error),
             None => Ok(()),
@@ -1033,15 +1030,19 @@ impl Worker {
             // Freeze the downstream boundary before the asynchronous retry decision.
             // A pending SSE timer must not commit headers while the next charge attempt is selected.
             self.stop_keepalive().await?;
-            if self.report.emitted_bytes > 0
+            let retry_delivery = if self.report.emitted_bytes > 0
                 || self
                     .head
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .is_none()
             {
-                self.report.delivery = crate::routing::DeliveryState::ResponseStarted;
-            }
+                // A local ping commits the client stream but does not erase upstream
+                // evidence that permits releasing the unused reservation.
+                crate::routing::DeliveryState::ResponseStarted
+            } else {
+                self.report.delivery
+            };
             let failure = AttemptFailure {
                 failure: crate::routing::Failure {
                     kind: match &error {
@@ -1060,7 +1061,7 @@ impl Worker {
                         RelayError::Cancelled => crate::routing::FailureKind::Cancelled,
                         _ => crate::routing::FailureKind::InvalidResponse,
                     },
-                    delivery: self.report.delivery,
+                    delivery: retry_delivery,
                 },
                 http_status: self.report.upstream_status,
                 response_sha256: self.report.rejection_receipt_sha256,

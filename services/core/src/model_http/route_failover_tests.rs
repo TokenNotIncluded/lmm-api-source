@@ -625,6 +625,59 @@ async fn cross_group_case(pool: PgPool, flag: bool, granted: bool) {
 }
 
 #[sqlx::test(migrations = false)]
+async fn route_failover_pg_ping_keeps_confirmed_rejection_free_without_replay(pool: PgPool) {
+    let f = fixture(pool, 10_000_000).await;
+    let good = CompatibilityProvider::start().await;
+    let release = Arc::new(tokio::sync::Notify::new());
+    let app = Router::new()
+        .route(
+            "/v1/chat/completions",
+            post(|State(release): State<Arc<tokio::sync::Notify>>| async move {
+                release.notified().await;
+                (
+                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                    Json(json!({"error":{"message":"pre-acceptance rejection"}})),
+                )
+            }),
+        )
+        .with_state(release.clone());
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/v1", listener.local_addr().unwrap());
+    let supplier = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let g = failover_gateway(&f, &base, &good.endpoint, true, false, false);
+    let id = crate::hex_codec::encode(Sha256::digest("ping-before-rejection"));
+    let (context, mut request) = admit(&g, &f, &id, "small-model", 16).await;
+    request.stream = true;
+    request.has_sse_policy = true;
+    request.sse_ping = Some(Duration::from_millis(10));
+    let relay::Session {
+        head,
+        body,
+        completion,
+        ..
+    } = g.relay.start(request, context).unwrap();
+    assert_eq!(head.await.unwrap().unwrap().status, 200);
+    release.notify_one();
+    let output = axum::body::to_bytes(axum::body::Body::from_stream(body), 1 << 20)
+        .await
+        .unwrap();
+    assert!(std::str::from_utf8(&output).unwrap().contains(": PING"));
+    let done = completion.await.unwrap();
+    assert_eq!(done.report.delivery, routing::DeliveryState::Rejected);
+    assert_eq!(done.settlement, relay::Settlement::Confirmed);
+    assert_eq!(done.report.attempts, 1);
+    assert!(good.bodies.lock().unwrap().is_empty());
+    let charge = receipt(&g, &id).await;
+    assert!(charge.reserved > 0);
+    assert_eq!((charge.state.as_str(), charge.settled), ("settled", 0));
+    assert!(evidence(&f, &id).await.iter().any(|e| {
+        e["kind"] == "model_no_acceptance" && e["receipt"]["outcome"] == "rejected"
+    }));
+    assert_balance(&f, 10_000_000, 0).await;
+    supplier.abort();
+}
+
+#[sqlx::test(migrations = false)]
 async fn route_failover_pg_confirmed_rejection_zero_recovers_after_restart(pool: PgPool) {
     let f = fixture(pool, 10_000_000).await;
     let bad = FailedSupplier::start(FailureReply::Rejected).await;
