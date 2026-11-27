@@ -832,3 +832,54 @@ test('pricing defaults fill the vendor directory from published model IDs', () =
   )
   assert.equal(pricing.performance_available, false)
 })
+
+test('constant tariffs expose the effective group quote and keep missing meters separate from a zero price', () => {
+  const doc = fixture()
+  const row = doc.models[0]
+  const token = row.token_price!
+  const zero = { numerator: '0', denominator: '1' }
+  const constants = {
+    input: { numerator: '1', denominator: '2000000' },
+    output: { numerator: '3', denominator: '2' },
+    cache_read: zero,
+    cache_write: null,
+  }
+  row.token_price = {
+    ...token,
+    input: null,
+    output: null,
+    cache_read: null,
+    constant_token_rates: constants,
+  }
+  const model = adaptNativePricing(nativePricingSchema.parse(doc)).data[0]
+  assert.equal(model.group_prices?.standard.input_price, 0.0000005)
+  assert.equal(model.group_prices?.standard.output_price, 1.5)
+  assert.equal(model.group_prices?.standard.cache_read_price, 0)
+  assert.equal(model.group_prices?.standard.cache_write_price, null)
+  assert.equal(model.input_price, null)
+  assert.equal(
+    nativePricingSchema.safeParse({
+      ...doc,
+      models: [{ ...row, token_price: { ...row.token_price, input: 0 } }],
+    }).success,
+    false
+  )
+  assert.equal(
+    nativePricingSchema.safeParse({
+      ...doc,
+      models: [
+        {
+          ...row,
+          token_price: {
+            ...row.token_price,
+            constant_token_rates: {
+              ...constants,
+              input: { numerator: '1', denominator: '0' },
+            },
+          },
+        },
+      ],
+    }).success,
+    false
+  )
+})

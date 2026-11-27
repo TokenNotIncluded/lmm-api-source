@@ -155,11 +155,20 @@ export const nativeTokenPriceSchema = z
     request: amount,
     final_cost_depends_on_usage: z.literal(true),
     // Every tier inherits this token price's currency, unit and rate basis.
+    constant_token_rates: z
+      .object({
+        input: fraction.strict(),
+        output: fraction.strict(),
+        cache_read: fraction.strict().nullable(),
+        cache_write: fraction.strict().nullable(),
+      })
+      .strict()
+      .optional(),
     cache_write_12h_tiers: cacheWrite12hTiers.optional(),
   })
   .refine(
     (price) =>
-      !price.cache_write_12h_tiers ||
+      (!price.cache_write_12h_tiers && !price.constant_token_rates) ||
       (price.input === null &&
         price.output === null &&
         price.cache_read === null),
@@ -172,7 +181,8 @@ export const nativeTokenPriceSchema = z
           price.input === null &&
           price.output === null &&
           price.cache_read === null &&
-          price.cache_write_12h_tiers === undefined
+          price.cache_write_12h_tiers === undefined &&
+          price.constant_token_rates === undefined
         : price.request === null,
     'Request prices and token prices use separate units'
   )

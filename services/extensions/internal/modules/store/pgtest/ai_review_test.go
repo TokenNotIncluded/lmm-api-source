@@ -155,6 +155,32 @@ func TestPostgresMarketAIReviewSubmissionRecoveryAndOverride(t *testing.T) {
 	if records := history(retry); records[0].Status != "failed" || records[0].Attempts != 3 || *records[0].Outcome != "manual_required" {
 		t.Fatal(records)
 	}
+	// Off-mode submissions with a nil job slice remain in manual review. Reopen
+	// the service and check both the natural representation and a persisted [].
+	must(t, policy.Save(ctx, marketreview.Modes{Store: marketreview.Off, Tool: marketreview.Off}))
+	manualProduct := makeProduct()
+	submit(manualProduct)
+	reopened, err := store.New(repo, legacyAuthority{}, ledger)
+	must(t, err)
+	must(t, reopened.ConfigureAIReview(engine))
+	callsBefore := classifier.calls
+	checkManual := func() {
+		t.Helper()
+		must(t, reopened.WorkAIReviews(ctx, 1))
+		if classifier.calls != callsBefore || len(history(manualProduct)) != 0 {
+			t.Fatal("an off-mode product entered automatic review")
+		}
+		if _, err := reopened.PublicProduct(ctx, manualProduct); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("off-mode product visibility: %v", err)
+		}
+	}
+	checkManual()
+	for _, jobs := range []string{"null", "[]"} {
+		_, err = db.Exec(`UPDATE lmm_store.products SET body=jsonb_set(body, '{ai_review,jobs}', $2::jsonb) WHERE id=$1`, manualProduct, jobs)
+		must(t, err)
+		checkManual()
+	}
+
 	if ledger.effects != 0 {
 		t.Fatal("listing review changed funds")
 	}

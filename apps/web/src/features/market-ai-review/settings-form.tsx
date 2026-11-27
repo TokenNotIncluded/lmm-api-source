@@ -14,9 +14,11 @@ import {
 
 export function MarketAIReviewSettingsForm({
   defaultValues,
+  market,
   onSave,
 }: {
   defaultValues: MarketAIReviewModes
+  market?: keyof MarketAIReviewModes
   onSave: (
     updates: Partial<MarketAIReviewModes>
   ) => Promise<MarketAIReviewModes | void>
@@ -38,16 +40,16 @@ export function MarketAIReviewSettingsForm({
     }))
   }, [defaultValues])
   const changed =
-    draft.tool !== baseline.current.tool ||
-    draft.product !== baseline.current.product
+    (market !== 'product' && draft.tool !== baseline.current.tool) ||
+    (market !== 'tool' && draft.product !== baseline.current.product)
   async function save() {
     if (busy || !changed) return
     const submitted = draft
     const updates: Partial<MarketAIReviewModes> = {}
-    if (submitted.tool !== baseline.current.tool) {
+    if (market !== 'product' && submitted.tool !== baseline.current.tool) {
       updates.tool = submitted.tool
     }
-    if (submitted.product !== baseline.current.product) {
+    if (market !== 'tool' && submitted.product !== baseline.current.product) {
       updates.product = submitted.product
     }
     setBusy(true)
@@ -82,6 +84,7 @@ export function MarketAIReviewSettingsForm({
           isResetDisabled={!changed}
         />
         <MarketAIReviewModeFields
+          market={market}
           value={draft}
           onChange={setDraft}
           disabled={busy}

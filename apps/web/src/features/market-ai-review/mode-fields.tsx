@@ -13,19 +13,24 @@ export interface MarketAIReviewModes {
 
 export function MarketAIReviewModeFields({
   value,
+  market: selectedMarket,
   onChange,
   disabled = false,
 }: {
   value: MarketAIReviewModes
+  market?: keyof MarketAIReviewModes
   onChange: (value: MarketAIReviewModes) => void
   disabled?: boolean
 }) {
   const { t } = useTranslation()
+  const markets: (keyof MarketAIReviewModes)[] = selectedMarket
+    ? [selectedMarket]
+    : ['tool', 'product']
   return (
     <div className='space-y-5'>
       <p className='text-muted-foreground text-sm'>{t(copy.scope)}</p>
       <div className='grid gap-5 lg:grid-cols-2'>
-        {(['tool', 'product'] as const).map((market) => (
+        {markets.map((market) => (
           <div key={market} className='space-y-2'>
             <Label htmlFor={`market-ai-mode-${market}`}>
               {t(market === 'tool' ? copy.toolMode : copy.productMode)}

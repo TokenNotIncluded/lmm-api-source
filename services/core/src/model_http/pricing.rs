@@ -62,9 +62,21 @@ pub struct TokenPrice {
     pub cache_write: Option<Number>,
     pub request: Option<Number>,
     pub final_cost_depends_on_usage: bool,
-    /// Revision 4 prices remain exact and tiered; no headline scalar is inferred.
+    /// Effective USD per million tokens for a single unconditional band.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub constant_token_rates: Option<ConstantTokenRates>,
+    /// Preserve the exact revision-4 schedule, including the separate 12h meter.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_write_12h_tiers: Option<Vec<CacheWrite12hTier>>,
+}
+#[derive(Clone, Serialize)]
+pub struct ConstantTokenRates {
+    pub input: ExactFraction,
+    pub output: ExactFraction,
+    pub cache_read: Option<ExactFraction>,
+    pub cache_write: Option<ExactFraction>,
+    #[serde(skip)]
+    cache_write_depends_on_lifetime: bool,
 }
 #[derive(Clone, Serialize)]
 pub struct CacheWrite12hTier {
@@ -280,12 +292,25 @@ impl PricingSurface {
                 let tool = apis
                     .iter()
                     .any(|api| matches!(*api, "deepseek-search" | "deepseek-fetch"));
+                let (token_price, upstream_cost_price) = if quote.billing_mode()
+                    == BillingMode::UpstreamCost
+                {
+                    (None, Some(upstream_cost_price(quote)))
+                } else if tool || text_request_price::TextRequestPrice::from_quote(quote).is_some()
+                {
+                    (Some(request_price(quote)?), None)
+                } else {
+                    (Some(token_price(quote, calendar.is_some())?), None)
+                };
                 let status = if apis.is_empty() {
                     "unavailable"
-                } else if matches!(
-                    quote.billing_mode(),
-                    BillingMode::UpstreamCost | BillingMode::TieredDecimal
-                ) {
+                } else if quote.billing_mode() == BillingMode::UpstreamCost
+                    || (quote.billing_mode() == BillingMode::TieredDecimal
+                        && !token_price
+                            .as_ref()
+                            .and_then(|price| price.constant_token_rates.as_ref())
+                            .is_some_and(|rates| !rates.cache_write_depends_on_lifetime))
+                {
                     "usage_dependent"
                 } else {
                     "configured"
@@ -296,16 +321,6 @@ impl PricingSurface {
                     } else {
                         UnavailableReason::RoutingUnavailable
                     });
-                let (token_price, upstream_cost_price) = if quote.billing_mode()
-                    == BillingMode::UpstreamCost
-                {
-                    (None, Some(upstream_cost_price(quote)))
-                } else if tool || text_request_price::TextRequestPrice::from_quote(quote).is_some()
-                {
-                    (Some(request_price(quote)?), None)
-                } else {
-                    (Some(token_price(quote)?), None)
-                };
                 models.push(PricingModel {
                     id: model_id(&route.group, name),
                     model: name.into(),
@@ -473,7 +488,7 @@ fn decimal(value: u128, scale: u32) -> Result<Number, PricingError> {
     };
     text.parse().map_err(|_| PricingError::Unavailable)
 }
-fn token_price(quote: PriceQuote) -> Result<TokenPrice, PricingError> {
+fn token_price(quote: PriceQuote, calendar: bool) -> Result<TokenPrice, PricingError> {
     let (g, s) = quote.multipliers_ppm();
     let known = quote.billing_mode() == BillingMode::Tokens && quote.tiered().is_none();
     let rate = |v: u64| {
@@ -495,6 +510,7 @@ fn token_price(quote: PriceQuote) -> Result<TokenPrice, PricingError> {
         cache_write: None,
         request: None,
         final_cost_depends_on_usage: true,
+        constant_token_rates: constant_token_rates(quote, calendar)?,
         cache_write_12h_tiers: cache_write_12h_tiers(quote)?,
     })
 }
@@ -515,32 +531,83 @@ fn request_price(quote: PriceQuote) -> Result<TokenPrice, PricingError> {
             18,
         )?),
         final_cost_depends_on_usage: true,
+        constant_token_rates: None,
         cache_write_12h_tiers: None,
     })
+}
+
+fn scaled_rate(
+    value: crate::routing::DecimalRate,
+    (group, speed): (u32, u32),
+) -> Result<ExactFraction, PricingError> {
+    use num_bigint::BigUint;
+    use num_rational::Ratio;
+    if value.denominator == 0 {
+        return Err(PricingError::Unavailable);
+    }
+    let fraction = Ratio::new(
+        BigUint::from(value.numerator) * BigUint::from(group) * BigUint::from(speed),
+        BigUint::from(value.denominator) * BigUint::from(1_000_000_000_000_u64),
+    );
+    Ok(ExactFraction {
+        numerator: fraction.numer().to_string(),
+        denominator: fraction.denom().to_string(),
+    })
+}
+
+fn constant_token_rates(
+    quote: PriceQuote,
+    calendar: bool,
+) -> Result<Option<ConstantTokenRates>, PricingError> {
+    let Some(compiled) = quote.tiered().filter(|_| !calendar) else {
+        return Ok(None);
+    };
+    let tariff = compiled.tariff();
+    let [tier] = tariff.tiers.as_slice() else {
+        return Ok(None);
+    };
+    if tier.up_to_input_tokens.is_some() {
+        return Ok(None);
+    }
+    let rates = tier.rates;
+    // A single cache-write headline must hold for every measured lifetime.
+    let same_write = |other: crate::routing::DecimalRate| {
+        u128::from(other.numerator) * u128::from(rates.cache_write.denominator)
+            == u128::from(rates.cache_write.numerator) * u128::from(other.denominator)
+    };
+    // Revision 2 charges the one-hour Anthropic subset at zero when that rate is omitted.
+    let one_hour_differs = match rates.cache_write_1h {
+        Some(other) => !same_write(other),
+        None => tariff.revision == 2 && rates.cache_write.numerator != 0,
+    };
+    let multipliers = quote.multipliers_ppm();
+    let cache_write_depends_on_lifetime = multipliers.0 != 0
+        && (one_hour_differs
+            || rates
+                .cache_write_12h
+                .is_some_and(|other| !same_write(other)));
+    let scale = |rate| scaled_rate(rate, multipliers);
+    Ok(Some(ConstantTokenRates {
+        input: scale(rates.input)?,
+        output: scale(rates.output)?,
+        cache_read: tariff
+            .uses_cache_read
+            .then(|| scale(rates.cache_read))
+            .transpose()?,
+        cache_write: (tariff.uses_cache_write && !cache_write_depends_on_lifetime)
+            .then(|| scale(rates.cache_write))
+            .transpose()?,
+        cache_write_depends_on_lifetime,
+    }))
 }
 
 fn cache_write_12h_tiers(
     quote: PriceQuote,
 ) -> Result<Option<Vec<CacheWrite12hTier>>, PricingError> {
-    use num_bigint::BigUint;
-    use num_rational::Ratio;
     let Some(tariff) = quote.tiered().filter(|tariff| tariff.revision() == 4) else {
         return Ok(None);
     };
-    let (group, speed) = quote.multipliers_ppm();
-    let rate = |value: crate::routing::DecimalRate| -> Result<ExactFraction, PricingError> {
-        if value.denominator == 0 {
-            return Err(PricingError::Unavailable);
-        }
-        let fraction = Ratio::new(
-            BigUint::from(value.numerator) * BigUint::from(group) * BigUint::from(speed),
-            BigUint::from(value.denominator) * BigUint::from(1_000_000_000_000_u64),
-        );
-        Ok(ExactFraction {
-            numerator: fraction.numer().to_string(),
-            denominator: fraction.denom().to_string(),
-        })
-    };
+    let rate = |value| scaled_rate(value, quote.multipliers_ppm());
     tariff
         .tariff()
         .tiers
@@ -1091,6 +1158,83 @@ pub(crate) mod tests {
         assert!(surface.project(Some(&[]), None).unwrap().models.is_empty());
     }
     #[tokio::test]
+    async fn pricing_single_unconditional_tier_uses_the_standard_group_quote() {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://unused:unused@127.0.0.1:9/unused")
+            .unwrap();
+        let initial = gateway(pool.clone());
+        let mut doc = initial.bridge.routing.catalog_document().unwrap();
+        let rule = doc.pricing.rules.iter_mut().find(|r| r.id == 1).unwrap();
+        let rate = |numerator, denominator| DecimalRate {
+            numerator,
+            denominator,
+        };
+        rule.billing_mode = BillingMode::TieredDecimal;
+        rule.group_multiplier_ppm = 1_250_000;
+        rule.speed_multiplier_ppm = 1_000_000;
+        rule.rates = TokenRates {
+            input: 0,
+            output: 0,
+            cache_read: 0,
+            cache_write: 0,
+            request: 0,
+        };
+        rule.tiered = Some(TieredTariff {
+            revision: 1,
+            source_digest: "23".repeat(32),
+            uses_cache_read: true,
+            uses_cache_write: false,
+            uses_cache_write_1h: false,
+            uses_cache_write_12h: false,
+            calendar: None,
+            tiers: vec![TokenTier {
+                up_to_input_tokens: None,
+                rates: TieredRates {
+                    input: rate(1, 2_500_000),
+                    output: rate(6, 5),
+                    cache_read: rate(0, 1),
+                    cache_write: rate(0, 1),
+                    cache_write_1h: None,
+                    cache_write_12h: None,
+                },
+            }],
+        });
+        let prices = PriceSnapshot::compile(doc.pricing).unwrap();
+        let quote = prices.quote("model", "allowed", Speed::Standard).unwrap();
+        assert!(constant_token_rates(quote, true).unwrap().is_none());
+        let gateway = ModelGateway::new(
+            pool,
+            Arc::new(Router::new(doc.routing, Arc::new(prices)).unwrap()),
+            vec![super::super::UpstreamCredential {
+                reference: CredentialRef { id: 1, revision: 1 },
+                secret: "synthetic-tiered-pricing-credential".into(),
+            }],
+            BTreeMap::new(),
+            initial.limits.clone(),
+            initial.bridge.policy,
+        )
+        .unwrap();
+        let surface = PricingSurface::from_gateway(&gateway).unwrap();
+        for id in ["model", "friendly"] {
+            let public = surface
+                .project(Some(&["allowed".into()]), Some(&[id.into()]))
+                .unwrap();
+            assert_eq!(public.models.len(), 1);
+            assert_eq!(public.models[0].billing_status, "configured");
+            let price = public.models[0].token_price.as_ref().unwrap();
+            let fixed = serde_json::to_value(price.constant_token_rates.as_ref().unwrap()).unwrap();
+            assert_eq!(
+                fixed,
+                serde_json::json!({
+                    "input":{"numerator":"1","denominator":"2000000"},
+                    "output":{"numerator":"3","denominator":"2"},
+                    "cache_read":{"numerator":"0","denominator":"1"}, "cache_write":null
+                })
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn pricing_tiered_decimal_projection_never_displays_placeholder_zero_as_free() {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://unused:unused@127.0.0.1:9/unused")
@@ -1577,6 +1721,81 @@ mod cache_write_12h_projection_tests {
     use crate::routing::*;
 
     #[test]
+    fn revision_two_public_write_rate_agrees_with_frozen_anthropic_lifetimes() {
+        let rate = |numerator, denominator| serde_json::json!({ "numerator": numerator, "denominator": denominator });
+        for (generic, hour, group, expected_write) in [
+            (2, None, 1_000_000, None),
+            (0, None, 1_000_000, Some(0)),
+            (2, Some(2), 1_000_000, Some(2)),
+            (2, Some(1), 1_000_000, None),
+            (2, None, 0, Some(0)),
+        ] {
+            let config = serde_json::from_value(serde_json::json!({
+                "version":1, "rules":[{"id":1, "model":"m","group":"default","speed":"standard",
+                "billing_mode":"tiered_decimal", "group_multiplier_ppm":group,"speed_multiplier_ppm":1000000,
+                "rates":{"input":0,"output":0,"cache_read":0,"cache_write":0,"request":0},
+                "tiered":{"revision":2,"source_digest":"ab".repeat(32),"uses_cache_read":true,"uses_cache_write":true,
+                    "uses_cache_write_1h":hour.is_some(),"tiers":[{"rates":{
+                        "input":rate(1,2000000),"output":rate(3,2),"cache_read":rate(0,1),
+                        "cache_write":rate(generic,1),"cache_write_1h":hour.map(|r|rate(r,1))
+                    }}]}}]
+            })).unwrap();
+            let prices = PriceSnapshot::compile(config).unwrap();
+            let quote = prices.quote("m", "default", Speed::Standard).unwrap();
+            let tariff = quote.tiered().unwrap();
+            let charge = |one_hour| {
+                tariff
+                    .charge(
+                        TieredUsage {
+                            input: 1_000_000,
+                            created: 1_000_000,
+                            created_1h: Some(one_hour),
+                            ..Default::default()
+                        },
+                        InputSemantics::AnthropicText,
+                        group,
+                        1_000_000,
+                        500_000,
+                    )
+                    .unwrap()
+            };
+            assert_eq!(charge(0) == charge(1_000_000), expected_write.is_some());
+            let rates = token_price(quote, false)
+                .unwrap()
+                .constant_token_rates
+                .unwrap();
+            assert_eq!(
+                !rates.cache_write_depends_on_lifetime,
+                expected_write.is_some()
+            );
+            assert_eq!(
+                rates.cache_write.map(|v| v.numerator),
+                expected_write.map(|n| n.to_string())
+            );
+            let (input, output) = if group == 0 {
+                (("0", "1"), ("0", "1"))
+            } else {
+                (("1", "2000000"), ("3", "2"))
+            };
+            assert_eq!(
+                (
+                    rates.input.numerator.as_str(),
+                    rates.input.denominator.as_str()
+                ),
+                input
+            );
+            assert_eq!(
+                (
+                    rates.output.numerator.as_str(),
+                    rates.output.denominator.as_str()
+                ),
+                output
+            );
+            assert_eq!(rates.cache_read.unwrap().numerator, "0");
+        }
+    }
+
+    #[test]
     fn cache_write_12h_projection_keeps_tiers_and_exact_effective_rates() {
         let rate = |numerator, denominator| DecimalRate {
             numerator,
@@ -1634,11 +1853,13 @@ mod cache_write_12h_projection_tests {
             prices
                 .quote("cache-model", "default", Speed::Standard)
                 .unwrap(),
+            false,
         )
         .unwrap();
         assert!(projected.input.is_none());
         assert!(projected.output.is_none());
         let tiers = projected.cache_write_12h_tiers.unwrap();
+        assert!(projected.constant_token_rates.is_none());
         assert_eq!(tiers.len(), 2);
         assert_eq!(tiers[0].up_to_input_tokens.as_deref(), Some("272000"));
         assert!(tiers[1].up_to_input_tokens.is_none());

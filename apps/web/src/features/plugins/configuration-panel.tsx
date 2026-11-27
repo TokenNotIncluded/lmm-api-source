@@ -98,11 +98,12 @@ export function PluginConfiguration({
   const root = useAuthStore(
     (state) => state.auth.user?.role === ROLE.SUPER_ADMIN
   )
-  const marketReview = marketReviewEnabled ? (
-    <MarketAIReviewSettingsSection />
-  ) : (
-    <p role='status'>{t('AI first review is disabled')}</p>
-  )
+  const marketReview = (market: 'product' | 'tool') =>
+    marketReviewEnabled ? (
+      <MarketAIReviewSettingsSection key={market} market={market} />
+    ) : (
+      <p role='status'>{t('AI first review is disabled')}</p>
+    )
   const content = {
     acquisition: <PromotionLinks canWrite={canWriteAcquisition && writable} />,
     assistant: <AssistantPluginSettings />,
@@ -115,8 +116,8 @@ export function PluginConfiguration({
     'directory-ads': root && <AIDirectoryAdsSection />,
     'header-navigation': root && <HeaderNavigationPluginSettings />,
     store: root && <MerchantStoreSettingsSection />,
-    'store-review': marketReview,
-    toolmarket: marketReview,
+    'store-review': marketReview('product'),
+    toolmarket: marketReview('tool'),
   }
   if (!Object.hasOwn(content, name)) return null
 

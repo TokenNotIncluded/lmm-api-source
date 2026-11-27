@@ -9,6 +9,8 @@ import { I18nextProvider, initReactI18next } from 'react-i18next'
 
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
+import { adaptNativePricing } from '../catalog-adapter'
+import { nativePricingSchema } from '../catalog-contract'
 import type { PriceDisplayCurrency, PricingModel, TokenUnit } from '../types'
 import { ModelCard } from './model-card'
 
@@ -221,4 +223,76 @@ test('flat token cards keep their existing cached quote', () => {
     }),
     ['Input 4 USD', 'Output 20 USD', 'Cached 0.4 USD']
   )
+})
+
+test('a public catalog card displays a sub-micro standard-group rate, explicit cache zero and absent cache meters', () => {
+  const zero = { numerator: '0', denominator: '1' }
+  const doc = {
+    schema_version: 1,
+    visibility: 'public',
+    observed_at: 100,
+    credits_per_usd: 500000,
+    rate_basis: 'base_group_rate',
+    invocation_authorized: false,
+    routing_version: 2,
+    pricing_version: 3,
+    image_pricing_version: null,
+    groups: ['default'],
+    models: [
+      {
+        id: 'one',
+        model: 'public-single-tier',
+        group: 'default',
+        apis: ['openai-completions'],
+        billing_status: 'configured',
+        image_variants: [],
+        token_price: {
+          currency: 'USD',
+          unit: 'million_tokens',
+          rate_basis: 'base_group_rate',
+          group_multiplier: 1.25,
+          input: null,
+          output: null,
+          cache_read: null,
+          cache_write: null,
+          request: null,
+          final_cost_depends_on_usage: true,
+          constant_token_rates: {
+            input: { numerator: '1', denominator: '2000000' },
+            output: { numerator: '3', denominator: '2' },
+            cache_read: zero,
+            cache_write: null,
+          },
+        },
+      },
+    ],
+  }
+  const cardModel = () =>
+    adaptNativePricing(nativePricingSchema.parse(doc)).data[0]
+  assert.deepEqual(quotes(cardModel()), [
+    'Input 0.0000005 USD',
+    'Output 1.5 USD',
+    'Cached 0 USD',
+  ])
+  const missing = structuredClone(doc)
+  Object.assign(missing.models[0].token_price, {
+    constant_token_rates: {
+      ...doc.models[0].token_price.constant_token_rates,
+      cache_read: null,
+    },
+  })
+  assert.deepEqual(
+    quotes(adaptNativePricing(nativePricingSchema.parse(missing)).data[0]),
+    ['Input 0.0000005 USD', 'Output 1.5 USD']
+  )
+  doc.models[0].billing_status = 'usage_dependent'
+  const splitWrites = cardModel()
+  assert.equal(splitWrites.group_prices?.default.cache_write_price, null)
+  assert.deepEqual(quotes(splitWrites), [
+    'Input 0.0000005 USD',
+    'Output 1.5 USD',
+    'Cached 0 USD',
+  ])
+  doc.models[0].billing_status = 'unavailable'
+  assert.equal(cardModel().group_prices?.default.input_price, null)
 })

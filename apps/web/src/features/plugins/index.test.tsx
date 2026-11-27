@@ -876,11 +876,25 @@ test('a standard administrator cannot discover or mount platform gateway credent
   assert.deepEqual(requests, ['/api/extensions/plugins'])
 })
 
-for (const [panel, owner] of [
-  ['store-review', 'store'],
-  ['toolmarket', 'toolmarket'],
-]) {
-  test(`${owner} opens the same administrator-readable review policy`, async () => {
+for (const [panel, owner, ownMarket, otherMarket, ownKey, otherKey] of [
+  ['store-review', 'store', 'product', 'tool', 'store_mode', 'tool_mode'],
+  ['toolmarket', 'toolmarket', 'tool', 'product', 'tool_mode', 'store_mode'],
+] as const) {
+  const cardSelector = `[data-plugin="${owner}"]`
+  const own = `#market-ai-mode-${ownMarket}`
+  const other = `#market-ai-mode-${otherMarket}`
+
+  async function openMarket() {
+    const container = await mount(panel)
+    await until(() =>
+      Boolean(container.querySelector(`${cardSelector} ${own}`))
+    )
+    const card = container.querySelector(cardSelector)!
+    assert.equal(card.querySelector(other), null)
+    return { card, field: card.querySelector<HTMLSelectElement>(own)! }
+  }
+
+  test(`${owner} shows only its own read-only review mode`, async () => {
     login(10)
     const calls: string[] = []
     api.defaults.adapter = async (config) => {
@@ -896,21 +910,8 @@ for (const [panel, owner] of [
       })
       return response(config, reviewSettings)
     }
-    const container = await mount(panel)
-    const selector = `[data-plugin="${owner}"]`
-    await until(() =>
-      Boolean(container.querySelector(selector + ' #market-ai-mode-product'))
-    )
-    const card = container.querySelector(selector)!
-    assert.equal(
-      card.querySelector<HTMLSelectElement>('#market-ai-mode-product')!
-        .disabled,
-      true
-    )
-    assert.equal(
-      card.querySelector<HTMLSelectElement>('#market-ai-mode-tool')!.disabled,
-      true
-    )
+    const { card, field } = await openMarket()
+    assert.equal(field.disabled, true)
     assert.equal(card.querySelector('form'), null)
     assert.equal(
       card.querySelector('a[href="/system-settings/security/moderation"]'),
@@ -918,65 +919,78 @@ for (const [panel, owner] of [
     )
     assert.deepEqual(calls, ['/api/extensions/plugins', reviewPath])
   })
-}
 
-test('a market edit sends only dirty fields and uses both modes confirmed by the server', async () => {
-  login(100)
-  const writes: unknown[] = []
-  let canSave = false
-  api.defaults.adapter = async (config) => {
-    if (config.url === '/api/extensions/plugins') {
-      return response(config, [plugin, { ...plugin, name: 'toolmarket' }])
-    }
-    assert.equal(config.url, reviewPath)
-    if (config.method === 'get') {
-      return response(config, {
-        ...reviewSettings,
-        review_group: '',
-        review_model: '',
-      })
-    }
-    assert.equal(config.method, 'patch')
-    assert.deepEqual(config.authScope, {
-      userId: 901,
-      sessionId: 'synthetic-session',
-    })
-    writes.push(JSON.parse(config.data))
-    if (!canSave) throw new Error('Classifier unavailable')
-    return response(config, {
+  test(`${owner} saves its own review mode and reads it back after reopening`, async () => {
+    login(100)
+    let saved = {
       ...reviewSettings,
-      tool_mode: 'auto',
-      store_mode: 'assist',
+      [otherKey]: 'auto',
+      review_group: '',
+      review_model: '',
+    }
+    let canSave = false
+    let reads = 0
+    const writes: unknown[] = []
+    api.defaults.adapter = async (config) => {
+      if (config.url === '/api/extensions/plugins') {
+        return response(config, [plugin, { ...plugin, name: 'toolmarket' }])
+      }
+      assert.equal(config.url, reviewPath)
+      assert.deepEqual(config.authScope, {
+        userId: 901,
+        sessionId: 'synthetic-session',
+      })
+      if (config.method === 'get') {
+        reads += 1
+        return response(config, saved)
+      }
+      assert.equal(config.method, 'patch')
+      const patch = JSON.parse(config.data)
+      writes.push(patch)
+      assert.deepEqual(patch, { [ownKey]: 'assist' })
+      if (!canSave) throw new Error('Classifier unavailable')
+      saved = { ...saved, ...patch }
+      return response(config, saved)
+    }
+    const { card, field } = await openMarket()
+    assert.match(
+      card.textContent ?? '',
+      /shared AI review route is unavailable/i
+    )
+    assert.equal(field.value, 'off')
+    await act(async () => {
+      field.value = 'assist'
+      field.dispatchEvent(new Event('change', { bubbles: true }))
     })
-  }
-  const container = await mount('store-review')
-  await until(() => Boolean(container.querySelector('#market-ai-mode-product')))
-  const card = container.querySelector('[data-plugin="store"]')!
-  assert.match(card.textContent ?? '', /shared AI review route is unavailable/i)
-  const product = card.querySelector<HTMLSelectElement>(
-    '#market-ai-mode-product'
-  )!
-  const tool = card.querySelector<HTMLSelectElement>('#market-ai-mode-tool')!
-  await act(async () => {
-    product.value = 'assist'
-    product.dispatchEvent(new Event('change', { bubbles: true }))
+    const submit = () =>
+      act(async () => {
+        card
+          .querySelector('form')!
+          .dispatchEvent(
+            new Event('submit', { bubbles: true, cancelable: true })
+          )
+      })
+    await submit()
+    await until(
+      () => card.textContent?.includes('Classifier unavailable') === true
+    )
+    assert.equal(field.value, 'assist')
+    canSave = true
+    await submit()
+    await until(
+      () =>
+        writes.length === 2 &&
+        !card.textContent?.includes('Classifier unavailable')
+    )
+    assert.deepEqual(writes, [{ [ownKey]: 'assist' }, { [ownKey]: 'assist' }])
+    assert.equal(saved[otherKey], 'auto')
+    const previousReads = reads
+    await dispose?.()
+    const reopened = await openMarket()
+    assert.equal(reads, previousReads + 1)
+    assert.equal(reopened.field.value, 'assist')
   })
-  const submit = async () =>
-    act(async () => {
-      card
-        .querySelector('form')!
-        .dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))
-    })
-  await submit()
-  await until(
-    () => card.textContent?.includes('Classifier unavailable') === true
-  )
-  assert.equal(product.value, 'assist')
-  canSave = true
-  await submit()
-  await until(() => tool.value === 'auto' && product.value === 'assist')
-  assert.deepEqual(writes, [{ store_mode: 'assist' }, { store_mode: 'assist' }])
-})
+}
 
 test('disabled gateways and two disabled market owners do not probe or mutate configuration', async () => {
   login(100)

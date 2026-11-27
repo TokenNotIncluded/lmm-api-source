@@ -136,11 +136,11 @@ func (r *Runtime) composeAssistantDelegation(ctx context.Context, cfg Config, db
 			dependencies.Policies = cfg.AssistantServicesPolicies
 		}
 		if access.Missing(dependencies.Navigation) {
-			dependencies.Navigation = assistantNavigation{authority: authority, store: r.Store, market: r.ToolMarket}
+			dependencies.Navigation = assistantNavigation{authority: authority, store: r.Store, market: r.ToolMarket, pluginEnabled: cfg.PluginEnabled}
 		}
 		publicSnapshot := cfg.AssistantPublicSnapshot
 		if access.Missing(publicSnapshot) && cfg.HostPublicOrigin != "" {
-			publicSnapshot = assistantPublicSnapshot{origin: cfg.HostPublicOrigin, local: cfg.LocalHTTP, checkins: r.Checkins}
+			publicSnapshot = assistantPublicSnapshot{origin: cfg.HostPublicOrigin, local: cfg.LocalHTTP, checkins: r.Checkins, pluginEnabled: cfg.PluginEnabled}
 		}
 		if factsClient, ok := any(client).(assistant_services.BusinessFactsClient); ok {
 			facts, factsErr := assistant_services.NewCoreBusinessFacts(factsClient, authority)

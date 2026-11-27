@@ -52,7 +52,8 @@ func (p *Postgres) PendingAIReviews(ctx context.Context, now int64, limit int) (
 	if limit < 1 || limit > 20 {
 		return nil, ErrInvalid
 	}
-	return p.productRows(ctx, legacyProductSelect+`WHERE p.body->'legacy'->>'status'='pending' AND EXISTS(SELECT 1 FROM jsonb_array_elements(COALESCE(p.body->'ai_review'->'jobs','[]'::jsonb)) j WHERE j->>'token'=p.body->'ai_review'->>'token' AND ((j->>'status'='pending' AND COALESCE((j->>'retry_at')::bigint,0)<=$1) OR (j->>'status'='running' AND COALESCE((j->>'lease_until')::bigint,0)<=$1))) ORDER BY p.id LIMIT $2`, now, limit)
+	// PostgreSQL skips SQL NULL and empty arrays. A nil Go job slice is stored as JSON null.
+	return p.productRows(ctx, legacyProductSelect+`WHERE p.body->'legacy'->>'status'='pending' AND EXISTS(SELECT 1 FROM jsonb_array_elements(NULLIF(p.body->'ai_review'->'jobs','null'::jsonb)) j WHERE j->>'token'=p.body->'ai_review'->>'token' AND ((j->>'status'='pending' AND COALESCE((j->>'retry_at')::bigint,0)<=$1) OR (j->>'status'='running' AND COALESCE((j->>'lease_until')::bigint,0)<=$1))) ORDER BY p.id LIMIT $2`, now, limit)
 }
 
 // WorkAIReviews runs a bounded batch. The lease is committed before Core I/O;

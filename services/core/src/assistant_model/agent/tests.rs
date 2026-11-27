@@ -315,7 +315,9 @@ async fn recovered_plugin_selection_runs_agent_and_personal_requests_without_hos
             .unwrap();
         let app = managed_router(pool.clone(), manager)
             .merge(assistant_model_settings(node, &original.policy.model));
+        // Keep the managed router alive while the settings handler runs.
         let response = app
+            .clone()
             .oneshot(
                 Request::put("/api/option/assistant-model")
                     .header("authorization", format!("Bearer {}", admin.secret))

@@ -30,6 +30,7 @@ import (
 )
 
 type Config struct {
+	PluginEnabled                 func(string) bool
 	SSMCPRelay                    SSMCPRelayConfig
 	Checkins                      StorageConfig
 	CheckinTokenFile              string

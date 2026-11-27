@@ -63,11 +63,23 @@ function groupPrices(
   row: NativePricingDocument['models'][number]
 ): PricingGroupPrices {
   const token = row.billing_status === 'configured' ? row.token_price : null
+  // A lifetime-dependent write price can still have fixed input, output and read rates.
+  const constant =
+    row.billing_status === 'unavailable'
+      ? undefined
+      : row.token_price?.constant_token_rates
+  // The API has already applied both multipliers. Browser numbers are used for display.
+  const amount = (rate: { numerator: string; denominator: string } | null) =>
+    rate ? Number(rate.numerator) / Number(rate.denominator) : null
   return {
-    input_price: token?.input ?? null,
-    output_price: token?.output ?? null,
-    cache_read_price: token?.cache_read ?? null,
-    cache_write_price: token?.cache_write ?? null,
+    input_price: constant ? amount(constant.input) : (token?.input ?? null),
+    output_price: constant ? amount(constant.output) : (token?.output ?? null),
+    cache_read_price: constant
+      ? amount(constant.cache_read)
+      : (token?.cache_read ?? null),
+    cache_write_price: constant
+      ? amount(constant.cache_write)
+      : (token?.cache_write ?? null),
     model_price: token?.unit === 'successful_requests' ? token.request : null,
     image_price: null,
     audio_input_price: null,
@@ -197,7 +209,7 @@ export function adaptNativePricing(
       input_price: commonPrice(prices, 'input_price'),
       output_price: commonPrice(prices, 'output_price'),
       cache_read_price: commonPrice(prices, 'cache_read_price'),
-      cache_write_price: null,
+      cache_write_price: commonPrice(prices, 'cache_write_price'),
       model_price: commonPrice(prices, 'model_price') ?? undefined,
       group_cache_write_12h_tiers: Object.fromEntries(
         rows.flatMap((row) =>

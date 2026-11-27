@@ -22,15 +22,16 @@ type assistantCheckinConfiguration interface {
 }
 
 type assistantPublicSnapshot struct {
-	origin   string
-	local    bool
-	checkins assistantCheckinConfiguration
+	origin        string
+	local         bool
+	checkins      assistantCheckinConfiguration
+	pluginEnabled func(string) bool
 }
 
 func (s assistantPublicSnapshot) PublicSnapshot(ctx context.Context) (assistant_services.PublicConfigurationSnapshot, error) {
 	value := assistant_services.PublicConfigurationSnapshot{ServiceRoot: s.origin, LocalHTTP: s.local && strings.HasPrefix(s.origin, "http://")}
 	var revision int64
-	if !access.Missing(s.checkins) {
+	if !access.Missing(s.checkins) && s.pluginEnabled != nil && s.pluginEnabled("checkins") {
 		policy, err := s.checkins.PublicConfiguration(ctx)
 		if err != nil {
 			return value, access.ErrUnavailable
@@ -64,9 +65,10 @@ type assistantPublicMarket interface {
 // Dynamic links use the same public, user-visible domain readers as the actual
 // console. This adapter cannot buy, grant access, or resolve another user's ID.
 type assistantNavigation struct {
-	authority access.Authority
-	store     assistantPublicProduct
-	market    assistantPublicMarket
+	authority     access.Authority
+	store         assistantPublicProduct
+	market        assistantPublicMarket
+	pluginEnabled func(string) bool
 }
 
 func (n assistantNavigation) Navigation(ctx context.Context, credential string, input assistant_services.NavigationInput) (json.RawMessage, error) {
@@ -84,7 +86,7 @@ func (n assistantNavigation) Navigation(ctx context.Context, credential string, 
 		if !access.ID(input.Identifier) || input.Query != "" || input.Section != "" {
 			return nil, access.ErrInvalid
 		}
-		if access.Missing(n.store) {
+		if access.Missing(n.store) || n.pluginEnabled == nil || !n.pluginEnabled("store") {
 			return nil, access.ErrUnavailable
 		}
 		product, e := n.store.PublicProduct(ctx, input.Identifier)
@@ -103,7 +105,7 @@ func (n assistantNavigation) Navigation(ctx context.Context, credential string, 
 		if !access.ID(input.Identifier) || input.Query != "" || input.Section != "" {
 			return nil, access.ErrInvalid
 		}
-		if access.Missing(n.market) {
+		if access.Missing(n.market) || n.pluginEnabled == nil || !n.pluginEnabled("toolmarket") {
 			return nil, access.ErrUnavailable
 		}
 		detail, e := n.market.PublicWebDetail(ctx, credential, strconv.FormatInt(p.UserID, 10), input.Identifier)

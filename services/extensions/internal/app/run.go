@@ -72,7 +72,12 @@ func Run() error {
 	if err != nil {
 		return err
 	}
+	// Assemble the registry before serving requests that consult its live state.
+	var pluginManager *modules.PluginManager
 	runtime, err := composition.New(context.Background(), composition.Config{
+		PluginEnabled: func(name string) bool {
+			return pluginManager != nil && pluginManager.IsEnabled(name)
+		},
 		Checkins: composition.StorageConfig{Component: "checkins", URLFile: cfg.Checkins.DatabaseURLFile, Database: cfg.Checkins.DatabaseName}, CheckinTokenFile: cfg.Core.CheckinTokenFile,
 		HeroSMSSocket: cfg.HeroSMS.CoreSocket, HeroSMSTokenFile: cfg.HeroSMS.CoreTokenFile,
 		MarketReviewSocket: cfg.MarketReview.CoreSocket, MarketReviewTokenFile: cfg.MarketReview.CoreTokenFile, MarketReviewSettingsFile: cfg.MarketReview.SettingsFile,
@@ -133,7 +138,7 @@ func Run() error {
 	if err != nil {
 		return err
 	}
-	pluginManager, err := modules.NewPluginManager(host, runtime.Modules, cfg.Host.PluginStateFile, runtime.ModuleDescriptors()...)
+	pluginManager, err = modules.NewPluginManager(host, runtime.Modules, cfg.Host.PluginStateFile, runtime.ModuleDescriptors()...)
 	if err != nil {
 		return err
 	}

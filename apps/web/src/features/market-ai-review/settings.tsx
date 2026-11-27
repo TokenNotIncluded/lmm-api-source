@@ -10,10 +10,17 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { marketAIReviewAPI } from './api'
 import { MARKET_AI_REVIEW_COPY as copy } from './copy'
-import { MarketAIReviewModeFields } from './mode-fields'
+import {
+  MarketAIReviewModeFields,
+  type MarketAIReviewModes,
+} from './mode-fields'
 import { MarketAIReviewSettingsForm } from './settings-form'
 
-export function MarketAIReviewSettingsSection() {
+export function MarketAIReviewSettingsSection({
+  market,
+}: {
+  market?: keyof MarketAIReviewModes
+} = {}) {
   const { t } = useTranslation()
   const client = useQueryClient()
   const auth = useAuthStore((state) => state.auth)
@@ -58,6 +65,7 @@ export function MarketAIReviewSettingsSection() {
       )}
       {scope.role === ROLE.SUPER_ADMIN ? (
         <MarketAIReviewSettingsForm
+          market={market}
           defaultValues={modes}
           onSave={async (updates) => {
             const saved = await marketAIReviewAPI.updateModes(
@@ -74,7 +82,12 @@ export function MarketAIReviewSettingsSection() {
           }}
         />
       ) : (
-        <MarketAIReviewModeFields value={modes} onChange={() => {}} disabled />
+        <MarketAIReviewModeFields
+          market={market}
+          value={modes}
+          onChange={() => {}}
+          disabled
+        />
       )}
       {scope.role === ROLE.SUPER_ADMIN && (
         <a
