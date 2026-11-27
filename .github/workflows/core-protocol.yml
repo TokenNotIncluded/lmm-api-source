@@ -115,6 +115,7 @@ jobs:
         run: |
           node --test scripts/workflow-topology.test.mjs
           python3 -B scripts/test-verify-deployment-ci.py
+          python3 -B scripts/test-prepare-ci-apt.py
           python3 -B scripts/test_prepare_openrouter_price_draft.py
           python3 -B scripts/test-core-boundaries.py
           python3 -B scripts/test-local-release-tests.py

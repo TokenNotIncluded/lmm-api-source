@@ -28,6 +28,23 @@ class PreparationTests(unittest.TestCase):
             self.assertIn("Enabled: no", (root / "chrome.sources").read_text())
             self.assertEqual(module.prepare(root), [])
 
+    def test_unused_microsoft_runner_source_is_disabled_selectively(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            unused = "https://packages.microsoft.com/ubuntu/24.04/prod"
+            other = "https://packages.microsoft.com/repos/edge"
+            used_line = f"deb {other} noble main\n"
+            (root / "microsoft.list").write_text(f"deb [arch=amd64] {unused} noble main\n" + used_line)
+            (root / "microsoft.sources").write_text(
+                f"Types: deb\nURIs: {unused}/\nSuites: noble\n"
+                "Signed-By: /usr/share/keyrings/microsoft-prod.gpg\n"
+            )
+            self.assertEqual(module.prepare(root), ["microsoft.list", "microsoft.sources"])
+            self.assertEqual((root / "microsoft.list").read_text().splitlines(keepends=True)[1], used_line)
+            self.assertIn("Enabled: no", (root / "microsoft.sources").read_text())
+            self.assertIn("Signed-By: /usr/share/keyrings/microsoft-prod.gpg", (root / "microsoft.sources").read_text())
+            self.assertEqual(module.prepare(root), [])
+
     def test_mixed_sources_fail_without_changing_the_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "mixed.sources"

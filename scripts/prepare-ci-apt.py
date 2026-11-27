@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later.
-"""Prepare Ubuntu and unused Chrome apt sources for ephemeral CI installs."""
+"""Prepare the apt sources used by ephemeral Ubuntu CI runners."""
 import argparse
 import os
 import re
@@ -12,9 +12,18 @@ RUNNER_UBUNTU_MIRRORS = "mirror+file:/etc/apt/apt-mirrors.txt"
 UBUNTU_ARCHIVE = "https://archive.ubuntu.com/ubuntu/"
 
 
-def chrome_source(uri):
+def unused_runner_source(uri):
     parsed = urlsplit(uri)
-    return parsed.scheme in {"http", "https"} and parsed.hostname == "dl.google.com" and parsed.path.rstrip("/") in {"/linux/chrome/deb", "/linux/chrome-stable/deb"}
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    path = parsed.path.rstrip("/")
+    return (
+        parsed.hostname == "dl.google.com"
+        and path in {"/linux/chrome/deb", "/linux/chrome-stable/deb"}
+    ) or (
+        parsed.hostname == "packages.microsoft.com"
+        and path == "/ubuntu/24.04/prod"
+    )
 
 
 def canonical_ubuntu_uris(block):
@@ -46,7 +55,7 @@ def prepare(directory):
             lines = []
             for line in original.splitlines(keepends=True):
                 match = re.match(r"^\s*deb(?:-src)?\s+(?:\[[^]]*\]\s+)?(\S+)", line)
-                if match and chrome_source(match[1]):
+                if match and unused_runner_source(match[1]):
                     line = "# Unused by LMM CI: " + line
                 elif match and match[1] == RUNNER_UBUNTU_MIRRORS:
                     line = line[:match.start(1)] + UBUNTU_ARCHIVE + line[match.end(1):]
@@ -57,9 +66,9 @@ def prepare(directory):
             for index in range(0, len(blocks), 2):
                 block = blocks[index]
                 uris = " ".join(Parser().parsestr(block).get_all("URIs", [])).split()
-                if not any(chrome_source(uri) for uri in uris):
+                if not any(unused_runner_source(uri) for uri in uris):
                     continue
-                if not all(chrome_source(uri) for uri in uris):
+                if not all(unused_runner_source(uri) for uri in uris):
                     raise ValueError("refusing to disable a mixed-source stanza: " + path.name)
                 if re.search(r"^Enabled:", block, re.M | re.I):
                     block = re.sub(r"^Enabled:.*$", "Enabled: no", block, flags=re.M | re.I)
