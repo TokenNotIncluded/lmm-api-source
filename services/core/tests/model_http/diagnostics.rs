@@ -39,11 +39,12 @@ async fn supplier(Json(request): Json<Value>) -> Response {
                 return;
             }
             if malformed {
-                let _ = sender
-                    .send(Ok(Bytes::from_static(
-                        b"event: synthetic-private-event\ndata: synthetic-private-body\n\n",
-                    )))
-                    .await;
+                let _ = sender.send(Ok(Bytes::from_static(
+                    br#"event: synthetic-private-event
+data: {"id":"response-body-id","provider":"synthetic-private-body","choices":[{"index":0,"delta":{"content":"never-in-a-log"},"finish_reason":null}]}
+
+"#
+                ))).await;
                 return;
             }
             if cancelled {
@@ -277,9 +278,14 @@ async fn frame_observation_uses_the_real_protocol_pair_and_does_not_retain_suppl
     assert_eq!(observation["sse_frame"]["event"], "other");
     assert_eq!(observation["sse_frame"]["channel_id"], 1);
     assert_eq!(observation["sse_frame"]["upstream_protocol"], "chat");
-    assert!(observation["sse_frame"]["converter"].is_null());
+    assert!(
+        observation["sse_frame"]["converter"]
+            .as_str()
+            .is_some_and(|variant| !variant.is_empty() && variant != "Other")
+    );
     for forbidden in [
         "synthetic-private",
+        "never-in-a-log",
         "malformed-frame",
         "measured output",
         "http://",

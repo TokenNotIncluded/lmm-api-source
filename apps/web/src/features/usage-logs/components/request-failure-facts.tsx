@@ -25,7 +25,7 @@ export function RequestFailureFacts({
   const failed = states
     ? states.result === 'error' || states.result === 'disconnected'
     : log.type === 5
-  if (!failed) return null
+  if (!failed && !(isAdmin && log.relay_diagnostics?.error_code)) return null
   const facts = failureFacts(log, other, isAdmin)
   const unknown = t('Not recorded')
   const rows = [

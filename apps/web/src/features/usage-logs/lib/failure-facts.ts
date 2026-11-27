@@ -35,6 +35,47 @@ const publicPaths = new Set([
   '/v1/audio/transcriptions',
 ])
 
+export function safeRequestPath(value: unknown): string | undefined {
+  if (typeof value !== 'string') return
+  const path = value.split(/[?#]/, 1)[0]
+  return publicPaths.has(path) ? path : undefined
+}
+
+const formatNames = new Set([
+  'chat',
+  'openai',
+  'openai chat',
+  'openai_chat',
+  'openai-chat',
+  'openai chat completions',
+  'responses',
+  'openai responses',
+  'openai_responses',
+  'openai-responses',
+  'anthropic',
+  'anthropic messages',
+  'anthropic_messages',
+  'anthropic-messages',
+  'claude',
+  'gemini',
+  'gemini generatecontent',
+  'gemini_generate_content',
+  'gemini-generate-content',
+])
+
+export function safeConversionChain(value: unknown): string[] {
+  if (
+    !Array.isArray(value) ||
+    value.length > 12 ||
+    !value.every(
+      (entry) =>
+        typeof entry === 'string' && formatNames.has(entry.toLowerCase())
+    )
+  )
+    return []
+  return value
+}
+
 function safeCode(value: unknown): string | undefined {
   if (
     typeof value !== 'string' ||
@@ -71,7 +112,7 @@ export function failureFacts(
       // Free-form bodies do not supply structured diagnostic fields.
     }
   }
-  const path = other?.request_path?.split(/[?#]/, 1)[0]
+  const path = safeRequestPath(other?.request_path)
   const attempts = isAdmin ? log.route_attempts : undefined
   const attempt = attempts?.at(-1)
   const previous = attempts?.at(-2)
@@ -80,7 +121,7 @@ export function failureFacts(
     code,
     message,
     messageWithheld,
-    path: path && publicPaths.has(path) ? path : undefined,
+    path,
     protocol: attempt?.protocol,
     inbound: observation?.inbound_protocol ?? attempt?.inbound_protocol,
     stage: safeCode(observation?.error_stage),

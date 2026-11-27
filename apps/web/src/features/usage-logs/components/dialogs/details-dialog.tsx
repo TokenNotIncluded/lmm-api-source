@@ -73,6 +73,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { readNativeUsageRequest } from '../../api'
 import type { UsageLog } from '../../data/schema'
+import { safeConversionChain, safeRequestPath } from '../../lib/failure-facts'
 import {
   parseLogOther,
   formatModelName,
@@ -750,10 +751,8 @@ function DetailsDialogContent(props: DetailsDialogProps) {
       ].filter(Boolean) as Array<{ label: string; value: string }>)
     : []
 
-  const conversionChain =
-    other && Array.isArray(other.request_conversion)
-      ? other.request_conversion.filter(Boolean)
-      : []
+  const conversionChain = safeConversionChain(other?.request_conversion)
+  const requestPath = safeRequestPath(other?.request_path)
   const conversionLabel =
     conversionChain.length < 2
       ? conversionChain[0] || t('Not recorded')
@@ -761,7 +760,7 @@ function DetailsDialogContent(props: DetailsDialogProps) {
   const showConversion =
     props.isAdmin &&
     props.log.type !== 6 &&
-    (other?.request_path || conversionChain.length > 0)
+    (requestPath || conversionChain.length > 0)
 
   const useChannel = other?.admin_info?.use_channel
   const channelChain =
@@ -1074,12 +1073,8 @@ function DetailsDialogContent(props: DetailsDialogProps) {
                 )}
               </Button>
               <div className='min-w-0 space-y-1 pr-6'>
-                {other?.request_path && (
-                  <DetailRow
-                    label={t('Path')}
-                    value={other.request_path}
-                    mono
-                  />
+                {requestPath && (
+                  <DetailRow label={t('Path')} value={requestPath} mono />
                 )}
                 <div className='flex min-w-0 items-center gap-1.5 text-xs'>
                   <Route
