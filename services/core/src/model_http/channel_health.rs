@@ -173,6 +173,28 @@ impl Bridge {
 }
 
 impl ModelGateway {
+    pub(crate) fn managed_channels(
+        &self,
+    ) -> Option<std::sync::Arc<crate::channel_http::ManagedChannels>> {
+        self.bridge
+            .channel_manager
+            .get()
+            .and_then(std::sync::Weak::upgrade)
+    }
+
+    pub(crate) async fn assistant_model_override(&self) -> Result<Option<String>, RelayError> {
+        let Some(manager) = self.managed_channels() else {
+            return Ok(None);
+        };
+        manager
+            .synchronize_if_changed()
+            .await
+            .map_err(|_| RelayError::RouteUnavailable)?;
+        manager
+            .assistant_model()
+            .map_err(|_| RelayError::RouteUnavailable)
+    }
+
     pub(crate) fn bind_channel_management(
         &self,
         manager: std::sync::Weak<crate::channel_http::ManagedChannels>,

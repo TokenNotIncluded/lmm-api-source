@@ -511,3 +511,115 @@ async fn channel_copy_publishes_independent_keys_and_executable_bindings(pool: P
     drop(restored);
     role.cleanup().await;
 }
+
+#[sqlx::test(migrations = false)]
+async fn assistant_model_settings_publish_recover_and_preserve_other_routing_configuration(
+    pool: PgPool,
+) {
+    use lmm_core::assistant_model::PersonalTextPolicy;
+    use lmm_core::channel_http::assistant_model_settings;
+    let (channels, gateway, admin, ordinary) = vault_app(&pool).await;
+    let policy: PersonalTextPolicy = serde_json::from_value(json!({
+        "model":"model-a","group":"default","budget_credits":1000,"max_output_tokens":16,"ttl_seconds":60
+    })).unwrap();
+    let settings_path = "/api/option/assistant-model";
+    let configuration_path = "/core/v1/admin/routing/configuration";
+    let app = channels.merge(assistant_model_settings(gateway.clone(), &policy));
+    assert_eq!(
+        request(app.clone(), "GET", settings_path, &ordinary, Value::Null)
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    let initial = success(&app, "GET", settings_path, &admin, Value::Null).await;
+    assert_eq!(initial["model"], "model-a");
+    assert_eq!(initial["models"], json!(["model-a"]));
+
+    let cfg = success(&app, "GET", configuration_path, &admin, Value::Null).await;
+    let mut routing = cfg["routing"].clone();
+    routing["version"] = json!(2);
+    routing["aliases"] =
+        json!([{"group":"default","model":"model-a","alias":"assistant-alternate"}]);
+    let mut change = json!({"expected_version":cfg["version"],"routing":routing,"prices":cfg["prices"],"bindings":cfg["bindings"]});
+    let preview_path = format!("{configuration_path}/preview");
+    let preview = success(&app, "POST", &preview_path, &admin, change.clone()).await;
+    change["confirmation_digest"] = preview["confirmation_digest"].clone();
+    success(&app, "PUT", configuration_path, &admin, change).await;
+    let loaded = success(&app, "GET", settings_path, &admin, Value::Null).await;
+    assert_eq!(loaded["models"], json!(["assistant-alternate", "model-a"]));
+    let selection = json!({"expected_version":loaded["version"], "model":"assistant-alternate"});
+    assert_eq!(
+        request(
+            app.clone(),
+            "PUT",
+            settings_path,
+            &ordinary,
+            selection.clone()
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(
+            app.clone(),
+            "PUT",
+            settings_path,
+            &admin,
+            json!({"expected_version":loaded["version"],"model":"missing"})
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    let saved = success(&app, "PUT", settings_path, &admin, selection.clone()).await;
+    assert_eq!(saved["model"], "assistant-alternate");
+    assert_eq!(
+        gateway.assistant_model_override().await.unwrap().as_deref(),
+        Some("assistant-alternate")
+    );
+    crate::assistant_model::check_selected_model_issuance(
+        &pool,
+        gateway.clone(),
+        &ordinary,
+        &policy,
+    )
+    .await;
+    assert_eq!(
+        request(app.clone(), "PUT", settings_path, &admin, selection)
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+
+    // Simulate a previous console version that serializes only its known bindings.
+    let cfg = success(&app, "GET", configuration_path, &admin, Value::Null).await;
+    let mut bindings = cfg["bindings"].clone();
+    bindings.as_object_mut().unwrap().remove("assistant_model");
+    let mut routing = cfg["routing"].clone();
+    routing["version"] = json!(cfg["version"]["routing"].as_u64().unwrap() + 1);
+    let mut change = json!({"expected_version":cfg["version"],"routing":routing,"prices":cfg["prices"],"bindings":bindings});
+    let preview = success(&app, "POST", &preview_path, &admin, change.clone()).await;
+    change["confirmation_digest"] = preview["confirmation_digest"].clone();
+    success(&app, "PUT", configuration_path, &admin, change).await;
+
+    let fresh_gateway = support::gateway(&pool)
+        .with_channel_secret_key(&[83; 32])
+        .unwrap();
+    let recovered = ManagedChannels::recover(pool.clone(), fresh_gateway.clone())
+        .await
+        .unwrap();
+    let restarted = managed_router(pool.clone(), recovered)
+        .merge(assistant_model_settings(fresh_gateway, &policy));
+    let restored = success(&restarted, "GET", settings_path, &admin, Value::Null).await;
+    assert_eq!(restored["model"], "assistant-alternate");
+    let reset = success(
+        &restarted,
+        "PUT",
+        settings_path,
+        &admin,
+        json!({"model":"model-a","expected_version":restored["version"]}),
+    )
+    .await;
+    assert_eq!(reset["model"], reset["default_model"]);
+}

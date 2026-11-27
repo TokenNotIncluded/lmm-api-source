@@ -6,6 +6,7 @@
 mod control;
 mod pricing_snapshot;
 mod sorting;
+pub use control::assistant_settings::router as assistant_model_settings;
 pub use control::{ManagedChannels, ManagementError};
 pub const SCHEMA: &str = include_str!("../schema/channel_control.sql");
 pub const VAULT_SCHEMA: &str = include_str!("../schema/channel_vault.sql");

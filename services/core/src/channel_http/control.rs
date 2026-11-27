@@ -2,6 +2,7 @@
 //! the serving snapshot changes only after its audit and release commit.
 pub(super) mod accounting;
 pub(super) mod affinity;
+pub(crate) mod assistant_settings;
 pub(super) mod balance;
 pub(super) mod batch;
 pub(super) mod catalog;
@@ -240,6 +241,13 @@ impl ManagedChannels {
             self.install(document).await?;
         }
         Ok(())
+    }
+
+    pub(crate) fn assistant_model(&self) -> Result<Option<String>, ManagementError> {
+        self.bindings
+            .read()
+            .map(|guard| guard.1.assistant_model.clone())
+            .map_err(|_| ManagementError::Storage)
     }
 
     fn current_bindings(&self) -> Result<Bindings, ManagementError> {

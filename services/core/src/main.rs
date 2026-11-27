@@ -796,6 +796,13 @@ async fn run_core(inherited_listener: Option<std::net::TcpListener>) -> Result<(
     let browser_assistant = assistant_drain.as_ref();
     #[cfg(not(unix))]
     let browser_assistant = None;
+    #[cfg(unix)]
+    if let (Some(gateway), Some(assistant)) = (model_gateway.as_ref(), browser_assistant) {
+        app = app.merge(lmm_core::channel_http::assistant_model_settings(
+            gateway.clone(),
+            assistant.model_policy(),
+        ));
+    }
     if let (Some(pool), Some(identity)) = (&database_pool, assistant_browser_identity)
         && let Some(confirmations) =
             config::assistant_tools_browser_router(pool.clone(), identity, browser_assistant)?

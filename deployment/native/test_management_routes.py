@@ -110,6 +110,8 @@ class NativeManagementRoutes(unittest.TestCase):
 
     def test_exact_routes_preserve_method_uri_session_and_body(self):
         for method, path, target in (
+            ('GET', '/api/option/assistant-model', 'core'),
+            ('PUT', '/api/option/assistant-model', 'core'),
             ('GET', '/api/option/epay/config', 'go'),
             ('GET', '/api/admin/acquisition/report?from=1&to=2', 'go'),
             ('GET', '/api/admin/acquisition/funnel', 'go'),
@@ -175,6 +177,7 @@ class NativeManagementRoutes(unittest.TestCase):
             ('GET', '/api/option/waffo-pancake/save', 405),
             ('POST', '/api/option/waffo-pancake/config', 405),
             ('GET', '/api/option/waffo-pancake/other', 418),
+            ('POST', '/api/option/assistant-model', 405),
             ('GET', '/core/v1/admin/user-access', 404),
             ('POST', '/core/v1/admin/user-access/17', 405),
             ('GET', '/core/v1/admin/user-access/0', 404),
