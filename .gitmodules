@@ -16,6 +16,7 @@
 [submodule "packages/extore"]
 	path = packages/extore
 	url = https://github.com/TokenNotIncluded/extore.git
+	branch = review/extore-zplugin-catalog
 [submodule "apps/cli"]
 	path = apps/cli
 	url = https://github.com/TokenNotIncluded/lmm.git

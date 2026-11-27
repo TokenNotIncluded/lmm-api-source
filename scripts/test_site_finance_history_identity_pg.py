@@ -57,7 +57,7 @@ CREATE TABLE core_passkeys.credentials(user_id bigint);
 CREATE SCHEMA core_billing;
 CREATE TABLE core_billing.account_opening_counters(account_id bigint,user_id bigint,used_quota bigint,
   migration_id text,source_entity_key text,source_row_sha256 text,source_archive_sha256 text,mapping_sha256 text,observed_at bigint);
-CREATE TABLE core_billing.opening_imports(account_id bigint,migration_id text,source_entity_key text,source_row_sha256 text);
+CREATE TABLE core_billing.opening_imports(account_id bigint,migration_id text,source_entity_key text,source_row_sha256 text,request jsonb);
 CREATE TABLE core_billing.opening_import_runs(migration_id text,source_archive_sha256 text,mapping_sha256 text,observed_at bigint);
 CREATE TABLE core_billing.ledger_accounts(id bigint PRIMARY KEY,owner_account_id bigint,bucket text);
 CREATE TABLE core_billing.balance_state(ledger_account_id bigint,balance_units bigint);
@@ -183,6 +183,35 @@ INSERT INTO core_billing.account_opening_counters VALUES(1,71,22,'opening','sour
         self.assertEqual(broken["missing"], 1)
         incomplete = self.read(self.manifest, imported + "DELETE FROM core_billing.balance_state WHERE ledger_account_id=1;")
         self.assertEqual(incomplete["invalid_wallets"], 1)
+
+    def test_partial_wallet_receipt_without_usage_counters(self):
+        from migrate_legacy_available_wallet import POLICY, SCOPE
+        opening = {"account_id": 1, "source_entity_key": "legacy.users/12", "source_row_sha256": "row",
+                   "migration_id": "partial", "source_archive_sha256": "archive", "mapping_sha256": "mapping",
+                   "observed_at": 42, "available_units": -20, "reserved_units": 0, "affiliate_units": 0}
+        position = {"source_user_id": 12, "target_user_id": 71, "account_id": 1,
+                    "available_units": -20, "source_row_sha256": "row"}
+        material = {"scope": SCOPE, "policy": POLICY, "migration_id": "partial", "source_archive_sha256": "archive",
+                    "mapping_sha256": "mapping", "observed_at": 42, "positions": [position]}
+        receipt = {"format_version": 1, "scope": SCOPE, "partial": True, "full_financial_import_complete": False,
+                   "material": material}
+        sql = ("INSERT INTO core_billing.opening_import_runs VALUES('partial','archive','mapping',42);"
+               "INSERT INTO core_billing.opening_imports VALUES(1,'partial','legacy.users/12','row',"
+               + H.jlit(opening) + ");")
+        def read():
+            return self.read(self.manifest, sql + "INSERT INTO core_migration.import_runs VALUES"
+                             "('partial','archive','mapping'," + H.jlit(receipt) + ");")
+        verified = read()
+        # Current wallet+debt, not the immutable opening amount. Lifetime usage stays unknown.
+        self.assertEqual((verified["missing"], verified["missing_usage"], verified["invalid_wallets"],
+                          verified["balance"]), (0, 1, 0, "95"))
+        for key, wrong in (("account_id", 9), ("target_user_id", 9), ("source_row_sha256", "wrong"),
+                           ("available_units", 0), ("source_user_id", 99)):
+            with self.subTest(key=key):
+                original = position[key]
+                position[key] = wrong
+                self.assertEqual(read()["missing"], 1)
+                position[key] = original
 
     def test_unbound_inactive_identity_and_tampered_receipts_keep_completeness_guard(self):
         mutations = [

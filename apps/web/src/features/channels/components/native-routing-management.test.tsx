@@ -5141,7 +5141,11 @@ test('selected route review commits the exact preview digest only for the checke
       })
     }
     assert.equal(options.method, 'PUT')
-    assert.deepEqual(data, { ...preview, confirmation_digest: checksum })
+    const expected: Record<string, unknown> = {
+      ...required(preview),
+      confirmation_digest: checksum,
+    }
+    assert.deepEqual(data, expected)
     config.routing = data.routing as NativeConfiguration['routing']
     config.prices = data.prices as NativeConfiguration['prices']
     config.version = {

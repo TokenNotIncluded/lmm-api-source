@@ -162,11 +162,40 @@ impl HistoryStore {
             concat!(
                 include_str!("history_only_identities.sql"),
                 r#", users AS (
- SELECT u.id,u.personal_account_id,c.account_id AS opening_account,
+ -- The available-wallet migration installs a reviewed wallet/debt opening
+ -- without importing lifetime usage counters. Bind its owner manifest and
+ -- immutable per-account request before counting that wallet's live buckets.
+ WITH partial_openings AS (
+   SELECT DISTINCT p->'target_user_id' AS user_id,i.account_id
+   FROM core_migration.import_runs m
+   JOIN core_billing.opening_import_runs r ON r.migration_id=m.migration_id
+   CROSS JOIN LATERAL jsonb_array_elements(CASE
+     WHEN jsonb_typeof(m.manifest#>'{material,positions}')='array'
+     THEN m.manifest#>'{material,positions}' ELSE '[]'::jsonb END) p
+   JOIN core_billing.opening_imports i ON i.migration_id=r.migration_id
+     AND to_jsonb(i.account_id)=p->'account_id'
+     AND i.source_entity_key='legacy.users/' || (p->>'source_user_id')
+     AND i.source_row_sha256=p->>'source_row_sha256'
+   WHERE m.manifest @> '{"format_version":1,"scope":"financial-available-wallet-debt-v1",
+      "partial":true,"full_financial_import_complete":false,"material":{
+      "scope":"financial-available-wallet-debt-v1",
+      "policy":"original-signed-users-quota-only-no-rescale-all-other-rights-explicitly-deferred"}}'::jsonb
+     AND m.manifest#>>'{material,migration_id}'=r.migration_id
+     AND m.manifest#>>'{material,source_archive_sha256}'=r.source_archive_sha256
+     AND m.manifest#>>'{material,mapping_sha256}'=r.mapping_sha256
+     AND m.manifest#>'{material,observed_at}'=to_jsonb(r.observed_at)
+     AND jsonb_typeof(p->'available_units')='number'
+     AND i.request @> jsonb_build_object('account_id',i.account_id,'source_row_sha256',i.source_row_sha256,
+       'migration_id',r.migration_id,'source_entity_key',i.source_entity_key,
+       'source_archive_sha256',r.source_archive_sha256,'mapping_sha256',r.mapping_sha256,
+       'observed_at',r.observed_at,'available_units',p->'available_units','reserved_units',0,'affiliate_units',0)
+ )
+ SELECT u.id,u.personal_account_id,coalesce(c.account_id,w.account_id) AS opening_account,
    f.normalized_used_credits,
-   (i.account_id=c.account_id AND i.source_row_sha256=c.source_row_sha256
+   ((c.account_id IS NULL AND w.account_id IS NOT NULL) OR
+    (c.user_id=u.id AND i.account_id=c.account_id AND i.source_row_sha256=c.source_row_sha256
     AND r.source_archive_sha256=c.source_archive_sha256 AND r.mapping_sha256=c.mapping_sha256
-    AND r.observed_at=c.observed_at) IS TRUE AS opening_verified,
+    AND r.observed_at=c.observed_at)) IS TRUE AS opening_verified,
    EXISTS(SELECT 1 FROM core_billing.opening_imports i WHERE i.account_id=u.personal_account_id) AS imported,
    (EXISTS(SELECT 1 FROM core_identity.audit a WHERE a.actor_user_id=u.id
      AND a.action IN ('user.register','user.bootstrap','installation.first-owner')
@@ -174,7 +203,8 @@ impl HistoryStore {
     OR (EXISTS(SELECT 1 FROM core_abuse.registration_observations o WHERE o.user_id=u.id)
         AND to_jsonb(u.id) NOT IN (SELECT target_user_id FROM history_identity_mappings))) AS native
  FROM core_identity.users u
- LEFT JOIN core_billing.account_opening_counters c ON c.user_id=u.id AND c.account_id=u.personal_account_id
+ LEFT JOIN partial_openings w ON w.user_id=to_jsonb(u.id) AND w.account_id=u.personal_account_id
+ LEFT JOIN core_billing.account_opening_counters c ON c.account_id=u.personal_account_id
  LEFT JOIN core_billing.opening_imports i ON i.migration_id=c.migration_id AND i.source_entity_key=c.source_entity_key
  LEFT JOIN core_billing.opening_import_runs r ON r.migration_id=c.migration_id
  LEFT JOIN core_history.finance_users f ON f.user_id=u.id AND f.account_id=u.personal_account_id
