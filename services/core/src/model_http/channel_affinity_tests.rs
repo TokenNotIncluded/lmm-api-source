@@ -338,15 +338,15 @@ async fn prompt_cache_affinity_pg_reuses_the_supplier_without_creating_affinity_
                 .contains(key)
         );
     }
-    let left = a.bodies.lock().unwrap();
-    let right = b.bodies.lock().unwrap();
-    assert_eq!(left.len() + right.len(), 4);
-    assert!(left.is_empty() || right.is_empty());
-    for body in left.iter().chain(right.iter()) {
-        assert_eq!(body["prompt_cache_key"], key);
+    {
+        let left = a.bodies.lock().unwrap();
+        let right = b.bodies.lock().unwrap();
+        assert_eq!(left.len() + right.len(), 4);
+        assert!(left.is_empty() || right.is_empty());
+        for body in left.iter().chain(right.iter()) {
+            assert_eq!(body["prompt_cache_key"], key);
+        }
     }
-    drop(left);
-    drop(right);
     let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM core_channels.affinity_cache")
         .fetch_one(&f.pool)
         .await
