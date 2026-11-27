@@ -29,7 +29,7 @@ func (p *pancakeAdminProbe) Catalog(_ context.Context, request PancakeAdminReque
 	return map[string]any{"stores": []any{}}, nil
 }
 
-func TestPancakeAdminMountedWithPaymentLifecycleAndLegacyEnvelope(t *testing.T) {
+func TestPancakeCoreAdminRequiresReadyHostAndKeepsLegacyEnvelope(t *testing.T) {
 	host, core := mountTransportHost(t, nil)
 	core.fn = func(context.Context, string) (*pb.AuthorizeResponse, error) {
 		self := sessionSelf()
@@ -59,15 +59,15 @@ func TestPancakeAdminMountedWithPaymentLifecycleAndLegacyEnvelope(t *testing.T) 
 		t.Fatal("safe configuration readback missing", w.Code)
 	}
 	plugins.enabled["payments"] = false
-	if w := request("catalog"); w.Code != 503 || probe.calls != 4 {
-		t.Fatal("admin bypassed disabled payment module")
+	if w := request("catalog"); w.Code != http.StatusOK || probe.calls != 5 {
+		t.Fatal("legacy plugin state blocked core Pancake admin", w.Code, probe.calls)
 	}
-	if w := pluginRequest(handler, "GET", "/api/option/waffo-pancake/config", "", webToken); w.Code != 503 || probe.calls != 4 {
-		t.Fatal("configuration bypassed disabled payment module")
+	delete(plugins.enabled, "payments")
+	if w := pluginRequest(handler, "GET", "/api/option/waffo-pancake/config", "", webToken); w.Code != http.StatusOK || probe.calls != 6 {
+		t.Fatal("missing legacy plugin blocked core Pancake configuration", w.Code, probe.calls)
 	}
-	plugins.enabled["payments"] = true
 	host.BeginDrain()
-	if w := request("catalog"); w.Code != 503 || probe.calls != 4 {
+	if w := request("catalog"); w.Code != http.StatusServiceUnavailable || probe.calls != 6 {
 		t.Fatal("admin bypassed drain")
 	}
 }

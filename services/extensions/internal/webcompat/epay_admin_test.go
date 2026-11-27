@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestEPayConfigurationRequiresOwnerAndPaymentLifecycle(t *testing.T) {
+func TestEPayCoreConfigurationRequiresOwnerAndReadyHost(t *testing.T) {
 	for _, tc := range []struct {
 		name, token string
 		level       int32
@@ -55,12 +55,15 @@ func TestEPayConfigurationRequiresOwnerAndPaymentLifecycle(t *testing.T) {
 		t.Fatal("ready configuration not mounted")
 	}
 	plugins.enabled["payments"] = false
-	if request() != 503 || probe.calls != 1 {
-		t.Fatal("configuration bypassed disabled module")
+	if request() != http.StatusOK || probe.calls != 2 {
+		t.Fatal("legacy plugin state blocked core EPay configuration")
 	}
-	plugins.enabled["payments"] = true
+	delete(plugins.enabled, "payments")
+	if request() != http.StatusOK || probe.calls != 3 {
+		t.Fatal("missing legacy plugin blocked core EPay configuration")
+	}
 	host.BeginDrain()
-	if request() != 503 || probe.calls != 1 {
+	if request() != http.StatusServiceUnavailable || probe.calls != 3 {
 		t.Fatal("configuration bypassed drain")
 	}
 }
