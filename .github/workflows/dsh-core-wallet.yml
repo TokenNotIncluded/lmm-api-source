@@ -1,0 +1,77 @@
+name: DSH SDK Core OAuth wallet
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sdk:
+    name: DSH Web SDK with explicit Core fixture issuer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.19.0'
+      - name: Prepare the pinned official DSH host and explicit-issuer SDK assembly
+        run: |
+          set -euo pipefail
+          git submodule update --init --recursive --depth 1 -- packages/dsh-lmm-provider
+          plugin="$GITHUB_WORKSPACE/packages/dsh-lmm-provider"
+          npm --prefix "$plugin" ci --ignore-scripts --no-audit --no-fund
+          npm --prefix "$plugin" run build
+          # Bundle only the pinned plugin pieces and its vendored provider. Host
+          # peers resolve against the exact stock SDK from the plugin lockfile.
+          assembly="$plugin/node_modules/.cache/dsh-core-sdk.mjs"
+          mkdir -p "$(dirname "$assembly")"
+          "$plugin/node_modules/.bin/esbuild" scripts/dsh-core-host/sdk.mjs --bundle --platform=node --format=esm --packages=external \
+            --alias:pinned-dsh-plugin="$plugin/lib/index.mjs" \
+            --alias:pinned-lmm-integration="$plugin/vendor/pi-lmm-provider/src/provider.ts" \
+            --alias:pinned-dsh-web-auth="$plugin/src/web-auth.ts" --outfile="$assembly"
+          rustup toolchain install 1.100.0 --profile minimal
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends protobuf-compiler
+          printf '127.0.0.1 pi-issuer.example.test\n' | sudo tee -a /etc/hosts >/dev/null
+          sudo sysctl -w net.ipv4.ip_unprivileged_port_start=443
+          umask 077
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=pi-issuer.example.test \
+            -addext 'subjectAltName=DNS:pi-issuer.example.test' -keyout "$RUNNER_TEMP/issuer.key" -out "$RUNNER_TEMP/issuer.pem"
+      - name: Reconcile a DSH SDK stream with one isolated OAuth wallet capture
+        working-directory: services/core
+        env:
+          DSH_SDK_PACKAGE: ${{ github.workspace }}/packages/dsh-lmm-provider
+          DSH_SDK_ASSEMBLY: ${{ github.workspace }}/packages/dsh-lmm-provider/node_modules/.cache/dsh-core-sdk.mjs
+          FIXTURE_TLS_KEY: ${{ runner.temp }}/issuer.key
+          FIXTURE_TLS_CERT: ${{ runner.temp }}/issuer.pem
+          NODE_EXTRA_CA_CERTS: ${{ runner.temp }}/issuer.pem
+          DSH_SDK_RECEIPT: ${{ runner.temp }}/dsh-sdk-core-wallet.json
+        run: |
+          set -euo pipefail
+          gate=dsh_sdk::sdk_oauth_session_settles_one_request
+          cargo test --locked --test oauth2_provider_clients "$gate" -- --ignored --exact --nocapture | tee "$RUNNER_TEMP/dsh-sdk-result"
+          grep -Fqx "test $gate ... ok" "$RUNNER_TEMP/dsh-sdk-result"
+          test -s "$DSH_SDK_RECEIPT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: dsh-sdk-core-wallet-${{ github.sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/dsh-sdk-core-wallet.json
+          if-no-files-found: error
+          retention-days: 7

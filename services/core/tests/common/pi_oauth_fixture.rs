@@ -778,6 +778,7 @@ impl Fixture {
 }
 pub(super) enum CliHost {
     Codewhale,
+    Dsh,
     Pi,
     Magpie,
     OpenCode,
@@ -792,7 +793,9 @@ where
     let applications = match host {
         CliHost::Pi => FixtureApplications::PiHost,
         CliHost::Magpie => FixtureApplications::MagpieHost,
-        CliHost::Codewhale | CliHost::OpenCode | CliHost::Zed => FixtureApplications::ProviderHost,
+        CliHost::Codewhale | CliHost::Dsh | CliHost::OpenCode | CliHost::Zed => {
+            FixtureApplications::ProviderHost
+        }
     };
     with_fixture_applications(pool, false, applications, case).await;
 }
