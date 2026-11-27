@@ -341,7 +341,8 @@ async fn client_case(pool: PgPool, protocol: Protocol, client: &'static str) {
         .as_deref()
         .expect("request ID on actual client ingress");
     assert_eq!(provider.hits.load(Ordering::SeqCst), 1);
-    let charges: Vec<(String, String, i64, i64, i64, i64, i64, Value)> = sqlx::query_as(
+    type ChargeRow = (String, String, i64, i64, i64, i64, i64, Value);
+    let charges: Vec<ChargeRow> = sqlx::query_as(
         "SELECT id,state,key_id,actor_user_id,payer_account_id,settled,output_tokens,price FROM core_charging.requests"
     ).fetch_all(&pool).await.unwrap();
     assert_eq!(charges.len(), 1);
