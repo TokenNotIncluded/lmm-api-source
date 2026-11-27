@@ -1684,7 +1684,7 @@ async fn pi_responses_oauth_streams_and_replays_output_without_creating_continua
                     .stream_item_events
                     .store(true, Ordering::SeqCst);
             }
-            let gateway = host(fixture.gateway).await;
+            let gateway = host(fixture.gateway.with_local_streaming()).await;
             let mut body = json!({
                 "model": PUBLIC, "stream": true, "store": false, "max_output_tokens": 50,
                 "input": [{"role":"user","content":[{"type":"input_text","text":"hi"}]}],
@@ -1706,7 +1706,11 @@ async fn pi_responses_oauth_streams_and_replays_output_without_creating_continua
                 let response = post(&gateway.base, &fixture.first.token, &nonce, &body)
                     .await
                     .unwrap();
-                assert_eq!(response.status(), StatusCode::OK);
+                let status = response.status();
+                if status != StatusCode::OK {
+                    let failure = response.json::<Value>().await.unwrap_or_default();
+                    panic!("Pi OAuth turn {turn} returned {status}: {}", failure["error"]["code"]);
+                }
                 let id = oauth_id(&fixture.first, &nonce);
                 assert_eq!(response.headers()["x-request-id"].to_str().unwrap(), id);
                 let wire = response.text().await.unwrap();
