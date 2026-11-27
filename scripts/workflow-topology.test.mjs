@@ -152,6 +152,9 @@ test('Workflows use bounded manual and publication triggers', () => {
       assert.deepEqual([...events].sort(), ['schedule', 'workflow_call', 'workflow_dispatch']);
       assert.match(block[1], /^    - cron: ['"]7,37 \* \* \* \*['"]$/m);
       assert.ok(source.includes("group: core-protocol-${{ inputs.browser_only && 'browser' || 'full' }}-${{ github.sha }}"));
+      assert.match(source, /only_if_unverified:[\s\S]*?type: boolean\n        default: false/);
+      assert.ok(source.includes("inputs.only_if_unverified && !inputs.browser_only"));
+      assert.equal(source.split("if: ${{ env.CHECK_HISTORY == 'true' }}").length - 1, 2);
       assert.match(source, /cancel-in-progress: false/);
       assert.match(source, /permissions:\n  contents: read/);
       assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);

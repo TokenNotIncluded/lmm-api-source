@@ -2,6 +2,10 @@ name: Microkernel implementation checks
 on:
   workflow_dispatch:
     inputs:
+      only_if_unverified:
+        description: On main, use the scheduled SHA check before starting full verification.
+        type: boolean
+        default: false
       browser_onboarding_wallet:
         description: Run the Chromium onboarding and same-request wallet receipt gate.
         type: boolean
@@ -35,20 +39,22 @@ jobs:
     permissions:
       contents: read
       actions: read
+    env:
+      CHECK_HISTORY: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.only_if_unverified && !inputs.browser_only) }}
     outputs:
       needed: ${{ steps.schedule.outputs.needed || steps.explicit.outputs.needed }}
     steps:
       - name: Select explicit qualification
         id: explicit
-        if: ${{ github.event_name != 'schedule' }}
+        if: ${{ env.CHECK_HISTORY != 'true' }}
         run: echo "needed=true" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-        if: ${{ github.event_name == 'schedule' }}
+        if: ${{ env.CHECK_HISTORY == 'true' }}
         with:
           persist-credentials: false
       - name: Look up the original full validation for this SHA
         id: schedule
-        if: ${{ github.event_name == 'schedule' }}
+        if: ${{ env.CHECK_HISTORY == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 -B scripts/ci/core_cadence.py
