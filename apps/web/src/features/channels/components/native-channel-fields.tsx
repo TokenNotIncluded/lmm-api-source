@@ -65,6 +65,8 @@ export function NativeChannelTagField({
   )
 }
 
+const catalogPageSize = 50
+
 function ChannelModelCatalog({
   disabled,
   fetchModels,
@@ -91,13 +93,14 @@ function ChannelModelCatalog({
 }) {
   const { t } = useTranslation()
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
   const [selected, setSelected] = useState<number[]>([])
   const [mappingModel, setMappingModel] = useState('')
   const [mappingRouteId, setMappingRouteId] = useState('')
   const mappingId = useId()
   const catalog = useMutation({ mutationFn: fetchModels })
   const availableModels = catalog.data ?? savedModels
-  const models = new Set(availableModels)
+  const models = useMemo(() => new Set(availableModels), [availableModels])
   const attached = useMemo(
     () =>
       new Map(
@@ -137,8 +140,15 @@ function ChannelModelCatalog({
       !attached.has(route.id) &&
       models.has(route.model)
   )
-  const filtered = [...models].filter((model) =>
-    model.toLowerCase().includes(search.trim().toLowerCase())
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    return [...models].filter((model) => model.toLowerCase().includes(query))
+  }, [models, search])
+  const pageCount = Math.max(1, Math.ceil(filtered.length / catalogPageSize))
+  const currentPage = Math.min(page, pageCount)
+  const visibleModels = filtered.slice(
+    (currentPage - 1) * catalogPageSize,
+    currentPage * catalogPageSize
   )
 
   return (
@@ -151,6 +161,7 @@ function ChannelModelCatalog({
           disabled={disabled || catalog.isPending}
           onClick={() => {
             setSelected([])
+            setPage(1)
             setMappingModel('')
             setMappingRouteId('')
             catalog.mutate()
@@ -205,7 +216,10 @@ function ChannelModelCatalog({
               aria-label={t('Search models')}
               placeholder={t('Search models')}
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => {
+                setSearch(event.target.value)
+                setPage(1)
+              }}
             />
           )}
           {draft && models.size > 0 && routes.length > 0 && (
@@ -225,6 +239,7 @@ function ChannelModelCatalog({
                   aria-label={t('Upstream model')}
                   placeholder={t('Search models')}
                   emptyText={t('No models found')}
+                  maxVisibleOptions={catalogPageSize}
                   options={[...models].map((model) => ({
                     value: model,
                     label: model,
@@ -240,6 +255,7 @@ function ChannelModelCatalog({
                   aria-label={t('Model name')}
                   placeholder={t('Search models')}
                   emptyText={t('No models found')}
+                  maxVisibleOptions={catalogPageSize}
                   options={routes.map((route) => ({
                     value: String(route.id),
                     label: `${route.model} · ${route.group}`,
@@ -264,8 +280,11 @@ function ChannelModelCatalog({
             </details>
           )}
           {filtered.length > 0 ? (
-            <ul className='bg-muted/40 max-h-64 overflow-y-auto rounded-md p-3'>
-              {filtered.map((model) => {
+            <ul
+              key={currentPage}
+              className='bg-muted/40 max-h-64 overflow-y-auto rounded-md p-3'
+            >
+              {visibleModels.map((model) => {
                 const matches = routesByModel.get(model) ?? []
                 return (
                   <li key={model} className='space-y-1 py-2'>
@@ -309,6 +328,38 @@ function ChannelModelCatalog({
             <p className='text-muted-foreground text-sm'>
               {t('No models found')}
             </p>
+          )}
+          {pageCount > 1 && (
+            <div className='flex flex-wrap items-center justify-between gap-2'>
+              <p role='status' className='text-muted-foreground text-sm'>
+                {t('Page {{current}} of {{total}}', {
+                  current: currentPage,
+                  total: pageCount,
+                })}
+              </p>
+              <div className='flex flex-wrap gap-2'>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  className='min-h-11'
+                  disabled={currentPage === 1}
+                  onClick={() => setPage(currentPage - 1)}
+                >
+                  {t('Previous page')}
+                </Button>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  className='min-h-11'
+                  disabled={currentPage === pageCount}
+                  onClick={() => setPage(currentPage + 1)}
+                >
+                  {t('Next page')}
+                </Button>
+              </div>
+            </div>
           )}
           <Button
             type='button'

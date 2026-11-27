@@ -10315,6 +10315,7 @@
     "Search the site's configured policy text without fetching external URLs.": "搜尋本站設定的政策文字，不存取外部網址。",
     "Search the web": "搜尋網頁",
     "Search through the configured provider; results cannot authorize account changes.": "透過已設定的服務商搜尋；搜尋結果不能授權修改帳號。",
+    "Search to find more options": "搜尋以查看更多選項",
     "Search tool API key": "搜尋工具 API key",
     "Search tool API URL": "搜尋工具 API URL",
     "Search tool services": "搜尋工具服務",

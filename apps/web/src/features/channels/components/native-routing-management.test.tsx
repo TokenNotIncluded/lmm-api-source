@@ -4358,5 +4358,37 @@ test('fetched channels apply selected routes to the editor without publishing', 
     mappedRow.querySelector<HTMLInputElement>('input[type=checkbox]')?.checked,
     true
   )
+  returnedModels = [
+    'unpublished-model',
+    ...Array.from({ length: 49 }, (_, index) => `catalog-${index + 1}`),
+    'model-b',
+    'catalog-last',
+  ]
+  await act(async () => button(form, 'Fetch Models').click())
+  await until(() => form.textContent?.includes('Page 1 of 2') === true)
+  assert.equal(form.querySelectorAll('li > span').length, 50)
+  assert.equal(button(form, 'Previous page').disabled, true)
+  await act(async () => button(form, 'Next page').click())
+  assert.match(form.textContent ?? '', /Page 2 of 2/)
+  assert.equal(form.querySelectorAll('li > span').length, 2)
+  const nextRow = required(
+    [...form.querySelectorAll('li')].find(
+      (item) => item.firstElementChild?.textContent === 'model-b'
+    )
+  )
+  await act(async () =>
+    required(
+      nextRow.querySelector<HTMLInputElement>('input[type=checkbox]')
+    ).click()
+  )
+  await act(async () => button(form, 'Previous page').click())
+  const search = required(
+    form.querySelector<HTMLInputElement>('input[aria-label="Search models"]')
+  )
+  await changeInput(search, 'catalog-last')
+  assert.equal(form.querySelectorAll('li > span').length, 1)
+  assert.match(form.textContent ?? '', /catalog-last/)
+  await act(async () => button(form, 'Apply').click())
+  assert.match(models.textContent ?? '', /model-b/)
   assert.equal(writes, 0)
 })

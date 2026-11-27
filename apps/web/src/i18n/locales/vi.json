@@ -10315,6 +10315,7 @@
     "Search the site's configured policy text without fetching external URLs.": "Tìm trong văn bản chính sách đã cấu hình của trang web mà không truy cập URL bên ngoài.",
     "Search the web": "Tìm kiếm trên web",
     "Search through the configured provider; results cannot authorize account changes.": "Tìm qua nhà cung cấp đã cấu hình; kết quả không thể cấp quyền thay đổi tài khoản.",
+    "Search to find more options": "Tìm kiếm để xem thêm lựa chọn",
     "Search tool API key": "API key công cụ tìm kiếm",
     "Search tool API URL": "URL API công cụ tìm kiếm",
     "Search tool services": "Tìm dịch vụ công cụ",

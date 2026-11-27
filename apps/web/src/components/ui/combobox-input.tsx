@@ -39,6 +39,7 @@ interface ComboboxInputProps {
   id?: string
   allowCustomValue?: boolean
   openOnFocus?: boolean
+  maxVisibleOptions?: number
   onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>
   'aria-label'?: string
   'aria-labelledby'?: string
@@ -54,6 +55,7 @@ export function ComboboxInput({
   id,
   allowCustomValue = false,
   openOnFocus = true,
+  maxVisibleOptions,
   onKeyDown,
   'aria-label': ariaLabel,
   'aria-labelledby': ariaLabelledBy,
@@ -74,15 +76,24 @@ export function ComboboxInput({
   )
   const displayValue = open ? searchValue : (selectedOption?.label ?? value)
 
-  const filteredOptions = React.useMemo(() => {
-    if (!searchChanged || !searchValue.trim()) return options
-    const search = searchValue.toLowerCase().trim()
-    return options.filter(
-      (option) =>
-        option.label.toLowerCase().includes(search) ||
-        option.value.toLowerCase().includes(search)
-    )
-  }, [options, searchValue, searchChanged])
+  const { filteredOptions, moreOptions } = React.useMemo(() => {
+    const search = searchChanged ? searchValue.toLowerCase().trim() : ''
+    const matched = search
+      ? options.filter(
+          (option) =>
+            option.label.toLowerCase().includes(search) ||
+            option.value.toLowerCase().includes(search)
+        )
+      : options
+    const moreOptions =
+      maxVisibleOptions !== undefined && matched.length > maxVisibleOptions
+    return {
+      filteredOptions: moreOptions
+        ? matched.slice(0, maxVisibleOptions)
+        : matched,
+      moreOptions,
+    }
+  }, [options, searchValue, searchChanged, maxVisibleOptions])
 
   // Reset highlight when filtered options change
   React.useEffect(() => {
@@ -281,6 +292,11 @@ export function ComboboxInput({
                 </div>
               )}
             </div>
+          )}
+          {moreOptions && (
+            <p className='text-muted-foreground border-t px-3 py-2 text-xs'>
+              {t('Search to find more options')}
+            </p>
           )}
         </div>
       )}

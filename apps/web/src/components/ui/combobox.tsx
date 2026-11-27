@@ -50,6 +50,7 @@ type LegacyComboboxProps = {
   className?: string
   id?: string
   openOnFocus?: boolean
+  maxVisibleOptions?: number
   onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>
   'aria-label'?: string
   'aria-labelledby'?: string
@@ -79,6 +80,7 @@ function Combobox(
         className={props.className}
         allowCustomValue={props.allowCustomValue}
         openOnFocus={props.openOnFocus}
+        maxVisibleOptions={props.maxVisibleOptions}
       />
     )
   }

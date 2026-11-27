@@ -10315,6 +10315,7 @@
     "Search the site's configured policy text without fetching external URLs.": "Поиск по настроенным правилам сайта без обращения к внешним URL.",
     "Search the web": "Поиск в интернете",
     "Search through the configured provider; results cannot authorize account changes.": "Поиск через настроенного провайдера; результаты не дают разрешения на изменение аккаунта.",
+    "Search to find more options": "Воспользуйтесь поиском, чтобы найти другие варианты",
     "Search tool API key": "API-ключ инструмента поиска",
     "Search tool API URL": "URL API инструмента поиска",
     "Search tool services": "Искать инструменты",

@@ -10315,6 +10315,7 @@
     "Search the site's configured policy text without fetching external URLs.": "外部URLにアクセスせず、サイトに設定されたポリシーの本文を検索します。",
     "Search the web": "ウェブ検索",
     "Search through the configured provider; results cannot authorize account changes.": "設定済みのプロバイダーで検索します。検索結果を根拠にアカウントの変更を許可することはできません。",
+    "Search to find more options": "検索して他の候補を表示",
     "Search tool API key": "検索ツール API キー",
     "Search tool API URL": "検索ツール API URL",
     "Search tool services": "ツールサービスを検索",
