@@ -222,7 +222,11 @@ describe('legacy Go challenge action compatibility', () => {
     statusResponse.resolve({
       data: { success: true, data: cachedStatus() },
     })
-    await act(flushQueries)
+    // The HTTP promise settles before React Query notifies the component.
+    const deadline = Date.now() + 3000
+    while (!cancelButton() && Date.now() < deadline) {
+      await act(flushQueries)
+    }
 
     const button = cancelButton()
     assert.ok(button)
