@@ -6,6 +6,63 @@ use std::{
     process::{Command, Stdio},
 };
 
+// The Core returns fixed rejection reasons, except for UnsupportedField which can
+// contain an arbitrary client-supplied path. Never print the raw response or that path.
+fn rejection_summary(body: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let value: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
+    let Some((code, detail)) = value
+        .pointer("/error/message")
+        .and_then(Value::as_str)
+        .and_then(|text| text.split_once(": "))
+    else {
+        return "unclassified".into();
+    };
+    if !matches!(
+        code,
+        "invalid_request" | "unsupported_feature" | "relay_limit_exceeded"
+    ) {
+        return "unclassified".into();
+    }
+    if let Some(path) = detail.strip_prefix("unsupported field ") {
+        let root = path
+            .trim_start_matches("$.")
+            .split(['.', '['])
+            .next()
+            .unwrap_or("");
+        let label = match root {
+            "tools"
+            | "tool_choice"
+            | "parallel_tool_calls"
+            | "input"
+            | "messages"
+            | "system"
+            | "metadata"
+            | "output_config"
+            | "context_management"
+            | "thinking"
+            | "reasoning"
+            | "text"
+            | "include"
+            | "store"
+            | "stream_options"
+            | "service_tier"
+            | "truncation"
+            | "prompt_cache_key"
+            | "safety_identifier"
+            | "previous_response_id" => root,
+            _ => "other",
+        };
+        return format!("{code}:field:{label}");
+    }
+    // Only a digest of the bounded reason is retained. It can be matched against
+    // Core's source literals without adding prompts or provider payloads to CI logs.
+    format!(
+        "{code}:reason-sha256:{:x}",
+        Sha256::digest(detail.as_bytes())
+    )
+}
+
 async fn client_case(pool: PgPool, protocol: Protocol, client: &'static str) {
     let (identity, ledger, _, secret, key_id, account) = fixture(&pool, 1_000_000).await;
     let actor = identity.authorize(&secret).await.unwrap().user_id;
@@ -45,17 +102,29 @@ async fn client_case(pool: PgPool, protocol: Protocol, client: &'static str) {
             async move {
                 let inference =
                     req.method() == axum::http::Method::POST && req.uri().path() == path;
-                let response = next.run(req).await;
+                let mut response = next.run(req).await;
                 if inference {
                     let id = response
                         .headers()
                         .get("x-request-id")
                         .and_then(|v| v.to_str().ok())
                         .map(str::to_owned);
+                    let status = response.status();
+                    let rejection = if status.is_client_error() {
+                        let (parts, body) = response.into_parts();
+                        let bytes = to_bytes(body, 64 * 1024)
+                            .await
+                            .expect("bounded Core rejection");
+                        let summary = rejection_summary(&bytes);
+                        response = Response::from_parts(parts, Body::from(bytes));
+                        Some(summary)
+                    } else {
+                        None
+                    };
                     capture
                         .lock()
                         .unwrap()
-                        .push((response.status().as_u16(), id));
+                        .push((status.as_u16(), id, rejection));
                 }
                 response
             }
@@ -100,7 +169,9 @@ async fn client_case(pool: PgPool, protocol: Protocol, client: &'static str) {
         output.status.success(),
         "{client} failed: {}; Core model response statuses {:?}; supplier hits {}",
         String::from_utf8_lossy(&output.stderr),
-        seen.iter().map(|(status, _)| status).collect::<Vec<_>>(),
+        seen.iter()
+            .map(|(status, _, rejection)| (status, rejection))
+            .collect::<Vec<_>>(),
         provider.hits.load(Ordering::SeqCst)
     );
     let proof: Value = serde_json::from_slice(&output.stdout).unwrap();
