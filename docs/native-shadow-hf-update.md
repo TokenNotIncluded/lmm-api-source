@@ -7,7 +7,7 @@
 ## 合同边界
 
 - 自动允许：路径命中的 microkernel / MK 门禁（push/PR）。
-- 自动部署：main 的 CI 通过后，[部署工作流](../.github/workflows/deploy.yml) 检查并部署配置的目标。也可以手动触发，或使用 `v*` / `shadow-v*` tag。服务器、组件、目录和探针由部署环境配置，见[通用部署配置](../deployment/automation/README.md)。
+- [手动部署指南](../deployment/automation/README.md)说明如何校验归档、切换服务和回滚。
 - 手动执行完整 Core 与扩展验证时，直接运行 [`core-protocol.yml`](../.github/workflows/core-protocol.yml)。
 - 禁止：CI 直推生产、工作流硬编码域名、无授权资金动作。
 - 拓扑断言：`node --test scripts/workflow-topology.test.mjs`。

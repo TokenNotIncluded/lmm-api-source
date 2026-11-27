@@ -2,19 +2,6 @@ name: Native Linux package checks
 on:
   workflow_dispatch:
   workflow_call:
-  pull_request:
-    branches: [main]
-    paths:
-      - packaging/linux/**
-      - packaging/distribution.json
-      - packaging/extore-plugin.json
-      - packages/extore
-      - deployment/docker/extensions.Dockerfile
-      - services/extensions/internal/extore/**
-      - services/extensions/internal/modules/store/extore_native_integration_test.go
-      - scripts/build-distribution.py
-      - scripts/workflow-topology.test.mjs
-      - .github/workflows/linux-packages.yml
 permissions:
   contents: read
 defaults:

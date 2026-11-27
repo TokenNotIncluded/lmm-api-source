@@ -19,10 +19,13 @@ const gitFixtureEnvironment = Object.fromEntries(
 test('preview workflows stay read-only and source publication never grants server access', () => {
   const files = readdirSync(new URL('.github/workflows/', root))
     .filter((name) => /\.ya?ml$/.test(name));
-  for (const name of ['ci.yml', 'core-protocol.yml', 'microservice-distribution.yml']) {
+  for (const name of ['core-protocol.yml', 'microservice-distribution.yml']) {
     assert.ok(files.includes(name), `missing workflow: ${name}`);
   }
-  assert.ok(!files.includes('server-ops.yml'));
+  for (const name of ['ci.yml', 'deploy.yml', 'server-ops.yml']) {
+    assert.ok(!files.includes(name));
+  }
+  assert.ok(files.every((name) => !name.endsWith('-review.yml')));
   for (const file of files) {
     const source = read(`.github/workflows/${file}`);
     assert.doesNotMatch(source, /PRODUCTION_SSH|production-auto-deploy|deploy-production|server-ops|inputs\.deploy/);
@@ -42,7 +45,6 @@ test('preview workflows stay read-only and source publication never grants serve
   assert.throws(() => workflow('server-release-qualification'), /ENOENT/);
   assert.throws(() => read('scripts/ci/qualify-go-migration-startup.sh'), /ENOENT/);
 });
-
 
 test('OpenCode fixture runs the pinned child and real host without privileged events', () => {
   const source = workflow('opencode-lmm-auth');
@@ -89,7 +91,6 @@ test('workflows initialize only their required pinned submodules', () => {
     'microservice-distribution': ['apps/cli', 'apps/cli', 'packages/extore'],
     'linux-packages': ['apps/cli', 'packages/extore'],
     'core-protocol': ['apps/cli', 'packages/extore', 'packages/extore'],
-    deploy: ['packages/extore'],
   };
   for (const [name, paths] of Object.entries(dependencies)) {
     const source = workflow(name);
@@ -100,7 +101,6 @@ test('workflows initialize only their required pinned submodules', () => {
   assert.match(workflow('lmm'), /name: Initialize the pinned CLI only\n        working-directory: \.\n/);
   assert.match(workflow('core-protocol'), /python3 -B scripts\/check-extore-plugin-pin\.py/);
 });
-
 
 test('retired single-server deployment tools cannot bypass the preview boundary', () => {
   for (const path of ['scripts/web-ship.py', 'scripts/fetch-deploy-artifact.sh',
@@ -115,24 +115,15 @@ test('retired single-server deployment tools cannot bypass the preview boundary'
   assert.match(preview, /scripts\/build-distribution\.py verify/);
   assert.match(preview, /Preserve preview archives only/);
   assert.doesNotMatch(preview, /LMM_WEB_DEPLOY|PRODUCTION_SSH|gh release|pacman|systemctl/);
-  assert.doesNotMatch(workflow('ci'), /service-unavailable\.test\.mjs/);
 });
 
-
-test('automatic checks and explicit source-release requests have bounded triggers', () => {
+test('Workflows use bounded manual and publication triggers', () => {
   for (const file of readdirSync(new URL('.github/workflows/', root)).filter((name) => /\.ya?ml$/.test(name))) {
     const source = read(`.github/workflows/${file}`);
     const block = source.match(/^on:\n((?:[ \t].*\n|\n)*)/m);
     assert.ok(block, `${file}: event block is required`);
     const events = [...block[1].matchAll(/^  ([\w-]+):/gm)].map((match) => match[1]);
-    if (file === 'ci.yml') {
-      assert.deepEqual(events, ['workflow_dispatch', 'push', 'pull_request']);
-      assert.match(block[1], /pull_request:\n    branches: \[main\]/);
-      assert.match(block[1], /push:\n    branches: \[main\]/);
-      assert.doesNotMatch(block[1], /paths(?:-ignore)?:|tags:/);
-      assert.match(source, /permissions:\n  contents: read/);
-      assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);
-    } else if (file === 'core-protocol.yml') {
+    if (file === 'core-protocol.yml') {
       assert.deepEqual(events, ['workflow_dispatch', 'workflow_call']);
       assert.match(source, /permissions:\n  contents: read/);
       assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);
@@ -140,31 +131,8 @@ test('automatic checks and explicit source-release requests have bounded trigger
       assert.deepEqual(events, ['workflow_dispatch', 'push']);
       assert.match(block[1], /push:\n    branches: \[main\]\n    paths: \[\.github\/source-release-request\.json\]/);
       assert.doesNotMatch(source, /pull_request_target|id-token: write|environment: production/);
-    } else if (file === 'deploy.yml') {
-      assert.deepEqual(events, ['workflow_dispatch', 'push', 'workflow_run']);
-      assert.match(block[1], /tags: \['v\*', 'shadow-v\*'\]/);
-      assert.match(block[1], /workflow_run:\n    workflows: \[CI\]\n    types: \[completed\]\n    branches: \[main\]/);
-      assert.match(source, /github\.event\.workflow_run\.conclusion == 'success'/);
-      assert.match(source, /github\.event\.workflow_run\.event == 'push'/);
-      assert.match(source, /github\.event\.workflow_run\.head_repository\.full_name == github\.repository/);
-      assert.match(source, /Recheck automatic deployment against current main/);
-      assert.doesNotMatch(block[1], /pull_request|schedule:/);
-      assert.match(source, /DEPLOY_TARGETS: \$\{\{ vars\.DEPLOY_TARGETS \}\}/);
-      assert.match(source, /git merge-base --is-ancestor "\$revision" origin\/main/);
-      assert.match(source, /needs: \[plan, ci-gate, build, deploy-preflight\]/);
-      assert.match(source, /cancel-in-progress: false/);
-      assert.match(source, /ANSIBLE_HOST_KEY_CHECKING: 'True'/);
-      assert.doesNotMatch(source, /ArchDmit|DmitUbuntu|native\.api\.lmm\.best|contents: write|id-token: write/);
-    } else if (file === 'layout-reflow-review.yml') {
-      // The existing UI fixture workflow is automatic and read-only.
-      assert.deepEqual(events, ['workflow_dispatch', 'push', 'pull_request']);
-      assert.match(block[1], /push:\n    branches: \[main\]\n    paths:/);
-      assert.match(source, /permissions:\n  contents: read/);
-      assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);
-      assert.match(source, /127\.0\.0\.1:4174/);
     } else if (file === 'linux-packages.yml') {
-      assert.deepEqual(events, ['workflow_dispatch', 'workflow_call', 'pull_request']);
-      assert.match(block[1], /pull_request:\n    branches: \[main\]/);
+      assert.deepEqual(events, ['workflow_dispatch', 'workflow_call']);
       assert.match(source, /permissions:\n  contents: read/);
       assert.doesNotMatch(source, /secrets\.|contents: write|id-token: write|pull_request_target|gh release|environment: production/);
       assert.match(source, /packaging\/linux\/test_native\.py/);
@@ -174,119 +142,11 @@ test('automatic checks and explicit source-release requests have bounded trigger
       assert.doesNotMatch(source, /secrets\.|contents: write|id-token: write|pull_request_target|gh release|environment: production/);
       assert.match(source, /scripts\/build-distribution\.py verify/);
       assert.match(source, /scripts\/test-legal-process\.py/);
-    } else if (file === 'mk10-payments.yml') {
-      // Payment tests use disposable PostgreSQL, never a channel credential.
-      assert.deepEqual(events, ['pull_request', 'push']);
-      assert.match(block[1], /pull_request:\n    branches: \[main\]/);
-      assert.match(block[1], /push:\n    branches: \[main\]/);
-      assert.match(block[1], /services\/extensions\/internal\/modules\/payments\/\*\*/);
-      assert.match(source, /permissions:\n  contents: read/);
-      assert.match(source, /services:\n      postgres:/);
-      assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);
-    } else if (file === 'mk-09-assistant-promotions.yml') {
-      // The merged MK-09 module retains isolated, read-only regression checks.
-      assert.deepEqual(events, ['push', 'pull_request', 'workflow_dispatch']);
-      assert.match(block[1], /push:\n    branches: \[main\]\n    paths:/);
-      assert.match(block[1], /pull_request:\n    branches: \[main\]/);
-      assert.match(block[1], /services\/extensions\/internal\/modules\/assistant\/\*\*/);
-      assert.match(source, /permissions:\n  contents: read/);
-      assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);
     } else {
       assert.deepEqual(events, ['workflow_dispatch'], `${file}: no new automatic publication or deployment`);
     }
     assert.doesNotMatch(source, /wip\/|github\.repository == 'TokenNotIncluded\/lmm-api'/);
   }
-});
-
-test('deployment selects only commit objects from main and plans from that exact checkout', (t) => {
-  const workflowSource = workflow('deploy');
-  const plan = workflowSource.split('  ci-gate:\n')[0];
-  assert.match(plan, /source_revision:\n\s+description:[^\n]+\n\s+type: string/);
-  assert.match(plan, /fetch-depth: 0/);
-  assert.match(plan, /REQUESTED_REVISION: \$\{\{ inputs\.source_revision \}\}/);
-  assert.match(plan, /revision: \$\{\{ steps\.source\.outputs\.revision \}\}/);
-  const script = plan.match(/id: source\n[\s\S]*?        run: \|\n([\s\S]*?)      - name: Select targets/)[1];
-  const temp = mkdtempSync(join(tmpdir(), 'deployment-source-'));
-  t.after(() => rmSync(temp, { recursive: true, force: true }));
-  const run = (cmd, args, extra = {}) => execFileSync(cmd, args, {
-    cwd: temp, encoding: 'utf8', stdio: 'pipe', env: {
-      ...gitFixtureEnvironment, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1',
-      GIT_AUTHOR_NAME: 'Fixture', GIT_COMMITTER_NAME: 'Fixture',
-      GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_EMAIL: 'fixture@example.test', ...extra,
-    },
-  }).trim();
-  const git = (...args) => run('git', args);
-  git('init', '-q');
-  git('commit', '--allow-empty', '-qm', 'ancestor');
-  const ancestor = git('rev-parse', 'HEAD');
-  git('commit', '--allow-empty', '-qm', 'latest');
-  const tip = git('rev-parse', 'HEAD');
-  git('update-ref', 'refs/remotes/origin/main', tip);
-  const tree = git('rev-parse', 'HEAD^{tree}');
-  const unrelated = git('commit-tree', tree, '-m', 'outside main history');
-  git('tag', '-a', '-m', 'annotated fixture', 'fixture', ancestor);
-  const tagObject = git('rev-parse', 'refs/tags/fixture');
-  const output = join(temp, 'workflow-output');
-  const select = (revision, event = 'workflow_dispatch', ref = 'refs/heads/main', ciRevision = '') => {
-    git('checkout', '-q', '--detach', tip);
-    writeFileSync(output, '');
-    run('bash', ['-eo', 'pipefail', '-c', script], {
-      GITHUB_EVENT_NAME: event, GITHUB_REF: ref, GITHUB_OUTPUT: output, REQUESTED_REVISION: revision, CI_REVISION: ciRevision,
-    });
-    return [git('rev-parse', 'HEAD'), readFileSync(output, 'utf8')];
-  };
-  for (const revision of [ancestor, ancestor.toUpperCase(), tip, '']) {
-    const chosen = revision.toLowerCase() || tip;
-    assert.deepEqual(select(revision), [chosen, 'revision=' + chosen + '\n']);
-  }
-  assert.deepEqual(select('', 'push', 'refs/tags/shadow-v1.2.3'), [tip, 'revision=' + tip + '\n']);
-  assert.deepEqual(select('', 'workflow_run', 'refs/heads/main', tip), [tip, 'revision=' + tip + '\n']);
-  for (const candidate of [ancestor, unrelated, '']) {
-    assert.throws(() => select('', 'workflow_run', 'refs/heads/main', candidate));
-    assert.equal(readFileSync(output, 'utf8'), '');
-  }
-
-  for (const args of [
-    [unrelated], [tree], [tagObject], ['0'.repeat(40)], [ancestor.slice(0, 12)], ['main'],
-    ['HEAD~1'], [' ' + ancestor], [ancestor + '\n'], [ancestor, 'push', 'refs/tags/shadow-v1'],
-    [ancestor, 'workflow_dispatch', 'refs/tags/v1'], [ancestor, 'workflow_dispatch', 'refs/heads/other'],
-  ]) {
-    assert.throws(() => select(...args), 'admitted ' + args);
-    assert.equal(readFileSync(output, 'utf8'), '');
-    assert.equal(git('rev-parse', 'HEAD'), tip);
-  }
-  git('update-ref', 'refs/remotes/origin/main', ancestor);
-  assert.throws(() => select('', 'push', 'refs/tags/v1'));
-});
-
-test('configured deployment reads successful CI for the exact planned source before building', () => {
-  const source = workflow('deploy');
-  const gate = source.split('  ci-gate:\n')[1].split('  build:\n')[0];
-  const build = source.split('  build:\n')[1].split('  deploy:\n')[0];
-  assert.match(gate, /needs: plan/);
-  assert.match(gate, /permissions:\n      contents: read\n      actions: read/);
-  assert.match(gate, /ref: \$\{\{ needs\.plan\.outputs\.revision \}\}/);
-  assert.match(gate, /SOURCE_REVISION: \$\{\{ needs\.plan\.outputs\.revision \}\}/);
-  assert.match(gate, /GH_TOKEN: \$\{\{ github\.token \}\}/);
-  assert.match(gate, /python3 -B scripts\/test-verify-deployment-ci\.py/);
-  assert.match(gate, /python3 -B scripts\/verify-deployment-ci\.py --revision "\$SOURCE_REVISION"/);
-  assert.doesNotMatch(gate, /contents: write|actions: write|continue-on-error|always\(\)|cargo|go test/);
-  assert.match(build, /needs: \[plan, ci-gate\]/);
-  assert.match(gate, /if: inputs\.source_revision != ''\n        run: git restore --source="\$GITHUB_SHA" -- scripts\/verify-deployment-ci\.py scripts\/test-verify-deployment-ci\.py/);
-  const deploy = source.split('  deploy:\n')[1];
-  for (const job of [build, deploy]) {
-    assert.match(job, /ref: \$\{\{ needs\.plan\.outputs\.revision \}\}/);
-    assert.doesNotMatch(job, /GITHUB_SHA|github\.sha|inputs\.source_revision/);
-  }
-  assert.match(build, /name: web-\$\{\{ needs\.plan\.outputs\.revision \}\}-\$\{\{ needs\.ci-gate\.outputs\.run-id \}\}/);
-  assert.match(build, /run-id: \$\{\{ needs\.ci-gate\.outputs\.run-id \}\}/);
-  assert.match(build, /github-token: \$\{\{ github\.token \}\}/);
-  assert.doesNotMatch(build, /bun run build:web/);
-  assert.match(build, /--revision "\$SOURCE_REVISION"/);
-  assert.match(deploy, /DEPLOY_REVISION: \$\{\{ needs\.plan\.outputs\.revision \}\}/);
-  const boundaries = workflow('core-protocol')
-    .match(/name: Workflow and source boundaries\n        run: \|\n([\s\S]*?)(?=      - name:)/)?.[1];
-  assert.match(boundaries ?? '', /python3 -B scripts\/test-verify-deployment-ci\.py/);
 });
 
 test('distribution builds use the checked source and shipped TOML resources', () => {
@@ -304,10 +164,7 @@ test('distribution builds use the checked source and shipped TOML resources', ()
   }
 });
 
-test('CI and manual qualification reuse the exact core and extension verification pipeline', () => {
-  const ci = workflow('ci');
-  assert.match(ci, /uses: \.\/\.github\/workflows\/core-protocol\.yml/);
-  assert.doesNotMatch(ci, /qualify-go-migration-startup|credit-balance-rebase|\.\/model|\.\/relaykit/);
+test('Manual qualification verifies Core and Extensions', () => {
   const source = workflow('core-protocol');
   assert.match(source, /^on:\n  workflow_dispatch:\n  workflow_call:/m);
   for (const command of ['cargo clippy --locked --all-targets -- -D warnings', 'cargo test --locked --all-targets',
@@ -324,56 +181,6 @@ test('CI and manual qualification reuse the exact core and extension verificatio
   assert.match(source, /DATABASE_URL: postgres:\/\/postgres:postgres@127\.0\.0\.1:5432\/postgres/);
   assert.match(source, /working-directory: services\/extensions/);
   assert.doesNotMatch(source, /continue-on-error:|apps\/extensions-go/);
-});
-
-test('the CI gate requires full checks unless Web-only coverage was proven', () => {
-  const source = workflow('ci');
-  assert.match(source, /needs: \[scope, microkernel, web, translations\]/);
-  assert.match(source, /if: \$\{\{ always\(\) \}\}/);
-  for (const name of ['KERNEL_RESULT', 'WEB_RESULT', 'TRANSLATION_RESULT']) {
-    assert.ok(source.includes(`test "$${name}" = success`));
-  }
-  assert.match(source, /name: Require Web-only checks\n        if: needs\.scope\.outputs\.web-only == 'true'/);
-  assert.match(source, /test "\$KERNEL_RESULT" = skipped/);
-  assert.match(source, /scripts\/is-web-only-update\.py --base "\$WEB_BASE" --revision "\$GITHUB_SHA"/);
-  const deploy = workflow('deploy');
-  assert.match(deploy, /echo "SELECT_COMPONENTS=web" >> "\$GITHUB_ENV"/);
-  assert.match(deploy, /options\+=\(--web-only\)/);
-  const playbook = read('deployment/automation/deploy.yml');
-  assert.ok(playbook.indexOf('verify-web-base.yml') < playbook.indexOf('include_tasks: activate.yml'));
-  assert.match(playbook, /loop: '\{\{ activated_states \| reverse \| list \}\}'/);
-  const activation = read('deployment/automation/activate.yml');
-  assert.ok(activation.indexOf('Atomically select') < activation.indexOf('include_tasks: verify.yml'));
-  assert.match(activation, /when: component\.name != 'web'/);
-  const guard = read('deployment/automation/verify-web-base.yml');
-  assert.match(guard, /backend_manifest\.revision == deploy_web_base/);
-  assert.match(guard, /include_tasks: verify\.yml/);
-  assert.match(source, /name: Translation regression check/);
-  assert.match(source, /bun install --frozen-lockfile/);
-  assert.doesNotMatch(source, /continue-on-error:/);
-});
-
-test('continuous CI bounds duplicate work and preserves only checked web assets', () => {
-  const source = workflow('ci');
-  const revision = "${{ github.event_name == 'workflow_dispatch' && github.sha || github.ref }}";
-  assert.ok(source.includes('group: ci-${{ github.event_name }}-' + revision + '\n  cancel-in-progress: true'));
-  const protocol = workflow('core-protocol');
-  assert.ok(protocol.includes('group: microkernel-${{ github.workflow }}-${{ github.event_name }}-' + revision + '\n  cancel-in-progress: true'));
-  const web = source.split('  web:\n')[1].split('  translations:\n')[0];
-  assert.match(web, /timeout-minutes: 20/);
-  for (const command of ['format:check', 'copyright:check', 'lint', 'typecheck', 'test', 'build', 'bundle:check']) {
-    assert.ok(web.includes(`bun run --filter @lmm/web ${command}\n`), command);
-  }
-  assert.equal((web.match(/bun run --filter @lmm\/web test\n/g) ?? []).length, 1);
-  assert.doesNotMatch(web, /bun test |continue-on-error:|if:.*(?:always|failure)/);
-  const build = web.indexOf('bun run --filter @lmm/web build\n');
-  const check = web.indexOf('bun run --filter @lmm/web bundle:check\n');
-  const upload = web.indexOf('uses: actions/upload-artifact@');
-  assert.ok(build >= 0 && check > build && upload > check);
-  assert.match(web, /path: apps\/web\/dist\/\n          include-hidden-files: true\n          if-no-files-found: error\n          retention-days: 3/);
-  assert.match(source, /github\.event\.pull_request\.base\.sha/);
-  assert.match(source, /github\.event\.before/);
-  assert.match(source, /node scripts\/check-i18n\.mjs --base "\$BASE_REF" --merge-base/);
 });
 
 test('obsolete database upgrade tooling is not an alternate installation path', () => {
@@ -394,7 +201,6 @@ test('obsolete database upgrade tooling is not an alternate installation path', 
     assert.match(text, /init-db/);
   }
 });
-
 
 test('S11 snapshots are manual read-only sources, not automatic Git writers', () => {
   const source = workflow('s11-source-snapshot');
@@ -467,10 +273,7 @@ test('independent check failures do not skip the Go host required by Rust tests'
   assert.match(source, /scripts\/test_core_rpc_fixture\.py -v/);
   assert.match(source, /tests\/payments\/test_verify_live_discovery\.py -v/);
   assert.doesNotMatch(source, /LMM_CORE_DATABASE_URL_SECRET_FILE|LMM_CORE_WORKER_THREADS/);
-  // All main pushes and PRs reach this suite through CI, including workflow-only edits.
-  assert.match(workflow('ci'), /uses: \.\/\.github\/workflows\/core-protocol\.yml/);
 });
-
 
 test('Core CI uses the same pinned PostgreSQL catalog as the RPC fixture', () => {
   const source = workflow('core-protocol');
@@ -480,7 +283,6 @@ test('Core CI uses the same pinned PostgreSQL catalog as the RPC fixture', () =>
   assert.match(rpcImage ?? '', /^postgres:18-alpine@sha256:[a-f0-9]{64}$/);
   assert.equal(ciImage, rpcImage, 'reviewed catalog checks require the same PostgreSQL image');
 });
-
 
 test('native package uploads keep raw Alpine fixture output private', () => {
   const source = workflow('linux-packages');
@@ -502,7 +304,6 @@ test('native package uploads keep raw Alpine fixture output private', () => {
 
 test('automatic Core checks partition every Rust target across independent runners', () => {
   const source = workflow('core-protocol');
-  assert.match(workflow('ci'), /uses: \.\/\.github\/workflows\/core-protocol\.yml\n    with:\n      split_rust_targets: true/);
   assert.match(source, /split_rust_targets:[\s\S]*?type: boolean\n        default: false/);
   assert.match(source, /fail-fast: false\n      matrix:\n        targets: .*inputs\.split_rust_targets && '\["unit","model-unit","model-responses","schema-identity","integration-1","integration-2","integration-3","integration-4"\]' \|\| '\["all"\]'/);
   assert.ok(source.includes('RUST_TARGET_GROUP: ${{ matrix.targets }}'));
@@ -640,33 +441,6 @@ test('externally owned payment live case remains required through its real runne
   assert.doesNotMatch(script, /LMM_LIVE_PROCESS_ROOT|owner.json/);
 });
 
-test('native deployment reuses only artifacts from the admitted RPC fixture', () => {
-  const rpc = workflow('core-protocol').split('  rpc:\n')[1];
-  const exportStep = rpc.split('name: Export the native artifacts verified by the RPC fixture')[1]
-    .split('name: Preserve the verified Core artifact for deployment')[0];
-  assert.match(exportStep, /github.event_name == 'push' && github.ref == 'refs\/heads\/main'/);
-  assert.match(exportStep, /\.result == "PASS"/);
-  assert.match(exportStep, /\.images_retained_for_evidence\[\$component\]/);
-  assert.match(exportStep, /\.runtime_executable_sha256\[\$component\]/);
-  assert.match(exportStep, /docker cp "\$container:\/usr\/bin\/lmm-\$component" "\$output\/lmm-\$component"/);
-  assert.match(exportStep, /sha256sum .* = "\$expected"/);
-  assert.match(exportStep, /docker cp "\$container:\/usr\/lib\/lmm\/extensions\/extore"/);
-  assert.match(exportStep, /docker cp "\$container:\/usr\/share\/licenses\/lmm-extensions\/(extore|purego)"/);
-  assert.match(exportStep, /\.binaries\[\], \.libraries\[\]\?, \.build_resources\[\]\?/);
-  assert.equal([...rpc.matchAll(/name: rpc-(core|extensions)-amd64-\$\{\{ github.sha \}\}-\$\{\{ github.run_id \}\}-\$\{\{ github.run_attempt \}\}/g)].length, 2);
-  const deploy = workflow('deploy');
-  const gate = deploy.split('  ci-gate:\n')[1].split('  build:\n')[0];
-  const build = deploy.split('  build:\n')[1].split('  deploy:\n')[0];
-  assert.match(gate, /run_attempt=.*\.run_attempt/);
-  assert.match(build, /matrix.component != 'web' && matrix.arch == 'amd64'/);
-  assert.match(build, /rpc-\$COMPONENT-\$ARCH-\$SOURCE_REVISION-\$CI_RUN_ID-\$CI_RUN_ATTEMPT/);
-  assert.match(build, /actions\/runs\/\$CI_RUN_ID\/artifacts\?name=\$name/);
-  assert.match(build, /select\(\.revision == \$revision and \.component == \$component and \.platform == "linux-amd64"\)/);
-  assert.match(build, /cmp -- "\$input\/SHA256SUMS" -/);
-  assert.match(build, /name: Build the selected backend on the runner\n        if: matrix.component != 'web' && steps.checked-native.outputs.name == ''/);
-  assert.doesNotMatch(build, /continue-on-error/);
-});
-
 test('financial and RPC acceptance run independently and remain required in Core CI', () => {
   const source = workflow('core-protocol');
   const [rust, remainder] = source.split('\n  financial-import:\n');
@@ -681,24 +455,4 @@ test('financial and RPC acceptance run independently and remain required in Core
   assert.match(financial, /LMM_FINANCIAL_PG_TEST: "1"\n        run: python3 -B scripts\/run-reviewed-financial-tests\.py/);
   assert.match(rpc, /packages\/extore[\s\S]*python3 -B scripts\/check-extore-plugin-pin\.py/);
   assert.match(rpc, /run: \|[\s\S]*python3 -B scripts\/test-core-rpc-docker\.py/);
-});
-
-test('deployment runs the rollback fixture alongside packaging before production access', () => {
-  const source = workflow('deploy');
-  const preflight = source.match(/^  deploy-preflight:\n([\s\S]*?)(?=^  deploy:\n)/m)?.[1];
-  assert.ok(preflight);
-  assert.match(preflight, /needs: \[plan, ci-gate\]/);
-  assert.match(preflight, /ref: \$\{\{ needs\.plan\.outputs\.revision \}\}/);
-  assert.match(preflight, /scripts\/test-retain-web-static\.py/);
-  assert.match(preflight, /scripts\/test-deployment-rollback\.py/);
-  assert.match(preflight, /DEPLOY_WEB_BASE: ''/);
-  assert.equal(
-    [...source.matchAll(/"\$GITHUB_EVENT_NAME" == workflow_dispatch && "\$SELECT_COMPONENTS" == web/g)].length,
-    2
-  );
-  assert.match(source, /python3 scripts\/is-web-only-update\.py --base "\$WEB_BASE" --revision "\$revision"/);
-  assert.match(source, /options\+=\(--web-only\)/);
-  assert.doesNotMatch(preflight, /environment:|SSH_PRIVATE_KEY|secrets\./);
-  assert.match(source, /^  build:\n    needs: \[plan, ci-gate\]/m);
-  assert.match(source, /^  deploy:\n    needs: \[plan, ci-gate, build, deploy-preflight\]/m);
 });

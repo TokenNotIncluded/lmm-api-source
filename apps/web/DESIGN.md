@@ -129,7 +129,7 @@ With both servers running, use Playwright 1.56.1 and its installed Chromium buil
 LAYOUT_REVIEW_OUTPUT=/tmp/lmm-layout-review node scripts/layout-reflow-review.mjs
 ```
 
-`LAYOUT_REVIEW_OUTPUT` is required. Set `PLAYWRIGHT_MODULE` to the installed Playwright module when it is outside the project. `LAYOUT_CONSOLE_ORIGIN` and `LAYOUT_PUBLIC_ORIGIN` may select different loopback ports; the script requires distinct `http://127.0.0.1` origins. The [Layout reflow review workflow](../../.github/workflows/layout-reflow-review.yml) prepares these dependencies and servers and retains screenshots, logs, the source revision, and `report.json` even when a check fails.
+`LAYOUT_REVIEW_OUTPUT` is required. Set `PLAYWRIGHT_MODULE` to the installed Playwright module when it is outside the project. `LAYOUT_CONSOLE_ORIGIN` and `LAYOUT_PUBLIC_ORIGIN` may select different loopback ports; the script requires distinct `http://127.0.0.1` origins.
 
 Review the saved screenshots as well as the measured results. Report each executed scenario and any failures against its tested revision; an unrun scenario stays unverified. These fixtures establish local layout evidence, not production login/payment behavior or complete accessibility conformance.
 

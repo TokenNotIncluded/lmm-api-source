@@ -3058,12 +3058,12 @@ class CoreBoundaryTests(unittest.TestCase):
             sample = tomllib.loads((ROOT / f"config/{component}.example.toml").read_text())
             self.assertEqual(sample["version"], 1)
         workflows = ROOT / ".github/workflows"
-        ci = (workflows / "ci.yml").read_text()
+        self.assertFalse((workflows / "ci.yml").exists())
+        self.assertFalse((workflows / "deploy.yml").exists())
         qualification = (workflows / "core-protocol.yml").read_text()
-        self.assertIn("uses: ./.github/workflows/core-protocol.yml", ci)
         self.assertIn("on:\n  workflow_dispatch:", qualification)
         self.assertFalse((workflows / "server-release-qualification.yml").exists())
-        for body in (ci, qualification):
+        for body in (qualification,):
             for retired in ("migrate --", "credit-balance-rebase", "./model", "./relaykit", "apps/extensions-go"):
                 self.assertNotIn(retired, body)
 
@@ -3078,7 +3078,6 @@ class CoreBoundaryTests(unittest.TestCase):
         self.assertFalse((ROOT / ".github/workflows/coweft-identity.yml").exists())
         for name, expected in (("lmm.yml", "working-directory: apps/cli"),
                                ("codewhale-lmm-provider.yml", "packages/codewhale-lmm-provider"),
-                               ("wallet-red-packet-review.yml", "working-directory: apps/web"),
                                ("tool-market-provider-verify.yml", "working-directory: apps/web")):
             self.assertIn(expected, (ROOT / ".github/workflows" / name).read_text())
 

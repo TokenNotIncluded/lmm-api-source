@@ -119,19 +119,15 @@ Core-only 工作直接调用核心工具链，不运行同时构建 Core、Go、
 
 ## GitHub Actions
 
-工作流位于源码仓库，自动检查按路径筛选，镜像发布与 S11 源码快照保留手动入口。
-实际触发器、输入、权限及 Actions 启用状态以当前仓库和文件为准；修改配置不自动
-改变已关闭的 Actions 设置，也不授予触发或部署权限。
+日常检查在本地运行。GitHub Actions 保留手动验收、制品构建和正式发布入口。服务器更新按[手动部署指南](../deployment/automation/README.md)执行。
 
 | 文件 | 职责 |
 | --- | --- |
-| [ci.yml](../.github/workflows/ci.yml) | 手动服务端、前端与翻译诊断 |
 | [core-protocol.yml](../.github/workflows/core-protocol.yml) | Rust/Go、协议及一次性数据库检查 |
 | [microservice-distribution.yml](../.github/workflows/microservice-distribution.yml) | 三个程序与静态 Web 的独立预览归档 |
 | [microservice-images.yml](../.github/workflows/microservice-images.yml) | Core/Go 构建、冒烟与 GHCR 预览镜像 |
 | [s11-source-snapshot.yml](../.github/workflows/s11-source-snapshot.yml) | 固定源码及 CLI，保存可恢复的 Git bundle 和来源记录 |
 | [linux-packages.yml](../.github/workflows/linux-packages.yml) | 原生预览包及隔离安装、升级、运行、卸载 |
-| [store-claim-refund-review.yml](../.github/workflows/store-claim-refund-review.yml) | 商店提货/退款的服务端、前端和浏览器回归 |
 
 记录源码、输入、命令、退出码和日志，区分成功、失败、取消与未运行；复用
 [本地证据工具](../scripts/local-release-tests.py)或[检查记录校验器](../scripts/verify-release-commit-checks.sh)
