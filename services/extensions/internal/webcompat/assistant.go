@@ -25,6 +25,11 @@ type AssistantHistory interface {
 	PresetClick(context.Context, string) error
 }
 
+type AssistantRouteSettings interface {
+	RouteSettings(context.Context, string) (assistant.ModelRoute, error)
+	SaveRouteSettings(context.Context, string, assistant.ModelRoute) (assistant.ModelRoute, error)
+}
+
 type AssistantPresetSettings interface {
 	PresetSettings(context.Context, string) (assistant.PromptPresetSettings, error)
 	UpdatePresetSettings(context.Context, string, string, int64) (assistant.PromptPresetSettings, error)
@@ -97,6 +102,35 @@ func RegisterAssistant(mux RouteRegistrar, auth *Authenticator, history Assistan
 	mux.HandleFunc("POST /api/assistant/pre-conversation-presets/{id}/click", public(func(w http.ResponseWriter, r *http.Request) {
 		assistantRespond(w, nil, history.PresetClick(r.Context(), r.PathValue("id")))
 	}))
+	routes, _ := history.(AssistantRouteSettings)
+	for _, method := range []string{"GET", "PUT"} {
+		mux.HandleFunc(method+" /api/assistant/settings/model-route", protected(func(w http.ResponseWriter, r *http.Request, token string) {
+			if access.Missing(routes) {
+				assistantRespond(w, nil, access.ErrUnavailable)
+				return
+			}
+			if q, err := assistantQuery(r); err != nil || len(q) != 0 {
+				assistantRespond(w, nil, access.ErrInvalid)
+				return
+			}
+			if r.Method == http.MethodGet {
+				value, err := routes.RouteSettings(r.Context(), token)
+				assistantRespond(w, value, err)
+				return
+			}
+			var body struct {
+				Group    *string `json:"group"`
+				Model    *string `json:"model"`
+				Revision *int64  `json:"revision"`
+			}
+			if err := supportDecode(w, r, 4096, &body, "group", "model", "revision"); err != nil || body.Group == nil || body.Model == nil || body.Revision == nil {
+				assistantRespond(w, nil, access.ErrInvalid)
+				return
+			}
+			value, err := routes.SaveRouteSettings(r.Context(), token, assistant.ModelRoute{Group: *body.Group, Model: *body.Model, Revision: *body.Revision})
+			assistantRespond(w, value, err)
+		}))
+	}
 	presets, presetsAvailable := history.(AssistantPresetSettings)
 	mux.HandleFunc("GET /api/assistant/settings/pre-conversation-presets", protected(func(w http.ResponseWriter, r *http.Request, token string) {
 		if !presetsAvailable || access.Missing(presets) {

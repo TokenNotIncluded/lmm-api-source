@@ -24,7 +24,7 @@ pub(crate) struct AgentPolicy {
     pub market: Option<AssistantMarketPolicy>,
 }
 impl AgentPolicy {
-    // The model name and quote are fixed for this issued turn. Every other
+    // The published model, group and quote are fixed for this issued turn. Other
     // host and tool policy field remains subject to the live authority checks.
     fn issued_model(&self, stored: &Value) -> Result<super::super::PersonalTextPolicy, Error> {
         let name = stored
@@ -33,8 +33,15 @@ impl AgentPolicy {
             .ok_or(Error::Forbidden)?;
         let mut policy = self.clone();
         policy.model.model = name.to_owned();
+        let mut stored = stored.clone();
+        if let Some(group) = stored
+            .as_object_mut()
+            .and_then(|value| value.remove("plugin_group"))
+        {
+            policy.model.group = group.as_str().ok_or(Error::Forbidden)?.to_owned();
+        }
         policy.model.validate()?;
-        if serde_json::to_value(&policy).map_err(|_| Error::Unavailable)? != *stored {
+        if serde_json::to_value(&policy).map_err(|_| Error::Unavailable)? != stored {
             return Err(Error::Forbidden);
         }
         Ok(policy.model)
@@ -143,6 +150,12 @@ mod reviewed_usage_policy_tests {
         let mut issued = serde_json::to_value(&host).unwrap();
         issued["model"]["model"] = json!("selected");
         assert_eq!(host.issued_model(&issued).unwrap().model, "selected");
+        let mut grouped = issued.clone();
+        grouped["model"]["group"] = json!("plugin-owned");
+        grouped["plugin_group"] = json!("plugin-owned");
+        assert_eq!(host.issued_model(&grouped).unwrap().group, "plugin-owned");
+        grouped["model"]["budget_credits"] = json!(999);
+        assert!(matches!(host.issued_model(&grouped), Err(Error::Forbidden)));
         for (path, value) in [
             ("/model/group", json!("another")),
             ("/model/budget_credits", json!(101)),
@@ -582,12 +595,24 @@ impl AgentService {
             final_text: t.try_get("final_text")?,
         })
     }
+    #[cfg(test)]
     pub(crate) async fn start(
         &self,
         session: &str,
         conversation_id: &str,
         client_turn_id: &str,
         text: &str,
+    ) -> Result<TurnSnapshot, Error> {
+        self.start_on_route(session, conversation_id, client_turn_id, text, None)
+            .await
+    }
+    pub(crate) async fn start_on_route(
+        &self,
+        session: &str,
+        conversation_id: &str,
+        client_turn_id: &str,
+        text: &str,
+        route: Option<&(String, String)>,
     ) -> Result<TurnSnapshot, Error> {
         if !label(client_turn_id, 128)
             || text.is_empty()
@@ -596,7 +621,7 @@ impl AgentService {
         {
             return Err(Error::Invalid);
         }
-        let selection = self.base.selected_policy().await;
+        let selection = self.base.selected_for(route).await;
         let mut tx = self.base.begin().await?;
         let principal = actor(&mut tx, session).await?;
         self.base
@@ -628,8 +653,12 @@ impl AgentService {
             let mut policy = (*self.policy).clone();
             policy.model = selection?;
             let price = self.base.configured_price(&policy.model)?;
+            let mut frozen = serde_json::to_value(&policy).map_err(|_| Error::Unavailable)?;
+            if policy.model.group != self.policy.model.group {
+                frozen["plugin_group"] = serde_json::json!(policy.model.group);
+            }
             sqlx::query("INSERT INTO core_assistant.agent_turns(id,conversation_id,client_turn_id,session_id,source_web_session_sid,auth_version,owner_user_id,owner_account_id,original_text,text_sha256,registry_sha256,host_policy,max_rounds,budget_credits,expires_at,phase,price,loaded_tools) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'new',$16,$17)")
-                .bind(&turn_id).bind(conversation_id).bind(client_turn_id).bind(principal.credential_id).bind(facts.browser_session).bind(facts.auth_version).bind(principal.user_id).bind(principal.owner_account_id).bind(text).bind(&text_sha256).bind(self.registry.digest().to_vec()).bind(serde_json::to_value(&policy).map_err(|_|Error::Unavailable)?).bind(self.policy.max_rounds as i32).bind(self.policy.budget_credits).bind(now+self.policy.ttl_seconds).bind(serde_json::to_value(price).map_err(|_|Error::Unavailable)?).bind(serde_json::to_value(&self.policy.initial_tools).map_err(|_|Error::Unavailable)?).execute(&mut *tx).await?;
+                .bind(&turn_id).bind(conversation_id).bind(client_turn_id).bind(principal.credential_id).bind(facts.browser_session).bind(facts.auth_version).bind(principal.user_id).bind(principal.owner_account_id).bind(text).bind(&text_sha256).bind(self.registry.digest().to_vec()).bind(frozen).bind(self.policy.max_rounds as i32).bind(self.policy.budget_credits).bind(now+self.policy.ttl_seconds).bind(serde_json::to_value(price).map_err(|_|Error::Unavailable)?).bind(serde_json::to_value(&self.policy.initial_tools).map_err(|_|Error::Unavailable)?).execute(&mut *tx).await?;
             turn_id
         };
         let result = self.snapshot(&mut tx, &turn_id).await?;

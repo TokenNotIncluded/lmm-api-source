@@ -193,7 +193,6 @@ function configuration() {
 function fixture() {
   return {
     configuration: configuration(),
-    rejectHero: false,
     rejectCheckin: false,
     hero: {
       revision: '2',
@@ -414,30 +413,11 @@ async function install(context, state, theme) {
         { name: 'setup.sh', size: 128, updated: '2026-11-17T00:00:00Z' },
       ])
     } else if (p === '/api/option/hero-sms') {
-      if (method === 'PUT') {
-        assert.equal(body.expected_revision, state.hero.revision)
-        if (state.rejectHero) {
-          status = 409
-          result = {
-            success: false,
-            code: 'STATE_CONFLICT',
-            message: 'Synthetic conflict',
-          }
-        } else {
-          state.hero = {
-            ...state.hero,
-            enabled: body.enabled,
-            sms_enabled: body.sms_enabled,
-            email_enabled: body.email_enabled,
-            price_multiplier: body.price_multiplier,
-            revision: String(BigInt(state.hero.revision) + 1n),
-          }
-          report.writes.push({ path: p, body })
-          result = json(state.hero)
-        }
-      } else result = json(state.hero)
+      assert.equal(method, 'GET')
+      result = json(state.hero)
     } else if (p === '/api/option/hero-sms/test') {
       assert.equal(method, 'POST')
+      assert.deepEqual(body, {})
       result = json({ ok: true })
     } else if (p === '/api/option/checkin') {
       if (method === 'PUT') {
@@ -827,53 +807,43 @@ try {
         )
         await capture(page, `${label}-hero-purchases-unavailable`)
         await go('/system-settings/operations/hero-sms')
-        const heroTitle = page
+        const panel = page
           .locator('article[data-plugin="hero-sms"]')
-          .getByRole('heading', {
-            name: t('HeroSMS temporary activations'),
+          .getByRole('region', {
+            name: heroT('HeroSMS temporary activations'),
             exact: true,
           })
-        await heroTitle.waitFor()
+        await panel
+          .getByText(t('Purchases unavailable'), { exact: true })
+          .waitFor()
+        await panel
+          .getByText(t('HeroSMS API key is managed on the host'), {
+            exact: true,
+          })
+          .waitFor()
         assert.equal(
-          await heroTitle.innerText(),
-          t('HeroSMS temporary activations')
+          await panel.locator('input, [role="switch"], form').count(),
+          0
         )
-        const multiplier = page.locator('input[type="number"]')
-        await multiplier.waitFor()
-        assert.equal(await multiplier.isEnabled(), true)
+        assert.equal(await panel.getByRole('button').count(), 1)
         await capture(page, `${label}-hero-settings`)
-        await multiplier.fill('2.000001')
-        const saved = page.waitForResponse(
-          (response) =>
-            response.url().endsWith('/api/option/hero-sms') &&
-            response.request().method() === 'PUT'
-        )
-        await btn('Save Changes').click()
-        await saved
-        await btn('Save Changes').waitFor({ state: 'visible' })
-        assert.equal(state.hero.price_multiplier, '2.000001')
-        await go('/system-settings/operations/hero-sms')
-        await multiplier.waitFor()
-        assert.equal(await multiplier.inputValue(), '2.000001')
-        await page
+        await panel
           .getByRole('button', { name: heroT('Test connection'), exact: true })
           .click()
-        await page
-          .getByText(heroT('Connection test succeeded'), { exact: true })
+        await panel
+          .getByText(
+            t(
+              'The server can reach HeroSMS with the configured host credential.'
+            ),
+            { exact: true }
+          )
           .waitFor()
-        state.rejectHero = true
-        await multiplier.fill('3.000001')
-        await btn('Save Changes').click()
-        await page
-          .getByText(heroT('Unable to save HeroSMS settings'), { exact: true })
-          .first()
-          .waitFor()
-        assert.equal(await multiplier.inputValue(), '3.000001')
-        await capture(page, `${label}-hero-conflict`)
-        await btn('Reload').click()
-        await page.waitForFunction(
-          () =>
-            document.querySelector('input[type="number"]')?.value === '2.000001'
+        assert.equal(
+          state.requests.some(
+            ({ method, path }) =>
+              path === '/api/option/hero-sms' && method !== 'GET'
+          ),
+          false
         )
       })
       await check(`${label}-checkin-settings`, async () => {

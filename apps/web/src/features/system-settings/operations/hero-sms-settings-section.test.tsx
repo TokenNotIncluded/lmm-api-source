@@ -2,7 +2,6 @@
 import assert from 'node:assert/strict'
 import { after, afterEach, test } from 'node:test'
 
-import { AxiosError } from 'axios'
 import { Window } from 'happy-dom'
 
 const dom = new Window({
@@ -46,8 +45,6 @@ const { QueryClient, QueryClientProvider, notifyManager } =
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
-const { SettingsPageProvider } =
-  await import('../components/settings-page-context')
 const { HeroSmsSettingsSection } = await import('./hero-sms-settings-section')
 notifyManager.setScheduler(queueMicrotask)
 const i18n = createInstance()
@@ -85,16 +82,13 @@ async function mount() {
     },
   })
   const container = document.createElement('div')
-  const actions = document.createElement('div')
-  document.body.append(container, actions)
+  document.body.append(container)
   const root = createRoot(container)
   await act(async () =>
     root.render(
       <QueryClientProvider client={client}>
         <I18nextProvider i18n={i18n}>
-          <SettingsPageProvider actionsContainer={actions}>
-            <HeroSmsSettingsSection />
-          </SettingsPageProvider>
+          <HeroSmsSettingsSection />
         </I18nextProvider>
       </QueryClientProvider>
     )
@@ -103,14 +97,7 @@ async function mount() {
     await act(async () => root.unmount())
     client.clear()
   }
-  await until(
-    () =>
-      container.textContent?.includes(
-        'HeroSMS API key is managed on the host'
-      ) === true
-  )
-  assert.ok(container.textContent?.includes('Purchases unavailable'))
-  return { container, actions }
+  return container
 }
 
 async function until(check: () => boolean) {
@@ -130,41 +117,14 @@ function button(text: string) {
   return result
 }
 
-async function toggle(label: string) {
-  const fieldLabel = Array.from(document.querySelectorAll('label')).find(
-    (element) => element.textContent === label
-  )
-  assert.ok(fieldLabel)
-  const control = document.getElementById(fieldLabel.htmlFor)
-  assert.ok(control)
-  await act(async () => control.click())
-}
-
-test('host-managed credentials remain testable while stale activation settings require an explicit reload', async () => {
-  const writes: Record<string, unknown>[] = []
-  const tests: unknown[] = []
-  let reads = 0
+test('an enabled legacy policy exposes only the read-only purchase capability and host credential test', async () => {
+  const requests: { method?: string; url?: string; body?: unknown }[] = []
   api.defaults.adapter = async (config) => {
-    if (config.method === 'get') reads++
-    if (config.method === 'put') {
-      writes.push(JSON.parse(config.data))
-      if (writes.length === 1) {
-        throw new AxiosError(
-          'stale revision',
-          'ERR_BAD_REQUEST',
-          config,
-          undefined,
-          {
-            config,
-            headers: {},
-            status: 409,
-            statusText: 'Conflict',
-            data: { success: false, code: 'STATE_CONFLICT' },
-          }
-        )
-      }
-    }
-    if (config.method === 'post') tests.push(JSON.parse(config.data))
+    requests.push({
+      method: config.method,
+      url: config.url,
+      body: config.data && JSON.parse(config.data),
+    })
     return {
       config,
       headers: {},
@@ -172,76 +132,68 @@ test('host-managed credentials remain testable while stale activation settings r
       statusText: 'OK',
       data: {
         success: true,
-        data:
-          config.method === 'post'
-            ? { ok: true }
-            : {
-                ...settings,
-                revision: reads === 1 ? settings.revision : '9007199254740995',
-              },
+        data: config.method === 'post' ? { ok: true } : settings,
       },
     }
   }
-  const { container } = await mount()
-  assert.equal(container.querySelector('input[type="password"]'), null)
-  assert.equal(document.body.textContent?.includes('Clear saved key'), false)
-  assert.equal(
-    document.body.textContent?.includes('Replacement API key'),
-    false
+  const container = await mount()
+  await until(
+    () => container.textContent?.includes('Purchases unavailable') === true
+  )
+  assert.match(
+    container.textContent ?? '',
+    /HeroSMS API key is managed on the hostConfigured/
+  )
+  assert.equal(container.querySelector('input, [role="switch"], form'), null)
+  assert.deepEqual(
+    Array.from(container.querySelectorAll('button'), (b) => b.textContent),
+    ['Test connection']
   )
   await act(async () => button('Test connection').click())
   await until(
     () =>
-      container.textContent?.includes(
-        'The server can reach HeroSMS with the configured host credential.'
-      ) === true
+      container
+        .querySelector('[role="status"]')
+        ?.textContent?.includes('The server can reach HeroSMS') === true
   )
-  assert.deepEqual(tests, [{}])
-
-  await toggle('Enable phone-number activations')
-  await act(async () => button('Save Changes').click())
-  await until(
-    () =>
-      container.textContent?.includes(
-        'HeroSMS settings changed. Reload the latest settings before saving again.'
-      ) === true
-  )
-  assert.equal(writes.length, 1)
-  assert.equal(writes[0].expected_revision, settings.revision)
-  assert.equal(writes[0].sms_enabled, true)
-  assert.equal('api_key' in writes[0], false)
-  assert.equal(
-    reads,
-    1,
-    'Conflict must not silently load a revision and retry the write'
-  )
-
-  await act(async () => button('Reload').click())
-  await until(
-    () =>
-      reads === 2 &&
-      !container.textContent?.includes(
-        'HeroSMS settings changed. Reload the latest settings before saving again.'
-      )
-  )
-  await toggle('Enable email activations')
-  await act(async () => button('Save Changes').click())
-  await until(() => writes.length === 2 && button('Save Changes').disabled)
-  assert.equal(writes[1].expected_revision, '9007199254740995')
-  assert.equal(writes[1].email_enabled, false)
+  assert.deepEqual(requests, [
+    { method: 'get', url: '/api/option/hero-sms', body: undefined },
+    { method: 'post', url: '/api/option/hero-sms/test', body: {} },
+  ])
 })
 
-test('an unconfigured host credential cannot be tested from the browser', async () => {
+test('a missing host credential disables the diagnostic', async () => {
   api.defaults.adapter = async (config) => ({
     config,
     headers: {},
     status: 200,
     statusText: 'OK',
-    data: {
-      success: true,
-      data: { ...settings, api_key_configured: false, enabled: false },
-    },
+    data: { success: true, data: { ...settings, api_key_configured: false } },
   })
-  await mount()
+  const container = await mount()
+  await until(() => container.textContent?.includes('Not configured') === true)
   assert.equal(button('Test connection').disabled, true)
+})
+
+test('an unreadable status offers retry without showing a guessed capability', async () => {
+  let reads = 0
+  api.defaults.adapter = async (config) => ({
+    config,
+    headers: {},
+    status: 200,
+    statusText: 'OK',
+    data: { success: ++reads > 1, data: settings },
+  })
+  const container = await mount()
+  await until(
+    () =>
+      container.textContent?.includes('Unable to load HeroSMS settings') ===
+      true
+  )
+  assert.equal(container.textContent?.includes('Purchases unavailable'), false)
+  await act(async () => button('Retry').click())
+  await until(
+    () => container.textContent?.includes('Purchases unavailable') === true
+  )
+  assert.equal(reads, 2)
 })

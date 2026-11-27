@@ -49,12 +49,18 @@ const originalAdapter = api.defaults.adapter
 const previousAuth = useAuthStore.getState().auth
 const requests: Array<{ url: string; method: string; data: unknown }> = []
 const hostModelPath = '/api/option/assistant-model'
+const pluginPath = '/api/assistant/settings/model-route'
+let pref = { group: '', model: '', revision: 0 }
 function modelSnapshot() {
   return {
     model: 'first',
     default_model: 'first',
     group: 'support',
     models: ['first', 'second'],
+    routes: { support: ['first', 'second'], private: ['team-model'] } as Record<
+      string,
+      string[]
+    >,
     version: { routing: 3, pricing: 7 },
   }
 }
@@ -64,6 +70,7 @@ let hostWriteFails = false
 let hostSaveForbidden = false
 
 beforeEach(() => {
+  pref = { group: '', model: '', revision: 0 }
   hostModel = modelSnapshot()
   hostReadFails = false
   hostWriteFails = false
@@ -88,6 +95,28 @@ beforeEach(() => {
   api.defaults.adapter = async (config) => {
     const data = config.data ? JSON.parse(String(config.data)) : undefined
     requests.push({ url: config.url ?? '', method: config.method ?? '', data })
+    if (config.url === pluginPath) {
+      if (config.method === 'put') {
+        assert.deepEqual(Object.keys(data).sort(), [
+          'group',
+          'model',
+          'revision',
+        ])
+        assert.equal(data.revision, pref.revision)
+        pref = {
+          group: data.group,
+          model: data.model,
+          revision: pref.revision + 1,
+        }
+      }
+      return {
+        config,
+        headers: {},
+        status: 200,
+        statusText: 'OK',
+        data: { success: true, data: pref },
+      }
+    }
     if (config.url === hostModelPath) {
       assert.equal(config.skipAuthRefresh, true)
       assert.equal(
@@ -101,6 +130,7 @@ beforeEach(() => {
         assert.equal(config.method, 'put')
         assert.deepEqual(Object.keys(data).sort(), [
           'expected_version',
+          'group',
           'model',
         ])
         if (hostSaveForbidden) status = 403
@@ -111,9 +141,10 @@ beforeEach(() => {
         ) {
           status = 409
         } else {
-          assert.ok(hostModel.models.includes(data.model))
+          assert.ok(hostModel.routes[data.group]?.includes(data.model))
           hostModel = {
             ...hostModel,
+            group: data.group,
             model: data.model,
             version: {
               ...hostModel.version,
@@ -261,8 +292,15 @@ test('the assistant plugin switches the host-group model only after Save, using 
       requests
         .filter((r) => r.url === hostModelPath && r.method === 'put')
         .map((r) => r.data),
-      [{ model: 'second', expected_version: { routing: 3, pricing: 7 } }]
+      [
+        {
+          group: 'support',
+          model: 'second',
+          expected_version: { routing: 3, pricing: 7 },
+        },
+      ]
     )
+    assert.deepEqual(pref, { group: 'support', model: 'second', revision: 1 })
     assert.equal(select.value, 'second')
     assert.equal(button(section, 'Save').disabled, true)
     assert.equal(field(page.container).value, 'Published label')
@@ -306,6 +344,13 @@ test('host model read and save failures preserve conversation starters and a con
       'model save error'
     )
     assert.equal(select.value, 'second')
+    assert.deepEqual(pref, { group: 'support', model: 'second', revision: 1 })
+    assert.equal(hostModel.model, 'first')
+    await click(section, 'Reload configuration')
+    await until(
+      () => section.textContent?.includes('Pending') === true,
+      'plugin preference pending publication'
+    )
     hostWriteFails = false
     hostModel = { ...hostModel, version: { routing: 4, pricing: 9 } }
     await click(section, 'Save')
@@ -318,8 +363,17 @@ test('host model read and save failures preserve conversation starters and a con
     assert.equal(button(section, 'Save').disabled, true)
     assert.equal(hostModel.model, 'first')
     await click(section, 'Reload configuration')
-    await until(() => select.value === 'first', 'model reloaded')
-    assert.equal(button(section, 'Save').disabled, true)
+    await until(
+      () => !button(section, 'Save').disabled,
+      'pending preference reloaded'
+    )
+    await click(section, 'Save')
+    await until(
+      () => section.textContent?.includes('Saved') === true,
+      'pending preference published'
+    )
+    assert.deepEqual(pref, { group: 'support', model: 'second', revision: 1 })
+    assert.equal(hostModel.model, 'second')
     assert.equal(field(page.container).value, 'Published label')
   } finally {
     await page.cleanup()
@@ -327,7 +381,12 @@ test('host model read and save failures preserve conversation starters and a con
 })
 
 test('the plugin keeps a retired current model visible and withdraws the choices when access is denied', async () => {
-  hostModel = { ...hostModel, model: 'retired', models: ['second'] }
+  hostModel = {
+    ...hostModel,
+    model: 'retired',
+    models: ['second'],
+    routes: { support: ['second'] },
+  }
   const page = await renderPlugin()
   try {
     await until(
@@ -362,6 +421,50 @@ test('the plugin keeps a retired current model visible and withdraws the choices
     assert.ok(!section.textContent?.includes('retired'))
     assert.equal(hostModel.model, 'retired')
     assert.equal(field(page.container).value, 'Published label')
+  } finally {
+    await page.cleanup()
+  }
+})
+
+test('group selector publishes only models available in the saved group', async () => {
+  const page = await renderPlugin()
+  try {
+    await until(
+      () => Boolean(page.container.querySelector('#assistant-plugin-group')),
+      'group selector'
+    )
+    const group = page.container.querySelector<HTMLSelectElement>(
+      '#assistant-plugin-group'
+    )!
+    const model = page.container.querySelector<HTMLSelectElement>(
+      '#assistant-host-model'
+    )!
+    const section = group.closest('section')!
+    await act(async () => {
+      group.value = 'private'
+      group.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    assert.deepEqual(
+      [...model.options].map((v) => v.value),
+      ['team-model']
+    )
+    assert.equal(hostModel.group, 'support')
+    await click(section, 'Save')
+    await until(
+      () => section.textContent?.includes('Saved') === true,
+      'group and model published'
+    )
+    assert.deepEqual(pref, {
+      group: 'private',
+      model: 'team-model',
+      revision: 1,
+    })
+    assert.equal(hostModel.group, pref.group)
+    assert.equal(hostModel.model, pref.model)
+    assert.deepEqual(
+      requests.filter((r) => r.method === 'put').map((r) => r.url),
+      [pluginPath, hostModelPath]
+    )
   } finally {
     await page.cleanup()
   }

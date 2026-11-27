@@ -12,6 +12,7 @@ import (
 
 	pb "github.com/TokenNotIncluded/lmm-api/extensions/internal/corepb"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -26,8 +27,9 @@ const AssistantNewUserGiftFeature = "assistant.new_user_gift.v1"
 // Core must still install and authorize that scope; local separation cannot
 // invent a server permission or an issuer.
 type AssistantClient struct {
-	rpc     *Client
-	control *Client
+	rpc       *Client
+	control   *Client
+	readRoute func(context.Context) (string, string, error)
 }
 
 func NewAssistantClient(socket string, credential []byte, control *Client) (*AssistantClient, error) {
@@ -44,6 +46,26 @@ func NewAssistantClient(socket string, credential []byte, control *Client) (*Ass
 	}
 	return &AssistantClient{rpc: rpc, control: control}, nil
 }
+
+// BindRoutePreference is called once during composition before exposing the client.
+func (c *AssistantClient) BindRoutePreference(read func(context.Context) (string, string, error)) {
+	c.readRoute = read
+}
+
+func (c *AssistantClient) withRoute(ctx context.Context) (context.Context, error) {
+	if c.readRoute == nil {
+		return ctx, nil
+	}
+	group, model, err := c.readRoute(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "assistant route unavailable")
+	}
+	if group == "" && model == "" {
+		return ctx, nil
+	}
+	return metadata.AppendToOutgoingContext(ctx, "x-lmm-assistant-group-bin", group, "x-lmm-assistant-model-bin", model), nil
+}
+
 func (c *AssistantClient) Close() error {
 	if c == nil || c.rpc == nil {
 		return nil
@@ -198,7 +220,11 @@ func (c *AssistantClient) AssistantIssueGrant(ctx context.Context, user string, 
 	if err := c.assistantReady(ctx, user); err != nil {
 		return nil, err
 	}
-	reply, err := pb.NewCoreAssistantModelClient(c.rpc.connection).IssueGrant(c.rpc.context(ctx, user), r)
+	outgoing, err := c.withRoute(c.rpc.context(ctx, user))
+	if err != nil {
+		return nil, err
+	}
+	reply, err := pb.NewCoreAssistantModelClient(c.rpc.connection).IssueGrant(outgoing, r)
 	return reply, assistantReply(reply, err)
 }
 func (c *AssistantClient) AssistantLookupGrant(ctx context.Context, user string, r *pb.AssistantTurnKey) (*pb.AssistantGrantReceipt, error) {
@@ -222,7 +248,11 @@ func (c *AssistantClient) AssistantReserveText(ctx context.Context, user string,
 	if err := c.assistantReady(ctx, user); err != nil {
 		return nil, err
 	}
-	reply, err := pb.NewCoreAssistantModelClient(c.rpc.connection).ReserveText(c.edgeContext(ctx, user), r)
+	outgoing, err := c.withRoute(c.edgeContext(ctx, user))
+	if err != nil {
+		return nil, err
+	}
+	reply, err := pb.NewCoreAssistantModelClient(c.rpc.connection).ReserveText(outgoing, r)
 	return reply, assistantReply(reply, err)
 }
 func (c *AssistantClient) AssistantGetOperation(ctx context.Context, user string, r *pb.AssistantOperationBinding) (*pb.AssistantOperationReceipt, error) {

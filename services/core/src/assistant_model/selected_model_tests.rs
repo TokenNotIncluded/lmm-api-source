@@ -50,8 +50,27 @@ pub(crate) async fn check_selected_model_issuance(
         .conversation(session, "selection-personal", true)
         .await
         .unwrap();
+    let preferred = (expected.group.clone(), expected.model.clone());
+    let unpublished = ("unpublished-group".to_owned(), expected.model.clone());
+    assert!(matches!(
+        base.turn_on_route(
+            session,
+            &personal.core_conversation_id,
+            "first",
+            true,
+            Some(&unpublished)
+        )
+        .await,
+        Err(Error::Conflict)
+    ));
     let grant = base
-        .turn(session, &personal.core_conversation_id, "first", true)
+        .turn_on_route(
+            session,
+            &personal.core_conversation_id,
+            "first",
+            true,
+            Some(&preferred),
+        )
         .await
         .unwrap();
     let frozen: (Value, Value) =
@@ -103,11 +122,12 @@ pub(crate) async fn check_selected_model_issuance(
         .await
         .unwrap();
     let turn = service
-        .start(
+        .start_on_route(
             session,
             &conversation.core_conversation_id,
             "first",
             "hello",
+            Some(&preferred),
         )
         .await
         .unwrap();

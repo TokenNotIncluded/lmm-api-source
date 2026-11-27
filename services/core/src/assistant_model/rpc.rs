@@ -33,6 +33,33 @@ fn single<'a>(metadata: &'a MetadataMap, name: &'static str) -> Result<&'a str, 
         .to_str()
         .map_err(|_| Status::unauthenticated("invalid assistant metadata"))
 }
+fn plugin_selection(meta: &MetadataMap) -> Result<Option<(String, String)>, Status> {
+    fn part(meta: &MetadataMap, key: &'static str, limit: usize) -> Result<Option<String>, Status> {
+        let all = meta.get_all_bin(key);
+        let mut entries = all.iter();
+        let first = entries.next();
+        if entries.next().is_some() {
+            return Err(Status::invalid_argument("duplicate assistant route field"));
+        }
+        first
+            .map(|raw| {
+                raw.to_bytes()
+                    .ok()
+                    .filter(|bytes| !bytes.is_empty() && bytes.len() <= limit)
+                    .and_then(|bytes| std::str::from_utf8(&bytes).ok().map(str::to_owned))
+                    .ok_or_else(|| Status::invalid_argument("invalid assistant route field"))
+            })
+            .transpose()
+    }
+    match (
+        part(meta, "x-lmm-assistant-group-bin", 64)?,
+        part(meta, "x-lmm-assistant-model-bin", 256)?,
+    ) {
+        (None, None) => Ok(None),
+        (Some(group), Some(model)) => Ok(Some((group, model))),
+        _ => Err(Status::invalid_argument("incomplete assistant route")),
+    }
+}
 fn status(e: Error) -> Status {
     match e {
         Error::Invalid => Status::invalid_argument("invalid assistant request"),
@@ -447,10 +474,17 @@ impl pb::core_assistant_model_server::CoreAssistantModel for AssistantRpc {
         r: Request<pb::AssistantTurnKey>,
     ) -> Result<Response<pb::AssistantGrantReceipt>, Status> {
         let session = self.session(r.metadata())?;
+        let route = plugin_selection(r.metadata())?;
         let r = r.into_inner();
         Ok(Response::new(grant(
             self.service
-                .turn(&session, &r.core_conversation_id, &r.turn_id, true)
+                .turn_on_route(
+                    &session,
+                    &r.core_conversation_id,
+                    &r.turn_id,
+                    true,
+                    route.as_ref(),
+                )
                 .await
                 .map_err(status)?,
         )))
@@ -473,13 +507,14 @@ impl pb::core_assistant_model_server::CoreAssistantModel for AssistantRpc {
         r: Request<pb::AssistantTextReservation>,
     ) -> Result<Response<pb::AssistantOperationReceipt>, Status> {
         let session = self.session(r.metadata())?;
+        let route = plugin_selection(r.metadata())?;
         let peer = verified_edge_peer(self.edge_proof.as_deref(), r.metadata())?;
         let r = r.into_inner();
         let b = binding(r.binding)?;
         self.observe_gift_peer(&session, peer).await?;
         Ok(Response::new(operation(
             self.service
-                .reserve_text(&session, &b, &r.text)
+                .reserve_on_route(&session, &b, &r.text, route.as_ref())
                 .await
                 .map_err(status)?,
         )))
@@ -515,6 +550,7 @@ impl pb::core_assistant_model_server::CoreAssistantModel for AssistantRpc {
     ) -> Result<Response<pb::AssistantAgentTurn>, Status> {
         self.verify_agent_session(r.metadata()).await?;
         let session = self.session(r.metadata())?;
+        let route = plugin_selection(r.metadata())?;
         let peer = verified_edge_peer(self.edge_proof.as_deref(), r.metadata())?;
         let agent = self
             .agent
@@ -523,11 +559,12 @@ impl pb::core_assistant_model_server::CoreAssistantModel for AssistantRpc {
         let input = r.into_inner();
         self.observe_gift_peer(&session, peer).await?;
         let turn = agent
-            .start(
+            .start_on_route(
                 &session,
                 &input.core_conversation_id,
                 &input.client_turn_id,
                 &input.text,
+                route.as_ref(),
             )
             .await
             .map_err(status)?;

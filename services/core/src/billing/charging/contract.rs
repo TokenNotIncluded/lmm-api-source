@@ -1033,24 +1033,57 @@ impl ReservationContract {
     }
 
     pub(crate) fn check_usage(&self, charge: &Charge, usage: Usage) -> Result<(), Error> {
-        self.validate(charge)?;
+        self.check_usage_detailed(charge, usage)
+            .map_err(|(_, error)| error)
+    }
+
+    pub(crate) fn check_usage_detailed(
+        &self,
+        charge: &Charge,
+        usage: Usage,
+    ) -> Result<(), (&'static str, Error)> {
+        self.validate(charge)
+            .map_err(|error| ("frozen_contract_invalid", error))?;
         let bounds = &self.fields.bounds;
-        if !usage.valid()
-            || (charge.price.audio.is_some() != usage.audio.is_some())
-            || (charge.price.tool.is_some() != usage.tool.is_some())
-            || (charge.price.grounding.is_some() != usage.grounding.is_some())
-            || (charge.price.text_request.is_some() != usage.text_request.is_some())
-            || usage.tool.is_some_and(|tool| {
-                charge
-                    .price
-                    .tool
-                    .as_ref()
-                    .is_none_or(|price| tool.kind != price.kind)
-            })
-            || usage.input as u64 > bounds.input
-            || usage.output as u64 > bounds.output
-        {
-            return Err(Error::Invalid);
+        if !usage.valid() {
+            return Err(("projected_usage_invalid", Error::Invalid));
+        }
+        for (matches, reason) in [
+            (
+                charge.price.audio.is_some() == usage.audio.is_some(),
+                "audio_dimension_mismatch",
+            ),
+            (
+                charge.price.tool.is_some() == usage.tool.is_some(),
+                "tool_dimension_mismatch",
+            ),
+            (
+                charge.price.grounding.is_some() == usage.grounding.is_some(),
+                "grounding_dimension_mismatch",
+            ),
+            (
+                charge.price.text_request.is_some() == usage.text_request.is_some(),
+                "request_fee_dimension_mismatch",
+            ),
+        ] {
+            if !matches {
+                return Err((reason, Error::Invalid));
+            }
+        }
+        if usage.tool.is_some_and(|tool| {
+            charge
+                .price
+                .tool
+                .as_ref()
+                .is_none_or(|price| tool.kind != price.kind)
+        }) {
+            return Err(("tool_kind_mismatch", Error::Invalid));
+        }
+        if usage.input as u64 > bounds.input {
+            return Err(("projected_input_above_bound", Error::Invalid));
+        }
+        if usage.output as u64 > bounds.output {
+            return Err(("projected_output_above_bound", Error::Invalid));
         }
         Ok(())
     }

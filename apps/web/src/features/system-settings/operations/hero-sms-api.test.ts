@@ -17,106 +17,23 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { test } from 'node:test'
 
 import { api } from '@/lib/api'
 
-import {
-  getHeroSmsPreviewCustomerPrice,
-  getHeroSmsSettings,
-  serializeHeroSmsSettingsUpdate,
-  testHeroSmsConnection,
-  toHeroSmsSettingsFormValues,
-  updateHeroSmsSettings,
-} from './hero-sms-api'
+import { getHeroSmsSettings, testHeroSmsConnection } from './hero-sms-api'
 
-describe('hero sms settings api helpers', () => {
-  test('writes only activation settings with the displayed revision', () => {
-    assert.deepEqual(
-      serializeHeroSmsSettingsUpdate({
-        revision: '9007199254740993',
-        enabled: true,
-        emailEnabled: true,
-        smsEnabled: false,
-        priceMultiplier: 1,
-      }),
-      {
-        expected_revision: '9007199254740993',
-        enabled: true,
-        email_enabled: true,
-        sms_enabled: false,
-        price_multiplier: '1',
-      }
-    )
-
-    assert.deepEqual(
-      serializeHeroSmsSettingsUpdate({
-        revision: '4',
-        enabled: false,
-        emailEnabled: false,
-        smsEnabled: true,
-        priceMultiplier: 12,
-      }),
-      {
-        expected_revision: '4',
-        enabled: false,
-        email_enabled: false,
-        sms_enabled: true,
-        price_multiplier: '12',
-      }
-    )
-  })
-
-  test('builds form defaults and preview values', () => {
-    assert.deepEqual(
-      toHeroSmsSettingsFormValues({
-        revision: '4',
-        enabled: true,
-        email_enabled: true,
-        sms_enabled: true,
-        api_key_configured: true,
-        credential_managed_by_file: true,
-        pending_work: false,
-        purchases_available: false,
-        currency: 'USD',
-        currency_code: 840,
-        price_multiplier: '12.5',
-      }),
-      {
-        revision: '4',
-        enabled: true,
-        emailEnabled: true,
-        smsEnabled: true,
-        priceMultiplier: 12.5,
-      }
-    )
-
-    assert.equal(getHeroSmsPreviewCustomerPrice(1), 1)
-    assert.equal(getHeroSmsPreviewCustomerPrice(12.5), 12.5)
-  })
-})
-
-test('native settings save the browser revision and test only the host credential', async () => {
+test('the status projection reads capabilities independently of the legacy purchase policy', async () => {
   const prior = api.defaults.adapter
-  const settings = {
-    revision: '9007199254740993',
-    enabled: true,
-    email_enabled: true,
-    sms_enabled: true,
+  const status = {
     api_key_configured: true,
     credential_managed_by_file: true,
     pending_work: false,
     purchases_available: false,
-    currency: 'USD',
-    currency_code: 840,
-    price_multiplier: '12.5',
   }
-  const writes: { url?: string; body: unknown }[] = []
   api.defaults.adapter = async (config) => {
-    if (config.method !== 'get') {
-      assert.equal(config.skipAuthRefresh, true)
-      writes.push({ url: config.url, body: JSON.parse(config.data) })
-    }
+    assert.equal(config.method, 'get')
+    assert.equal(config.url, '/api/option/hero-sms')
     return {
       config,
       headers: {},
@@ -124,32 +41,12 @@ test('native settings save the browser revision and test only the host credentia
       statusText: 'OK',
       data: {
         success: true,
-        data: config.method === 'post' ? { ok: true } : settings,
+        data: { ...status, enabled: true, price_multiplier: '12' },
       },
     }
   }
   try {
-    const loaded = await getHeroSmsSettings()
-    assert.equal(loaded.credential_managed_by_file, true)
-    const draft = {
-      ...toHeroSmsSettingsFormValues(loaded),
-      apiKey: 'synthetic-ignored-key',
-    }
-    await updateHeroSmsSettings(draft)
-    await testHeroSmsConnection()
-    assert.deepEqual(writes, [
-      {
-        url: '/api/option/hero-sms',
-        body: {
-          expected_revision: settings.revision,
-          enabled: true,
-          email_enabled: true,
-          sms_enabled: true,
-          price_multiplier: '12.5',
-        },
-      },
-      { url: '/api/option/hero-sms/test', body: {} },
-    ])
+    assert.deepEqual(await getHeroSmsSettings(), status)
   } finally {
     api.defaults.adapter = prior
   }

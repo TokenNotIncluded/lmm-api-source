@@ -58,6 +58,7 @@ func (r *Runtime) composeAssistantDelegation(ctx context.Context, cfg Config, db
 	if err != nil {
 		return err
 	}
+	client.BindRoutePreference(r.AssistantHistory.SelectedRoute)
 	// AgentChat and PersonalText have independent capability contracts. Probe
 	// only the configured execution path before exposing its ports.
 	if cfg.AssistantAgentRequired {

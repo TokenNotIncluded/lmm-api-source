@@ -243,10 +243,12 @@ impl ManagedChannels {
         Ok(())
     }
 
-    pub(crate) fn assistant_model(&self) -> Result<Option<String>, ManagementError> {
+    pub(crate) fn assistant_route(
+        &self,
+    ) -> Result<(Option<String>, Option<String>), ManagementError> {
         self.bindings
             .read()
-            .map(|guard| guard.1.assistant_model.clone())
+            .map(|b| (b.1.assistant_group.clone(), b.1.assistant_model.clone()))
             .map_err(|_| ManagementError::Storage)
     }
 

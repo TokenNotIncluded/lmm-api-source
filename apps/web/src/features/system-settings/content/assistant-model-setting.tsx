@@ -14,22 +14,36 @@ import {
 } from '@/features/native-users/access'
 import { api } from '@/lib/api'
 
-const path = '/api/option/assistant-model'
+const pluginPath = '/api/assistant/settings/model-route'
+const projectionPath = '/api/option/assistant-model'
 const version = z.object({
   routing: z.number().int().nonnegative(),
   pricing: z.number().int().nonnegative(),
 })
-const envelope = z.object({
+const preferenceEnvelope = z.object({
   success: z.literal(true),
   data: z.object({
+    group: z.string(),
+    model: z.string(),
+    revision: z.number().int().nonnegative(),
+  }),
+})
+const projectionEnvelope = z.object({
+  success: z.literal(true),
+  data: z.object({
+    group: z.string(),
     model: z.string(),
     default_model: z.string(),
-    group: z.string(),
-    models: z.array(z.string().min(1)),
+    routes: z.record(z.string(), z.array(z.string().min(1))),
     version,
   }),
 })
-type Draft = { model: string; version: z.infer<typeof version> }
+type Draft = {
+  group: string
+  model: string
+  revision: number
+  version: z.infer<typeof version>
+}
 
 function denied(error: unknown) {
   return (
@@ -53,14 +67,29 @@ export function AssistantModelSetting({ scope }: { scope: NativeUsersScope }) {
     skipBusinessError: true,
     skipErrorHandler: true,
   }
+  async function load(signal?: AbortSignal) {
+    const [plugin, host] = await Promise.all([
+      api.get<unknown>(pluginPath, { ...request, signal }),
+      api.get<unknown>(projectionPath, { ...request, signal }),
+    ])
+    const pref = preferenceEnvelope.parse(plugin.data).data
+    const effective = projectionEnvelope.parse(host.data).data
+    return {
+      ...effective,
+      revision: pref.revision,
+      group: pref.revision ? pref.group : effective.group,
+      model: pref.revision
+        ? pref.model
+        : effective.model || effective.default_model,
+      effectiveGroup: effective.group,
+      effectiveModel: effective.model || effective.default_model,
+    }
+  }
   const read = useQuery({
     queryKey,
     retry: false,
     refetchOnWindowFocus: false,
-    queryFn: async ({ signal }) =>
-      envelope.parse(
-        (await api.get<unknown>(path, { ...request, signal })).data
-      ).data,
+    queryFn: ({ signal }) => load(signal),
   })
   const [draft, setDraft] = useState<Draft>()
   const [state, setState] = useState<
@@ -69,7 +98,9 @@ export function AssistantModelSetting({ scope }: { scope: NativeUsersScope }) {
   const forbidden = state === 'forbidden' || denied(read.error)
   const data = forbidden ? undefined : read.data
   const current = data?.model || data?.default_model || ''
-  const options = [...new Set(data?.models ?? [])]
+  const group = draft?.group ?? data?.group ?? ''
+  const groups = Object.keys(data?.routes ?? {})
+  const options = data?.routes[group] ?? []
   const selected = draft?.model ?? current
   const conflict =
     state === 'conflict' ||
@@ -77,33 +108,76 @@ export function AssistantModelSetting({ scope }: { scope: NativeUsersScope }) {
       draft &&
       data &&
       (draft.version.routing !== data.version.routing ||
-        draft.version.pricing !== data.version.pricing)
+        draft.version.pricing !== data.version.pricing ||
+        draft.revision !== data.revision)
     )
+  const pending = Boolean(
+    data &&
+    (data.group !== data.effectiveGroup || data.model !== data.effectiveModel)
+  )
   const canSave = Boolean(
-    draft &&
-    selected !== current &&
+    data &&
+    ((draft && (selected !== current || group !== data.group)) || pending) &&
     options.includes(selected) &&
     !conflict &&
     !read.isFetching &&
     !read.isError &&
-    state !== 'saving'
+    state !== 'saving' &&
+    state !== 'failed'
   )
   async function save() {
-    if (!draft || !canSave || !isCurrentNativeUsersScope(scope)) return
+    if (!data || !canSave || !isCurrentNativeUsersScope(scope)) return
     setState('saving')
     try {
-      const response = await api.put<unknown>(
-        path,
-        { model: draft.model, expected_version: draft.version },
-        request
-      )
-      const saved = envelope.parse(response.data).data
-      if (!isCurrentNativeUsersScope(scope)) return
-      if (saved.model !== draft.model) {
-        throw new Error('Unexpected assistant model receipt')
+      if (group !== data.group || selected !== current || !data.revision) {
+        const staged = preferenceEnvelope.parse(
+          (
+            await api.put<unknown>(
+              pluginPath,
+              {
+                group,
+                model: selected,
+                revision: data.revision,
+              },
+              request
+            )
+          ).data
+        ).data
+        if (
+          staged.group !== group ||
+          staged.model !== selected ||
+          staged.revision <= data.revision
+        )
+          throw new Error('Unexpected plugin receipt')
       }
-      client.setQueryData(queryKey, saved)
+      if (!isCurrentNativeUsersScope(scope)) return
+      projectionEnvelope.parse(
+        (
+          await api.put<unknown>(
+            projectionPath,
+            {
+              group,
+              model: selected,
+              expected_version: data.version,
+            },
+            request
+          )
+        ).data
+      )
+      if (!isCurrentNativeUsersScope(scope)) return
+      const fresh = await load()
+      if (!isCurrentNativeUsersScope(scope)) return
+      client.setQueryData(queryKey, fresh)
       setDraft(undefined)
+      if (
+        fresh.group !== group ||
+        fresh.model !== selected ||
+        fresh.effectiveGroup !== group ||
+        fresh.effectiveModel !== selected
+      ) {
+        setState('conflict')
+        return
+      }
       setState('saved')
       void client.invalidateQueries({
         queryKey: ['assistant-status', scope.userId, scope.sessionId],
@@ -111,9 +185,9 @@ export function AssistantModelSetting({ scope }: { scope: NativeUsersScope }) {
     } catch (error) {
       if (!isCurrentNativeUsersScope(scope)) return
       if (denied(error)) setState('forbidden')
-      else if (isAxiosError(error) && error.response?.status === 409) {
+      else if (isAxiosError(error) && error.response?.status === 409)
         setState('conflict')
-      } else setState('failed')
+      else setState('failed')
     }
   }
   async function reload() {
@@ -125,12 +199,47 @@ export function AssistantModelSetting({ scope }: { scope: NativeUsersScope }) {
   }
   return (
     <div className='space-y-2 border-t pt-3'>
-      <Label htmlFor='assistant-host-model'>{t('Assistant model')}</Label>
       {data && (
-        <p className='text-muted-foreground text-xs'>
-          {t('Group')} · {data.group || t('Unknown')}
-        </p>
+        <div className='space-y-2'>
+          <Label htmlFor='assistant-plugin-group'>{t('Group')}</Label>
+          <NativeSelect
+            id='assistant-plugin-group'
+            value={group}
+            disabled={
+              state === 'saving' ||
+              conflict ||
+              read.isError ||
+              groups.length === 0
+            }
+            onChange={(event) => {
+              const next = event.target.value
+              const choices = data.routes[next] ?? []
+              const model = choices.includes(selected)
+                ? selected
+                : (choices[0] ?? '')
+              setDraft({
+                group: next,
+                model,
+                version: draft?.version ?? data.version,
+                revision: draft?.revision ?? data.revision,
+              })
+              setState('idle')
+            }}
+          >
+            {!groups.includes(group) && (
+              <NativeSelectOption value={group} disabled>
+                {group || t('Unknown')}
+              </NativeSelectOption>
+            )}
+            {groups.map((name) => (
+              <NativeSelectOption key={name} value={name}>
+                {name}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </div>
       )}
+      <Label htmlFor='assistant-host-model'>{t('Assistant model')}</Label>
       {data && (
         <div className='flex flex-wrap items-center gap-2'>
           <NativeSelect
@@ -145,9 +254,14 @@ export function AssistantModelSetting({ scope }: { scope: NativeUsersScope }) {
             onChange={(event) => {
               const model = event.target.value
               setDraft(
-                model === current
+                model === current && group === data.group
                   ? undefined
-                  : { model, version: draft?.version ?? data.version }
+                  : {
+                      group,
+                      model,
+                      revision: draft?.revision ?? data.revision,
+                      version: draft?.version ?? data.version,
+                    }
               )
               setState('idle')
             }}
@@ -183,6 +297,11 @@ export function AssistantModelSetting({ scope }: { scope: NativeUsersScope }) {
           {t('No models available')}
         </p>
       )}
+      {pending && (
+        <p role='status' className='text-sm'>
+          {t('Pending')}
+        </p>
+      )}
       {state === 'saved' && (
         <p role='status' className='text-sm'>
           {t('Saved')}
@@ -193,17 +312,19 @@ export function AssistantModelSetting({ scope }: { scope: NativeUsersScope }) {
           {t('Save failed')}
         </p>
       )}
-      {(read.isError || conflict || forbidden) && (
+      {(read.isError || conflict || forbidden || state === 'failed') && (
         <div className='space-y-2'>
-          <p role='alert' className='text-destructive text-sm'>
-            {t(
-              forbidden
-                ? 'Access Forbidden'
-                : read.isError
-                  ? 'Unable to load settings'
-                  : 'Settings changed. Reload the current configuration before saving again.'
-            )}
-          </p>
+          {state !== 'failed' && (
+            <p role='alert' className='text-destructive text-sm'>
+              {t(
+                forbidden
+                  ? 'Access Forbidden'
+                  : read.isError
+                    ? 'Unable to load settings'
+                    : 'Settings changed. Reload the current configuration before saving again.'
+              )}
+            </p>
+          )}
           <Button
             type='button'
             variant='outline'

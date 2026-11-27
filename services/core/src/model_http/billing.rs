@@ -711,6 +711,8 @@ impl Billing for Bridge {
                 )
             };
             let mut stage = "report";
+            let mut usage_reason = "not_applicable";
+            let mut frozen_usage_contract = None;
             let result = async {
                 if reservation.id != report.request_id
                     || report.route_id.as_deref() != Some(selected.route_id.as_str())
@@ -744,6 +746,8 @@ impl Billing for Bridge {
                 if frozen.price != selected.price {
                     return Err(RelayError::SettlementPending);
                 }
+                let semantics = contract.semantics();
+                frozen_usage_contract = Some((contract.bounds(), semantics.missing_cached_tokens_is_zero, semantics.missing_cache_creation_tokens_is_zero));
                 let price = frozen.price.clone();
                 let upstream_cost = price.upstream_cost_group_ppm.is_some();
                 let legacy_wallet = contract.legacy_precharge().is_some()
@@ -754,6 +758,7 @@ impl Billing for Bridge {
                     Some(charging::contract::LegacyPrechargeAuthorization::Cc52TieredWalletV1 { .. })
                 );
                 stage = "usage";
+                usage_reason = "delivery_receipt";
                 let (usage, outcome) = if price.text_request.is_some()
                     && (!report.upstream_attempted
                         || matches!(
@@ -822,18 +827,15 @@ impl Billing for Bridge {
                     // Partial/local output is not an authoritative final provider
                     // usage receipt. Never substitute missing usage with zero.
                     if !report.provider_complete {
+                        usage_reason = "provider_incomplete";
                         return Err(RelayError::SettlementPending);
                     }
                     if upstream_cost {
                         stage = "provider_policy";
-                        contract
-                            .check_usage(
-                                &frozen,
-                                frozen_priced_usage(&contract, &frozen, report.usage.clone())?,
-                            )
-                            .map_err(|_| RelayError::SettlementPending)?;
-                        let usage = frozen_priced_usage(&contract, &frozen, report.usage.clone())?;
+                        let usage = priced_usage_with_reason(&contract, &frozen, report.usage.clone(), &mut usage_reason)?;
+                        check_charge_usage(&contract, &frozen, usage, &mut usage_reason)?;
                         if usage.upstream_cost_atto_usd.is_none() {
+                            usage_reason = "upstream_cost_missing";
                             return Err(RelayError::SettlementPending);
                         }
                         stage = "usage_bound";
@@ -844,14 +846,12 @@ impl Billing for Bridge {
                         }
                         (usage, Outcome::Completed)
                     } else {
-                        let usage = frozen_priced_usage(&contract, &frozen, report.usage.clone())?;
+                        let usage = priced_usage_with_reason(&contract, &frozen, report.usage.clone(), &mut usage_reason)?;
                         // This input is either the original inclusive receipt
                         // or a checked reconstruction from actual Anthropic P
                         // and the original frozen absence-zero contract.
                         stage = "provider_policy";
-                        contract
-                            .check_usage(&frozen, usage)
-                            .map_err(|_| RelayError::SettlementPending)?;
+                        check_charge_usage(&contract, &frozen, usage, &mut usage_reason)?;
                         stage = "usage_bound";
                         if usage.input > selected.input_token_ceiling
                             || usage.output > i64::from(output_ceiling)
@@ -1069,7 +1069,7 @@ impl Billing for Bridge {
                 && report.upstream_attempted
             {
                 eprintln!(
-                    "core_model_finalize_failure code={} upstream_status={} provider_complete={} stage={} usage={:?} input_ceiling={} output_ceiling={} request_id={} upstream_id={} configured_protocol={:?} routing_version={} pricing_version={}",
+                    "core_model_finalize_failure code={} upstream_status={} provider_complete={} stage={} usage={:?} input_ceiling={} output_ceiling={} request_id={} upstream_id={} configured_protocol={:?} routing_version={} pricing_version={} usage_reason={} frozen_input_bound={:?} frozen_output_bound={:?} frozen_missing_cached_is_zero={:?} frozen_missing_write_is_zero={:?} price_mode={} tariff_revision={:?} tariff_input_semantics={:?} tariff_uses_write={:?} tariff_uses_1h={:?} tariff_uses_12h={:?} tariff_missing_write_is_zero={:?}",
                     failure.code(),
                     report.upstream_status.unwrap_or(0),
                     report.provider_complete,
@@ -1082,6 +1082,48 @@ impl Billing for Bridge {
                     selected.attempt.protocol(),
                     selected.attempt.version().routing,
                     selected.attempt.version().pricing,
+                    usage_reason,
+                    frozen_usage_contract.map(|((input, _), _, _)| input),
+                    frozen_usage_contract.map(|((_, output), _, _)| output),
+                    frozen_usage_contract.map(|(_, read, _)| read),
+                    frozen_usage_contract.map(|(_, _, write)| write),
+                    if selected.price.audio.is_some() {
+                        "audio"
+                    } else if selected.price.tool.is_some() {
+                        "tool"
+                    } else if selected.price.grounding.is_some() {
+                        "grounding"
+                    } else if selected.price.text_request.is_some() {
+                        "text_request"
+                    } else if selected.price.upstream_cost_group_ppm.is_some() {
+                        "upstream_cost"
+                    } else if selected.price.tiered.is_some() {
+                        "tiered"
+                    } else {
+                        "scalar"
+                    },
+                    selected.price.tiered.as_ref().map(|p| p.tariff.revision),
+                    selected.price.tiered.as_ref().map(|p| p.input_semantics),
+                    selected
+                        .price
+                        .tiered
+                        .as_ref()
+                        .map(|p| p.tariff.uses_cache_write),
+                    selected
+                        .price
+                        .tiered
+                        .as_ref()
+                        .map(|p| p.tariff.uses_cache_write_1h),
+                    selected
+                        .price
+                        .tiered
+                        .as_ref()
+                        .map(|p| p.tariff.uses_cache_write_12h),
+                    selected
+                        .price
+                        .tiered
+                        .as_ref()
+                        .map(|p| p.missing_cache_creation_is_zero),
                 );
             }
             if result.is_err() && report.upstream_attempted {
@@ -1157,11 +1199,35 @@ fn local_input_bound(request: &Request) -> Result<u64, RelayError> {
 pub(super) fn frozen_priced_usage(
     contract: &charging::contract::ReservationContract,
     charge: &charging::Charge,
+    observed: crate::relay::Usage,
+) -> Result<Usage, RelayError> {
+    priced_usage_with_reason(contract, charge, observed, &mut "not_applicable")
+}
+
+fn check_charge_usage(
+    contract: &charging::contract::ReservationContract,
+    charge: &charging::Charge,
+    usage: Usage,
+    reason: &mut &'static str,
+) -> Result<(), RelayError> {
+    contract
+        .check_usage_detailed(charge, usage)
+        .map_err(|(dimension, _)| {
+            *reason = dimension;
+            RelayError::SettlementPending
+        })
+}
+
+fn priced_usage_with_reason(
+    contract: &charging::contract::ReservationContract,
+    charge: &charging::Charge,
     mut observed: crate::relay::Usage,
+    reason: &mut &'static str,
 ) -> Result<Usage, RelayError> {
     // @context-fold begin frozen-priced-usage
-    validate_frozen_observation(contract, charge, &observed)?;
+    validate_observation_with_reason(contract, charge, &observed, reason)?;
     let grounding = if charge.price.grounding.is_some() {
+        *reason = "grounded_requests_missing";
         let usage = grounding_price::GroundingUsage {
             grounded_requests: observed
                 .google_search_grounded_requests
@@ -1178,11 +1244,13 @@ pub(super) fn frozen_priced_usage(
     };
     if observed.cached_input_tokens.is_none() && !contract.semantics().missing_cached_tokens_is_zero
     {
+        *reason = "cache_read_evidence_missing";
         return Err(RelayError::SettlementPending);
     }
     if observed.cached_input_tokens.is_none() {
         observed.cached_input_tokens = Some(0);
     }
+    *reason = "frozen_tariff_invalid";
     if let Some(tariff) = &charge.price.tiered
         && tariff
             .tariff
@@ -1192,19 +1260,31 @@ pub(super) fn frozen_priced_usage(
         && observed.cache_creation_input_tokens.is_none()
         && !contract.semantics().missing_cache_creation_tokens_is_zero
     {
+        *reason = "cache_write_aggregate_missing";
         return Err(RelayError::SettlementPending);
     }
     let mut usage = if charge.price.text_request.is_some() {
+        *reason = "text_request_usage_projection";
         complete_text_request_usage(observed)?
     } else if let Some(tariff) = &charge.price.tiered {
+        *reason = match tariff.tariff.revision {
+            1 => "tiered_read_usage_projection",
+            2 => "tiered_write_usage_projection",
+            3 => "tiered_remainder_usage_projection",
+            4 => "tiered_ttl_usage_projection",
+            _ => "frozen_tariff_invalid",
+        };
         complete_tiered_usage(observed, tariff)?
     } else {
-        complete_usage(observed, charge.price.upstream_cost_group_ppm.is_some())?
+        complete_scalar_with_reason(
+            observed,
+            charge.price.upstream_cost_group_ppm.is_some(),
+            reason,
+        )?
     };
     usage.grounding = grounding;
-    contract
-        .check_usage(charge, usage)
-        .map_err(|_| RelayError::SettlementPending)?;
+    check_charge_usage(contract, charge, usage, reason)?;
+    *reason = "validated";
     Ok(usage)
     // @context-fold end frozen-priced-usage
 }
@@ -1306,16 +1386,28 @@ pub(super) fn validate_frozen_observation(
     charge: &charging::Charge,
     observed: &crate::relay::Usage,
 ) -> Result<(), RelayError> {
+    validate_observation_with_reason(contract, charge, observed, &mut "not_applicable")
+}
+
+fn validate_observation_with_reason(
+    contract: &charging::contract::ReservationContract,
+    charge: &charging::Charge,
+    observed: &crate::relay::Usage,
+    reason: &mut &'static str,
+) -> Result<(), RelayError> {
     // @context-fold begin frozen-observation-bounds
+    *reason = "frozen_contract_invalid";
     contract
         .validate(charge)
         .map_err(|_| RelayError::SettlementPending)?;
+    *reason = "provider_usage_inconsistent";
     observed
         .validate()
         .map_err(|_| RelayError::SettlementPending)?;
     let (input, output) = contract.bounds();
     // TTL buckets are disjoint subsets; totals and cached tokens are not added
     // twice. Anthropic's uncached counter is disjoint from both cached classes.
+    *reason = "input_partition_overflow";
     let add = |a: u64, b: u64| a.checked_add(b).ok_or(RelayError::SettlementPending);
     let cache_creation = observed
         .cache_creation_input_tokens
@@ -1345,10 +1437,16 @@ pub(super) fn validate_frozen_observation(
                 .unwrap_or(0),
         );
     let disjoint = add(observed.cached_input_tokens.unwrap_or(0), cache_creation)?;
-    if disjoint > input
-        || observed.input_tokens.is_some_and(|total| disjoint > total)
-        || add(observed.uncached_input_tokens.unwrap_or(0), disjoint)? > input
-    {
+    if disjoint > input {
+        *reason = "cache_partition_above_input_bound";
+        return Err(RelayError::SettlementPending);
+    }
+    if observed.input_tokens.is_some_and(|total| disjoint > total) {
+        *reason = "cache_partition_above_reported_input";
+        return Err(RelayError::SettlementPending);
+    }
+    if add(observed.uncached_input_tokens.unwrap_or(0), disjoint)? > input {
+        *reason = "disjoint_input_above_bound";
         return Err(RelayError::SettlementPending);
     }
     let known_input = observed.input_tokens.or(observed.uncached_input_tokens);
@@ -1365,9 +1463,14 @@ pub(super) fn validate_frozen_observation(
             v.ttl_30m_tokens.is_some_and(|v| v > input)
                 || v.ttl_12h_tokens.is_some_and(|v| v > input)
         })
-        || observed.output_tokens.is_some_and(|v| v > output)
+    {
+        *reason = "input_tokens_above_bound";
+        return Err(RelayError::SettlementPending);
+    }
+    if observed.output_tokens.is_some_and(|v| v > output)
         || observed.reasoning_output_tokens.is_some_and(|v| v > output)
     {
+        *reason = "output_tokens_above_bound";
         return Err(RelayError::SettlementPending);
     }
     Ok(())
@@ -1378,6 +1481,15 @@ pub(super) fn complete_usage(
     observed: crate::relay::Usage,
     upstream_cost: bool,
 ) -> Result<Usage, RelayError> {
+    complete_scalar_with_reason(observed, upstream_cost, &mut "not_applicable")
+}
+
+fn complete_scalar_with_reason(
+    observed: crate::relay::Usage,
+    upstream_cost: bool,
+    reason: &mut &'static str,
+) -> Result<Usage, RelayError> {
+    *reason = "provider_usage_inconsistent";
     observed
         .validate()
         .map_err(|_| RelayError::SettlementPending)?;
@@ -1388,9 +1500,11 @@ pub(super) fn complete_usage(
             .tool_use_prompt_tokens
             .is_some_and(|tokens| tokens != 0)
     {
+        *reason = "grounding_without_price";
         return Err(RelayError::SettlementPending);
     }
     if observed.cache_creation_mode.is_some() || observed.uncached_input_tokens.is_some() {
+        *reason = "scalar_cache_semantics_mismatch";
         return Err(RelayError::SettlementPending);
     }
     if !upstream_cost
@@ -1406,16 +1520,20 @@ pub(super) fn complete_usage(
                     || details.ttl_12h_tokens.is_some_and(|v| v != 0)
             }))
     {
+        *reason = "write_usage_without_price";
         return Err(RelayError::SettlementPending);
     }
+    *reason = "input_total_missing_or_out_of_range";
     let input = observed
         .input_tokens
         .and_then(|value| i64::try_from(value).ok())
         .ok_or(RelayError::SettlementPending)?;
+    *reason = "output_total_missing_or_out_of_range";
     let output = observed
         .output_tokens
         .and_then(|value| i64::try_from(value).ok())
         .ok_or(RelayError::SettlementPending)?;
+    *reason = "cache_read_out_of_range";
     let cached = i64::try_from(observed.cached_input_tokens.unwrap_or(0))
         .map_err(|_| RelayError::SettlementPending)?;
     let upstream_cost_atto_usd = if upstream_cost {
@@ -1557,7 +1675,7 @@ mod openai_cache_billing_tests {
     use crate::routing::{InputSemantics, PersistedTieredTariff};
     use serde_json::json;
 
-    fn price() -> PersistedTieredTariff {
+    pub(super) fn price() -> PersistedTieredTariff {
         serde_json::from_value(json!({
             "tariff": {
                 "revision": 4, "source_digest": "ab".repeat(32),
@@ -2363,6 +2481,89 @@ mod a07_billing_tests {
             revision: 4,
             outcome: Some("completed".into()),
         }
+    }
+
+    #[test]
+    fn frozen_usage_diagnosis_distinguishes_missing_write_evidence_from_bounds() {
+        use charging::contract::{
+            PreparedReservation, ReservationBinding, ReservationBounds, ReservationSemantics,
+        };
+        let proof = |charge: &charging::Charge, input: u64, output: u64| {
+            PreparedReservation::context_max(
+                "01".repeat(32),
+                ReservationBinding {
+                    route_id: "synthetic".into(),
+                    target_id: 1,
+                    upstream_id: 2,
+                    protocol: "chat".into(),
+                    model_snapshot: "synthetic-model".into(),
+                    generation_url: "https://synthetic.invalid/v1/chat/completions".into(),
+                    credential_ref: crate::routing::CredentialRef { id: 3, revision: 1 },
+                    credential_selection: None,
+                    payload_policy_sha256: "02".repeat(32),
+                    provider_contract_revision: "synthetic-v1".into(),
+                    projection_revision: "context_max_v1".into(),
+                    quote_version: 1,
+                },
+                "03".repeat(32),
+                ReservationBounds {
+                    model_input_max: input,
+                    input,
+                    requested_output: output,
+                    output,
+                },
+                ReservationSemantics {
+                    input: "inclusive".into(),
+                    output: "includes_reasoning".into(),
+                    missing_cached_tokens_is_zero: false,
+                    missing_cache_creation_tokens_is_zero: false,
+                },
+            )
+            .unwrap()
+            .freeze(charge, &"04".repeat(32))
+            .unwrap()
+        };
+        let observed = Observed {
+            input_tokens: Some(37_671),
+            cached_input_tokens: Some(31_854),
+            output_tokens: Some(75),
+            ..Observed::default()
+        };
+        let mut charge = receipt();
+        let mut reason = "not_applicable";
+        let contract = proof(&charge, 40_000, 128);
+        let usage =
+            priced_usage_with_reason(&contract, &charge, observed.clone(), &mut reason).unwrap();
+        assert_eq!(
+            (usage.input - usage.cached, usage.cached, usage.output),
+            (5817, 31_854, 75)
+        );
+        assert!(usage.cache_creation.is_none());
+        for (input, output, expected) in [
+            (35_000, 128, "input_tokens_above_bound"),
+            (40_000, 64, "output_tokens_above_bound"),
+        ] {
+            assert_eq!(
+                priced_usage_with_reason(
+                    &proof(&charge, input, output),
+                    &charge,
+                    observed.clone(),
+                    &mut reason
+                ),
+                Err(RelayError::SettlementPending)
+            );
+            assert_eq!(reason, expected);
+        }
+        charge.price.tiered = Some(super::openai_cache_billing_tests::price());
+        charge.price.input_per_million = 0;
+        charge.price.cached_per_million = 0;
+        charge.price.output_per_million = 0;
+        let contract = proof(&charge, 40_000, 128);
+        assert_eq!(
+            priced_usage_with_reason(&contract, &charge, observed, &mut reason),
+            Err(RelayError::SettlementPending)
+        );
+        assert_eq!(reason, "cache_write_aggregate_missing");
     }
 
     #[test]

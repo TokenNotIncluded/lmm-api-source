@@ -25,6 +25,8 @@ pub(in crate::channel_http) struct KeyPool {
 pub(in crate::channel_http) struct Bindings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assistant_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assistant_group: Option<String>,
     #[serde(default)]
     pub names: BTreeMap<u64, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -263,11 +265,14 @@ pub(in crate::channel_http) async fn preview(
         .await?;
     let current = next_document(management, input.expected_version)?;
     let mut input = input;
-    let active_model = management.assistant_model()?;
-    if input.bindings.assistant_model.is_some() && input.bindings.assistant_model != active_model {
+    let (group, model) = management.assistant_route()?;
+    if (input.bindings.assistant_group.is_some() && input.bindings.assistant_group != group)
+        || (input.bindings.assistant_model.is_some() && input.bindings.assistant_model != model)
+    {
         return Err(ManagementError::Conflict.into());
     }
-    input.bindings.assistant_model = active_model;
+    input.bindings.assistant_group = group;
+    input.bindings.assistant_model = model;
     let document = input.document()?;
     if document.pricing.version == input.expected_version.pricing
         && document.pricing != current.pricing
@@ -297,11 +302,14 @@ pub(in crate::channel_http) async fn publish(
         )
         .await?;
     let mut input = input;
-    let active_model = management.assistant_model()?;
-    if input.bindings.assistant_model.is_some() && input.bindings.assistant_model != active_model {
+    let (group, model) = management.assistant_route()?;
+    if (input.bindings.assistant_group.is_some() && input.bindings.assistant_group != group)
+        || (input.bindings.assistant_model.is_some() && input.bindings.assistant_model != model)
+    {
         return Err(ManagementError::Conflict.into());
     }
-    input.bindings.assistant_model = active_model;
+    input.bindings.assistant_group = group;
+    input.bindings.assistant_model = model;
     let document = input.document()?;
     let digest = input.digest()?;
     if input.confirmation_digest.as_deref() != Some(digest.as_str()) {

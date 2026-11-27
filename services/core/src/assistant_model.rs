@@ -342,16 +342,30 @@ impl AssistantModel {
         Ok(t)
     }
     async fn selected_policy(&self) -> Result<PersonalTextPolicy, Error> {
-        let model = self
+        let (group, model) = self
             .gateway
-            .assistant_model_override()
+            .assistant_route_override()
             .await
             .map_err(|_| Error::Unavailable)?;
         let mut policy = self.policy.clone();
+        if let Some(group) = group {
+            policy.group = group;
+        }
         if let Some(model) = model {
             policy.model = model;
         }
         policy.validate()?;
+        Ok(policy)
+    }
+
+    async fn selected_for(
+        &self,
+        expected: Option<&(String, String)>,
+    ) -> Result<PersonalTextPolicy, Error> {
+        let policy = self.selected_policy().await?;
+        if expected.is_some_and(|pair| pair.0 != policy.group || pair.1 != policy.model) {
+            return Err(Error::Conflict);
+        }
         Ok(policy)
     }
 
@@ -407,13 +421,24 @@ impl AssistantModel {
         turn_id: &str,
         create: bool,
     ) -> Result<Grant, Error> {
+        self.turn_on_route(session, conversation_id, turn_id, create, None)
+            .await
+    }
+    async fn turn_on_route(
+        &self,
+        session: &str,
+        conversation_id: &str,
+        turn_id: &str,
+        create: bool,
+        route: Option<&(String, String)>,
+    ) -> Result<Grant, Error> {
         if !label(turn_id, 124) {
             return Err(Error::Invalid);
         }
         // Synchronization can acquire a separate pool connection. Only apply its
         // result for a new grant; existing receipts survive control-plane errors.
         let selected = if create {
-            Some(self.selected_policy().await)
+            Some(self.selected_for(route).await)
         } else {
             None
         };
@@ -582,6 +607,15 @@ impl AssistantModel {
         b: &Binding,
         text: &str,
     ) -> Result<Operation, Error> {
+        self.reserve_on_route(session, b, text, None).await
+    }
+    async fn reserve_on_route(
+        &self,
+        session: &str,
+        b: &Binding,
+        text: &str,
+        route: Option<&(String, String)>,
+    ) -> Result<Operation, Error> {
         if text.is_empty()
             || text.len() > 8192
             || Sha256::digest(text.as_bytes()).as_slice() != b.text_sha256
@@ -597,7 +631,7 @@ impl AssistantModel {
             permit: Some(permit),
             changed: self.changed.clone(),
         };
-        let selected = self.selected_policy().await;
+        let selected = self.selected_for(route).await;
         let mut tx = self.begin().await?;
         let a = actor(&mut tx, session).await?;
         self.lock_conversation(&mut tx, &a, &b.core_conversation_id)

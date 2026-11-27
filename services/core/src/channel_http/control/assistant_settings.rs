@@ -35,28 +35,45 @@ impl Settings {
         Ok(manager)
     }
 
-    fn available(&self, model: &str) -> bool {
+    fn available(&self, group: &str, model: &str) -> bool {
         self.gateway
-            .validate_assistant_policy(model, &self.group, self.max_output_tokens)
+            .validate_assistant_policy(model, group, self.max_output_tokens)
             .is_ok()
-            && self.gateway.assistant_quote(model, &self.group).is_ok()
+            && self.gateway.assistant_quote(model, group).is_ok()
     }
 
     fn project(&self, manager: &ManagedChannels, version: Version) -> Result<Json<Value>, Failure> {
-        let selected = manager
-            .assistant_model()?
-            .unwrap_or_else(|| self.default_model.clone());
-        let models = manager
+        let (group, model) = manager.assistant_route()?;
+        let group = group.as_deref().unwrap_or(&self.group);
+        let model = model.as_deref().unwrap_or(&self.default_model);
+        let document = manager
             .routing
-            .catalog(&self.group)
-            .map_err(|_| ManagementError::Storage)?
-            .into_iter()
-            .map(|item| item.name)
-            .filter(|model| self.available(model))
-            .collect::<BTreeSet<_>>();
+            .catalog_document()
+            .map_err(|_| ManagementError::Storage)?;
+        let mut routes = std::collections::BTreeMap::new();
+        for name in document
+            .routing
+            .groups
+            .iter()
+            .filter(|g| g.enabled)
+            .map(|g| g.name.as_str())
+        {
+            let models = manager
+                .routing
+                .catalog(name)
+                .map_err(|_| ManagementError::Storage)?
+                .into_iter()
+                .map(|item| item.name)
+                .filter(|model| self.available(name, model))
+                .collect::<BTreeSet<_>>();
+            if !models.is_empty() {
+                routes.insert(name.to_owned(), models);
+            }
+        }
+        let models = routes.get(group).cloned().unwrap_or_default();
         Ok(Json(
-            json!({"success":true, "data":{"model":selected, "default_model":self.default_model,
-            "group":self.group, "models":models, "version":version}}),
+            json!({"success":true, "data":{"model":model, "default_model":self.default_model,
+            "group":group, "models":models, "routes":routes, "version":version}}),
         ))
     }
 }
@@ -81,6 +98,8 @@ async fn read(
 struct Selection {
     expected_version: Version,
     model: String,
+    #[serde(default)]
+    group: Option<String>,
 }
 
 async fn save(
@@ -95,10 +114,11 @@ async fn save(
         .begin(token, Action::ChannelSensitiveWrite, ReadView::Current)
         .await?;
     let document = next_document(&manager, input.expected_version)?;
-    if !settings.available(&input.model)
+    let group = input.group.as_deref().unwrap_or(&settings.group);
+    if !settings.available(group, &input.model)
         || !manager
             .routing
-            .catalog(&settings.group)
+            .catalog(group)
             .map_err(|_| ManagementError::Storage)?
             .iter()
             .any(|m| m.name == input.model)
@@ -106,12 +126,17 @@ async fn save(
         return Err(ManagementError::Invalid.into());
     }
     let mut bindings = manager.current_bindings()?;
-    let selection = (input.model != settings.default_model).then(|| input.model.clone());
-    if bindings.assistant_model == selection {
+    let selection = (input.group.is_some() || input.model != settings.default_model)
+        .then(|| input.model.clone());
+    if input.group.is_none() && bindings.assistant_group.is_some() {
+        return Err(ManagementError::Conflict.into());
+    }
+    if bindings.assistant_model == selection && bindings.assistant_group == input.group {
         tx.commit().await.map_err(ManagementError::from)?;
         return settings.project(&manager, input.expected_version);
     }
     bindings.assistant_model = selection;
+    bindings.assistant_group = input.group.clone();
     let version = manager
         .publish_bindings(
             tx,
@@ -122,7 +147,7 @@ async fn save(
             Vec::new(),
             PublicationChange::Normal {
                 action: "assistant.model.select",
-                target: json!({"model":input.model, "group":settings.group}),
+                target: json!({"model":input.model, "group":group}),
             },
         )
         .await?;

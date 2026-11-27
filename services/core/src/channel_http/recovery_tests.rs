@@ -544,6 +544,15 @@ async fn assistant_model_settings_publish_recover_and_preserve_other_routing_con
     route["targets"][0]["id"] = json!(2);
     route["targets"][0]["upstream_model"] = json!("model-b");
     routing["routes"].as_array_mut().unwrap().push(route);
+    routing["groups"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"name":"secondary","enabled":true}));
+    let mut secondary = routing["routes"][0].clone();
+    secondary["id"] = json!(3);
+    secondary["group"] = json!("secondary");
+    secondary["targets"][0]["id"] = json!(3);
+    routing["routes"].as_array_mut().unwrap().push(secondary);
     routing["aliases"] =
         json!([{"group":"default","model":"model-b","alias":"assistant-alternate"}]);
 
@@ -556,6 +565,13 @@ async fn assistant_model_settings_publish_recover_and_preserve_other_routing_con
     rule["rates"]["output"] = json!(200_000);
     prices["rules"].as_array_mut().unwrap().push(rule);
 
+    let mut secondary_price = prices["rules"][0].clone();
+    secondary_price["id"] = json!(3);
+    secondary_price["group"] = json!("secondary");
+    prices["rules"]
+        .as_array_mut()
+        .unwrap()
+        .push(secondary_price);
     let mut bindings = cfg["bindings"].clone();
     let mut context = bindings["contexts"][0].clone();
     context["upstream_model"] = json!("model-b");
@@ -637,12 +653,24 @@ async fn assistant_model_settings_publish_recover_and_preserve_other_routing_con
         .merge(assistant_model_settings(fresh_gateway, &policy));
     let restored = success(&restarted, "GET", settings_path, &admin, Value::Null).await;
     assert_eq!(restored["model"], "assistant-alternate");
+    assert_eq!(restored["routes"]["secondary"], json!(["model-a"]));
+    let moved = success(
+        &restarted,
+        "PUT",
+        settings_path,
+        &admin,
+        json!({"model":"model-a","group":"secondary","expected_version":restored["version"]}),
+    )
+    .await;
+    assert_eq!(moved["group"], "secondary");
+    assert_eq!(request(restarted.clone(), "PUT",settings_path,&admin,
+        json!({"model":"assistant-alternate","group":"secondary","expected_version":moved["version"]})).await.0,StatusCode::BAD_REQUEST);
     let reset = success(
         &restarted,
         "PUT",
         settings_path,
         &admin,
-        json!({"model":"model-a","expected_version":restored["version"]}),
+        json!({"model":"model-a","group":"default","expected_version":moved["version"]}),
     )
     .await;
     assert_eq!(reset["model"], reset["default_model"]);

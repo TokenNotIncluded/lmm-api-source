@@ -182,16 +182,23 @@ impl ModelGateway {
             .and_then(std::sync::Weak::upgrade)
     }
 
+    #[cfg(test)]
     pub(crate) async fn assistant_model_override(&self) -> Result<Option<String>, RelayError> {
+        Ok(self.assistant_route_override().await?.1)
+    }
+
+    pub(crate) async fn assistant_route_override(
+        &self,
+    ) -> Result<(Option<String>, Option<String>), RelayError> {
         let Some(manager) = self.managed_channels() else {
-            return Ok(None);
+            return Ok((None, None));
         };
         manager
             .synchronize_if_changed()
             .await
             .map_err(|_| RelayError::RouteUnavailable)?;
         manager
-            .assistant_model()
+            .assistant_route()
             .map_err(|_| RelayError::RouteUnavailable)
     }
 
