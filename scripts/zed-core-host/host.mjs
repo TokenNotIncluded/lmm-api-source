@@ -94,7 +94,8 @@ try {
   assert.ok(route.apis.includes('openai-completions'))
   const model = { provider: 'lmm', model: route.id }
   await writeFile(join(config, 'settings.json'), JSON.stringify({ auto_update: false,
-    telemetry: { metrics: false, diagnostics: false }, agent: { default_model: model, inline_assistant_model: model },
+    telemetry: { metrics: false, diagnostics: false }, agent: { default_model: model, inline_assistant_model: model,
+      inline_assistant_use_streaming_tools: false },
     edit_predictions: { disabled_globs: ['**/*'] } }))
   await writeFile(join(config, 'keymap.json'), JSON.stringify([{ context: 'Editor && mode == full',
     bindings: { f8: ['assistant::InlineAssist', { prompt: nativePrompt }] } }]))
@@ -169,7 +170,7 @@ try {
   assert.equal(tunnel.calls.length, 1)
   assert.match(call.requestId, /^[a-f0-9]{64}$/)
   process.stdout.write(JSON.stringify({ host: version, provider: 'lmm-zed', request_id: call.requestId,
-    granted_model: route.id, upstream_calls: 1, native_saved_reply: true, stop_count: 1, oauth_consent: true }))
+    granted_model: route.id, upstream_calls: 1, native_saved_reply: true, inline_assistant_mode: 'text', stop_count: 1, oauth_consent: true }))
 } catch (error) {
   if (win) await windowSnapshot('failure').catch(() => {})
   const safeCode = /^[A-Z_]+$/.test(error?.code ?? '') ? error.code : error?.name
