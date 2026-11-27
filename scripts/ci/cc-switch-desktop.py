@@ -61,21 +61,23 @@ def provider_page(process, expected=None):
             selected = True
             time.sleep(0.6)
             continue
-        headings = {n for r, n, _ in tree if r == "heading" and n}
-        if selected and expected and expected in headings:
-            return headings
+        # WebKitGTK exposes each card's visible Edit control under its full provider
+        # name even on builds that omit the h3 from AT-SPI's heading collection.
+        cards = {n.removeprefix("Edit ") for n, _ in buttons if n.startswith("Edit ")}
+        if selected and expected and expected in cards:
+            return cards
         if selected and not expected and DB.is_file():
             with sqlite3.connect(f"file:{DB}?mode=ro", uri=True) as conn:
                 seeded = {row[0] for row in conn.execute(
                     "select name from providers where app_type='codex'"
                 )}
-            if seeded & headings:
-                return headings
+            if seeded & cards:
+                return cards
         time.sleep(0.4)
     # Only isolated synthetic names, app navigation labels and roles are collected.
     visible = ", ".join(sorted({n for r, n, _ in window_tree()
                                if r in {"heading", "push button", "button"} and n})[:65])
-    raise RuntimeError(f"Expected native Codex provider heading was unavailable; controls={visible[:1400]}")
+    raise RuntimeError(f"Expected native Codex provider card was unavailable; controls={visible[:1400]}")
 
 
 @contextlib.contextmanager
@@ -112,13 +114,13 @@ os.environ.update(CC_SWITCH_TEST_HOME=str(HOME), LMM_CC_SWITCH_CLI=str(CLI),
                   WEBKIT_DISABLE_DMABUF_RENDERER="1", LIBGL_ALWAYS_SOFTWARE="1")
 OUTPUT.mkdir()
 with launch() as desktop:
-    before_headings = provider_page(desktop)
+    before_cards = provider_page(desktop)
 before_selection = snapshot()
 test_run = subprocess.run([TEST, "--ignored", "--exact", GATE], check=True, text=True,
                           stdout=subprocess.PIPE, timeout=30)
 assert f"test {GATE} ... ok" in test_run.stdout.splitlines(), "Exact native add case did not run"
 fixture = json.loads((HOME/"desktop-fixture.json").read_text())
-assert fixture["provider"] not in before_headings and snapshot() == before_selection
+assert fixture["provider"] not in before_cards and snapshot() == before_selection
 readback = subprocess.run([CLI, "receipt", "cc-switch", "--instance", str(DB.parent),
                            "--issuer", fixture["issuer"], "--installation-id", fixture["installation"],
                            "--change", fixture["change"], "--json"], check=True, text=True,
@@ -134,7 +136,7 @@ with launch() as desktop:
 assert snapshot() == before_selection
 assert ("codex", fixture["id"]) not in before_selection
 result = {"application":"CC Switch", "version":VERSION, "schema":24, "ui":"Linux X11 / AT-SPI",
-          "observed_provider_heading":fixture["provider"], "provider_id":fixture["id"],
+          "observed_provider_control":"Edit " + fixture["provider"], "provider_id":fixture["id"],
           "lmm_change_id":fixture["change"], "selection_preserved":True,
           "official_process_restarted":True, "isolated_network_interfaces":["lo"],
           "catalog_source":"synthetic test input to LMM preview_add and apply",
