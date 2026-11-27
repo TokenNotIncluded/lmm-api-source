@@ -167,5 +167,13 @@ const browserAuthorizationResponseSchema = z.object({
 })
 
 export function parseBrowserAuthorizationResponse(value: unknown): string {
+  if (
+    value &&
+    typeof value === 'object' &&
+    'success' in value &&
+    value.success === false
+  ) {
+    throw value
+  }
   return browserAuthorizationResponseSchema.parse(value).data.authorization_url
 }

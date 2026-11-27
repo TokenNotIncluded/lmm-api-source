@@ -30,6 +30,12 @@ import {
 } from '../lib/google-oauth'
 import type { SystemStatus } from '../types'
 
+const browserStartOptions = {
+  skipAuthRefresh: true,
+  skipErrorHandler: true,
+  skipBusinessError: true,
+}
+
 type Strategy = {
   enabled?: boolean
   timeoutMs?: number
@@ -148,7 +154,7 @@ export function useBrowserAuthorization(
           const response = await api.post<unknown>(
             EXTERNAL_BROWSER_PRESETS[provider].browser_start,
             payload,
-            { skipAuthRefresh: true }
+            browserStartOptions
           )
           return validateExternalBrowserAuthorizationUrl({
             provider,
@@ -187,7 +193,7 @@ export function useBrowserAuthorization(
               const response = await api.post<unknown>(
                 GOOGLE_BUILT_IN_PRESET.browser_start,
                 payload,
-                { skipAuthRefresh: true }
+                browserStartOptions
               )
               return validateGoogleBrowserAuthorizationUrl(
                 parseBrowserAuthorizationResponse(response.data),

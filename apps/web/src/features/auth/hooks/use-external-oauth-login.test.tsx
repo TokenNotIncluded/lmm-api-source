@@ -53,6 +53,7 @@ mock.module('@/lib/api', () => ({
   api: {
     post: async (path: string, payload: unknown, options: unknown) => {
       calls.push({ path, payload, options })
+      if (response instanceof Error) throw response
       return { data: pendingResponse ? await pendingResponse : response }
     },
   },
@@ -169,7 +170,11 @@ describe('built-in external browser hook contract', () => {
         {
           path: `/api/oauth/${provider}/start`,
           payload: { accepted_legal: true },
-          options: { skipAuthRefresh: true },
+          options: {
+            skipAuthRefresh: true,
+            skipErrorHandler: true,
+            skipBusinessError: true,
+          },
         },
       ])
       assert.deepEqual(navigations, [
@@ -177,6 +182,31 @@ describe('built-in external browser hook contract', () => {
       ])
       assert.equal(logoutCalls, 0)
       assert.deepEqual(errors, [])
+    })
+
+    test(`${provider} reports one provider-specific error when login start is forbidden`, async () => {
+      response = Object.assign(
+        new Error('Request failed with status code 403'),
+        {
+          response: {
+            status: 403,
+            data: {
+              success: false,
+              code: 'AUTH_FORBIDDEN',
+              message: 'This operation is not allowed',
+            },
+          },
+        }
+      )
+      await mount(provider, configured(provider), true)
+      await act(async () => login())
+      const expected = {
+        github: 'Failed to start GitHub login',
+        discord: 'Failed to start Discord login',
+        linuxdo: 'Failed to start LinuxDO login',
+      }
+      assert.deepEqual(errors, [expected[provider]])
+      assert.deepEqual(navigations, [])
     })
 
     test(`${provider} preserves false consent and refuses required legal consent before the start`, async () => {

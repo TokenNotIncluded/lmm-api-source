@@ -143,12 +143,28 @@ describe('built-in Google hook contract', () => {
       {
         path: '/api/oauth/google',
         payload: { accepted_legal: true },
-        options: { skipAuthRefresh: true },
+        options: {
+          skipAuthRefresh: true,
+          skipErrorHandler: true,
+          skipBusinessError: true,
+        },
       },
     ])
     assert.deepEqual(navigations, [validResponse().data.authorization_url])
     assert.equal(forbiddenCalls, 0)
     assert.deepEqual(errors, [])
+  })
+
+  test('keeps the localized reason when the bridge returns a business refusal', async () => {
+    response = {
+      success: false,
+      code: 'AUTH_LEGAL_ACCEPTANCE_REQUIRED',
+      message: 'Accept the published legal terms before signing in',
+    }
+    await mount(supported, true)
+    await act(async () => login())
+    assert.deepEqual(errors, ['Please agree to the legal terms first'])
+    assert.deepEqual(navigations, [])
   })
 
   test('uses the configured legacy browser callback without altering the server authorization response', async () => {
@@ -183,7 +199,11 @@ describe('built-in Google hook contract', () => {
       {
         path: '/api/oauth/google',
         payload: { accepted_legal: true },
-        options: { skipAuthRefresh: true },
+        options: {
+          skipAuthRefresh: true,
+          skipErrorHandler: true,
+          skipBusinessError: true,
+        },
       },
     ])
     assert.deepEqual(navigations, [url.toString()])
