@@ -19,6 +19,12 @@ use crate::{
     model_http::ModelGateway,
 };
 use rand::Rng as _;
+#[cfg(test)]
+#[path = "assistant_model/selected_model_tests.rs"]
+mod selected_model_tests;
+#[cfg(test)]
+pub(crate) use selected_model_tests::{check_replaced_model_grant, check_selected_model_issuance};
+
 use rand::rngs::SysRng;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -335,9 +341,26 @@ impl AssistantModel {
         }
         Ok(t)
     }
-    fn configured_price(&self) -> Result<charging::Price, Error> {
+    async fn selected_policy(&self) -> Result<PersonalTextPolicy, Error> {
+        let model = self
+            .gateway
+            .assistant_model_override()
+            .await
+            .map_err(|_| Error::Unavailable)?;
+        let mut policy = self.policy.clone();
+        if let Some(model) = model {
+            policy.model = model;
+        }
+        policy.validate()?;
+        Ok(policy)
+    }
+
+    fn configured_price(&self, policy: &PersonalTextPolicy) -> Result<charging::Price, Error> {
         self.gateway
-            .assistant_quote(&self.policy.model, &self.policy.group)
+            .validate_assistant_policy(&policy.model, &policy.group, policy.max_output_tokens)
+            .map_err(|_| Error::Unavailable)?;
+        self.gateway
+            .assistant_quote(&policy.model, &policy.group)
             .map_err(|_| Error::Unavailable)
     }
     pub async fn conversation(
@@ -387,6 +410,13 @@ impl AssistantModel {
         if !label(turn_id, 124) {
             return Err(Error::Invalid);
         }
+        // Synchronization can acquire a separate pool connection. Only apply its
+        // result for a new grant; existing receipts survive control-plane errors.
+        let selected = if create {
+            Some(self.selected_policy().await)
+        } else {
+            None
+        };
         let mut tx = self.begin().await?;
         let a = actor(&mut tx, session).await?;
         self.lock_conversation(&mut tx, &a, conversation_id).await?;
@@ -396,36 +426,35 @@ impl AssistantModel {
             tx.commit().await?;
             return Ok(g);
         }
-        if !create {
-            return Err(Error::NotFound);
-        }
+        let policy = selected.ok_or(Error::NotFound)??;
         identity::reject_marked_new_action(
             &mut tx,
             a.user_id,
             identity::NewResourceAction::AssistantTurn,
         )
         .await?;
+        // Retire unused grants from the old selection under the conversation
+        // lock. A charged, unknown or completed operation keeps its original grant.
+        sqlx::query("UPDATE core_assistant.grants g SET revoked=TRUE WHERE g.conversation_id=$1 AND NOT g.revoked AND g.policy<>$2 AND NOT EXISTS(SELECT FROM core_assistant.operations o WHERE o.grant_id=g.id)")
+            .bind(conversation_id).bind(serde_json::to_value(&policy).map_err(|_| Error::Invalid)?)
+            .execute(&mut *tx).await?;
         let active:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM core_assistant.grants g LEFT JOIN core_assistant.operations o ON o.grant_id=g.id LEFT JOIN core_charging.requests r ON r.id=o.request_id WHERE g.conversation_id=$1 AND ((o.request_id IS NOT NULL AND r.state NOT IN ('settled','released')) OR (o.request_id IS NULL AND NOT g.revoked AND g.expires_at>extract(epoch FROM clock_timestamp())::bigint)))").bind(conversation_id).fetch_one(&mut *tx).await?;
         if active {
             return Err(Error::Conflict);
         }
-        if self.policy.sponsor.is_none() && self.policy.service_funding.is_none() {
-            identity::authorize_assistant_model_in_transaction(
-                &mut tx,
-                session,
-                &self.policy.group,
-            )
-            .await?;
+        if policy.sponsor.is_none() && policy.service_funding.is_none() {
+            identity::authorize_assistant_model_in_transaction(&mut tx, session, &policy.group)
+                .await?;
         }
-        if let Some(sponsor) = &self.policy.sponsor {
+        if let Some(sponsor) = &policy.sponsor {
             sponsor
                 .admit(&mut tx, a.user_id, a.owner_account_id, 0)
                 .await?;
         }
-        if let Some(service) = &self.policy.service_funding {
+        if let Some(service) = &policy.service_funding {
             service.admit(&mut tx).await?;
         }
-        let price = self.configured_price()?;
+        let price = self.configured_price(&policy)?;
         let now = at(&mut tx).await?;
         let id = random("lmm_ad_");
         let version: i64 =
@@ -433,13 +462,13 @@ impl AssistantModel {
                 .bind(a.user_id)
                 .fetch_one(&mut *tx)
                 .await?;
-        sqlx::query("INSERT INTO core_assistant.grants(id,conversation_id,turn_id,session_id,auth_version,policy,price,issued_at,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)").bind(&id).bind(conversation_id).bind(turn_id).bind(a.credential_id).bind(version).bind(serde_json::to_value(&self.policy).map_err(|_|Error::Invalid)?).bind(serde_json::to_value(price).map_err(|_|Error::Invalid)?).bind(now).bind(now+self.policy.ttl_seconds).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO core_assistant.grants(id,conversation_id,turn_id,session_id,auth_version,policy,price,issued_at,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)").bind(&id).bind(conversation_id).bind(turn_id).bind(a.credential_id).bind(version).bind(serde_json::to_value(&policy).map_err(|_|Error::Invalid)?).bind(serde_json::to_value(price).map_err(|_|Error::Invalid)?).bind(now).bind(now+policy.ttl_seconds).execute(&mut *tx).await?;
         tx.commit().await?;
         Ok(Grant {
             delegation_id: id,
             core_conversation_id: conversation_id.into(),
             turn_id: turn_id.into(),
-            expires_at_unix: now + self.policy.ttl_seconds,
+            expires_at_unix: now + policy.ttl_seconds,
             max_model_calls: 1,
             revoked: false,
         })
@@ -568,6 +597,7 @@ impl AssistantModel {
             permit: Some(permit),
             changed: self.changed.clone(),
         };
+        let selected = self.selected_policy().await;
         let mut tx = self.begin().await?;
         let a = actor(&mut tx, session).await?;
         self.lock_conversation(&mut tx, &a, &b.core_conversation_id)
@@ -580,7 +610,14 @@ impl AssistantModel {
         let policy: PersonalTextPolicy =
             serde_json::from_value(row.try_get("policy")?).map_err(|_| Error::Unavailable)?;
         // Host policy changes invalidate old, unspent capabilities. Status reads remain available.
-        if policy != self.policy {
+        if policy != selected? {
+            sqlx::query(
+                "UPDATE core_assistant.grants SET revoked=TRUE WHERE id=$1 AND NOT revoked",
+            )
+            .bind(&b.delegation_id)
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
             return Err(Error::Forbidden);
         }
         let history=sqlx::query("SELECT o.text,o.answer_text FROM core_assistant.operations o JOIN core_assistant.grants g ON g.id=o.grant_id JOIN core_charging.requests r ON r.id=o.request_id WHERE g.conversation_id=$1 AND r.state='settled' AND o.answer_text IS NOT NULL ORDER BY o.position LIMIT 65").bind(&b.core_conversation_id).fetch_all(&mut *tx).await?;

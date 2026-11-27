@@ -55,6 +55,10 @@ fn status(e: Error) -> Status {
     }
 }
 impl AssistantRpc {
+    pub fn model_policy(&self) -> &super::PersonalTextPolicy {
+        &self.service.policy
+    }
+
     async fn output_subject(
         &self,
         session: &str,

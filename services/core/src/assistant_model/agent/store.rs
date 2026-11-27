@@ -24,6 +24,22 @@ pub(crate) struct AgentPolicy {
     pub market: Option<AssistantMarketPolicy>,
 }
 impl AgentPolicy {
+    // The model name and quote are fixed for this issued turn. Every other
+    // host and tool policy field remains subject to the live authority checks.
+    fn issued_model(&self, stored: &Value) -> Result<super::super::PersonalTextPolicy, Error> {
+        let name = stored
+            .pointer("/model/model")
+            .and_then(Value::as_str)
+            .ok_or(Error::Forbidden)?;
+        let mut policy = self.clone();
+        policy.model.model = name.to_owned();
+        policy.model.validate()?;
+        if serde_json::to_value(&policy).map_err(|_| Error::Unavailable)? != *stored {
+            return Err(Error::Forbidden);
+        }
+        Ok(policy.model)
+    }
+
     fn validate(&self, registry: &AgentRegistry) -> Result<(), Error> {
         self.model.validate()?;
         if !(1..=32).contains(&self.max_rounds)
@@ -115,6 +131,33 @@ pub(crate) struct AgentService {
 #[cfg(test)]
 mod reviewed_usage_policy_tests {
     use super::*;
+
+    #[test]
+    fn issued_agent_model_keeps_every_other_host_and_tool_restriction() {
+        let host: AgentPolicy = serde_json::from_value(json!({
+            "model":{"model":"default","group":"internal","budget_credits":100,"max_output_tokens":32,"ttl_seconds":60},
+            "budget_credits":200,"max_rounds":2,"max_tool_calls":2,"ttl_seconds":60,"allowed_tools":["get_account_access"],
+            "initial_tools":["get_account_access"],"system_prompt":"Use authorized facts.","market":null
+        })).unwrap();
+        let mut issued = serde_json::to_value(&host).unwrap();
+        issued["model"]["model"] = json!("selected");
+        assert_eq!(host.issued_model(&issued).unwrap().model, "selected");
+        for (path, value) in [
+            ("/model/group", json!("another")),
+            ("/model/budget_credits", json!(101)),
+            ("/model/max_output_tokens", json!(128)),
+            ("/allowed_tools", json!(["unreviewed"])),
+            ("/system_prompt", json!("changed")),
+            ("/budget_credits", json!(201)),
+        ] {
+            let mut changed = issued.clone();
+            *changed.pointer_mut(path).unwrap() = value;
+            assert!(
+                matches!(host.issued_model(&changed), Err(Error::Forbidden)),
+                "{path}"
+            );
+        }
+    }
 
     #[test]
     fn reviewed_usage_tools_preserve_the_closed_core_authority() {
@@ -406,7 +449,7 @@ impl AgentService {
         c: &mut PgConnection,
         session: &str,
         t: &PgRow,
-    ) -> Result<(), Error> {
+    ) -> Result<super::super::PersonalTextPolicy, Error> {
         let principal = actor(c, session).await?;
         let current: i64 = sqlx::query_scalar(
             "SELECT auth_version FROM core_identity.users WHERE id=$1 FOR SHARE",
@@ -420,8 +463,6 @@ impl AgentService {
             || t.try_get::<i64, _>("auth_version")? != current
             || t.try_get::<i64, _>("expires_at")? <= at(c).await?
             || t.try_get::<Vec<u8>, _>("registry_sha256")? != self.registry.digest()
-            || t.try_get::<Value, _>("host_policy")?
-                != serde_json::to_value(&*self.policy).map_err(|_| Error::Unavailable)?
         {
             return Err(Error::Forbidden);
         }
@@ -430,7 +471,7 @@ impl AgentService {
         if revoked {
             return Err(Error::Forbidden);
         }
-        Ok(())
+        self.policy.issued_model(&t.try_get("host_policy")?)
     }
     pub(crate) async fn output_subject(
         &self,
@@ -554,6 +595,7 @@ impl AgentService {
         {
             return Err(Error::Invalid);
         }
+        let selection = self.base.selected_policy().await;
         let mut tx = self.base.begin().await?;
         let principal = actor(&mut tx, session).await?;
         self.base
@@ -582,9 +624,11 @@ impl AgentService {
                 .map_err(super::context_error)?;
             let turn_id = random("");
             let now = at(&mut tx).await?;
-            let price = self.base.configured_price()?;
+            let mut policy = (*self.policy).clone();
+            policy.model = selection?;
+            let price = self.base.configured_price(&policy.model)?;
             sqlx::query("INSERT INTO core_assistant.agent_turns(id,conversation_id,client_turn_id,session_id,source_web_session_sid,auth_version,owner_user_id,owner_account_id,original_text,text_sha256,registry_sha256,host_policy,max_rounds,budget_credits,expires_at,phase,price,loaded_tools) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'new',$16,$17)")
-                .bind(&turn_id).bind(conversation_id).bind(client_turn_id).bind(principal.credential_id).bind(facts.browser_session).bind(facts.auth_version).bind(principal.user_id).bind(principal.owner_account_id).bind(text).bind(&text_sha256).bind(self.registry.digest().to_vec()).bind(serde_json::to_value(&*self.policy).map_err(|_|Error::Unavailable)?).bind(self.policy.max_rounds as i32).bind(self.policy.budget_credits).bind(now+self.policy.ttl_seconds).bind(serde_json::to_value(price).map_err(|_|Error::Unavailable)?).bind(serde_json::to_value(&self.policy.initial_tools).map_err(|_|Error::Unavailable)?).execute(&mut *tx).await?;
+                .bind(&turn_id).bind(conversation_id).bind(client_turn_id).bind(principal.credential_id).bind(facts.browser_session).bind(facts.auth_version).bind(principal.user_id).bind(principal.owner_account_id).bind(text).bind(&text_sha256).bind(self.registry.digest().to_vec()).bind(serde_json::to_value(&policy).map_err(|_|Error::Unavailable)?).bind(self.policy.max_rounds as i32).bind(self.policy.budget_credits).bind(now+self.policy.ttl_seconds).bind(serde_json::to_value(price).map_err(|_|Error::Unavailable)?).bind(serde_json::to_value(&self.policy.initial_tools).map_err(|_|Error::Unavailable)?).execute(&mut *tx).await?;
             turn_id
         };
         let result = self.snapshot(&mut tx, &turn_id).await?;

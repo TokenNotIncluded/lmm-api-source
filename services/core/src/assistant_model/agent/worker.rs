@@ -139,6 +139,7 @@ impl AgentService {
         session: &str,
         turn_id: &str,
     ) -> Result<Option<RoundWork>, Error> {
+        let selection = self.base.selected_policy().await;
         let mut tx = self.base.begin().await?;
         let principal = actor(&mut tx, session).await?;
         let conversation: String = sqlx::query_scalar(
@@ -155,7 +156,7 @@ impl AgentService {
             .bind(turn_id)
             .fetch_one(&mut *tx)
             .await?;
-        self.check_live_turn(&mut tx, session, &turn).await?;
+        let issued = self.check_live_turn(&mut tx, session, &turn).await?;
         let phase: String = turn.try_get("phase")?;
         if !matches!(phase.as_str(), "new" | "tools_pending") {
             return Ok(None);
@@ -163,6 +164,10 @@ impl AgentService {
         let pending:bool=sqlx::query_scalar("SELECT EXISTS(SELECT FROM core_assistant.agent_tool_operations WHERE turn_id=$1 AND state IN ('pending','claimed','unknown'))").bind(turn_id).fetch_one(&mut *tx).await?;
         if pending {
             return Ok(None);
+        }
+        // A settings change may stop a further debit, never an already claimed round.
+        if issued != selection? {
+            return Err(Error::Forbidden);
         }
         let next: i64 =
             sqlx::query_scalar("SELECT count(*) FROM core_assistant.agent_rounds WHERE turn_id=$1")
@@ -189,9 +194,9 @@ impl AgentService {
             .base
             .gateway
             .prepare_agent(
-                &self.policy.model.model,
-                &self.policy.model.group,
-                self.policy.model.max_output_tokens,
+                &issued.model,
+                &issued.group,
+                issued.max_output_tokens,
                 Value::Array(messages),
                 &definitions,
                 self.policy.allowed_tools.clone(),
@@ -215,13 +220,13 @@ impl AgentService {
         let now = at(&mut tx).await?;
         let expires_at = turn
             .try_get::<i64, _>("expires_at")?
-            .min(now + self.policy.model.ttl_seconds);
+            .min(now + issued.ttl_seconds);
         let request_id = random("");
         let round_id = random("");
         let grant_id = random("lmm_ad_");
         let round_turn_id = format!("agent-{}-{next}", turn_id);
         sqlx::query("INSERT INTO core_assistant.grants(id,conversation_id,turn_id,session_id,auth_version,price,policy,issued_at,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)")
-            .bind(&grant_id).bind(&conversation).bind(round_turn_id).bind(principal.credential_id).bind(turn.try_get::<i64,_>("auth_version")?).bind(turn.try_get::<Value,_>("price")?).bind(serde_json::to_value(&self.policy.model).map_err(|_|Error::Unavailable)?).bind(now).bind(expires_at).execute(&mut *tx).await?;
+            .bind(&grant_id).bind(&conversation).bind(round_turn_id).bind(principal.credential_id).bind(turn.try_get::<i64,_>("auth_version")?).bind(turn.try_get::<Value,_>("price")?).bind(serde_json::to_value(&issued).map_err(|_|Error::Unavailable)?).bind(now).bind(expires_at).execute(&mut *tx).await?;
         let mut worker = [0u8; 32];
         rand::rand_core::UnwrapErr(rand::rngs::SysRng).fill_bytes(&mut worker);
         let request = charging::Request {
@@ -238,7 +243,7 @@ impl AgentService {
             .await?;
         let text: String = turn.try_get("original_text")?;
         sqlx::query("INSERT INTO core_assistant.operations(grant_id,request_id,text_sha256,operation_key,text) VALUES($1,$2,$3,$4,$5)").bind(&grant_id).bind(&request_id).bind(turn.try_get::<Vec<u8>,_>("text_sha256")?).bind(format!("agent-{next}" )).bind(text).execute(&mut *tx).await?;
-        if self.policy.model.gift_tools {
+        if issued.gift_tools {
             crate::gift::record_user_turn_in_transaction(&mut tx, principal.user_id, &request_id)
                 .await
                 .map_err(|_| Error::Unavailable)?;
