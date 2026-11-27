@@ -150,11 +150,27 @@ jobs:
       - name: Prepare private acquisition PostgreSQL fixtures
         if: ${{ !cancelled() }}
         run: python3 -B scripts/prepare-acquisition-ci.py
+      - name: Select Cargo integration targets
+        if: ${{ !cancelled() && startsWith(matrix.targets, 'integration-') }}
+        working-directory: services/core
+        run: |
+          shard=$(("${RUST_TARGET_GROUP#integration-}" - 1))
+          cargo metadata --locked --no-deps --format-version 1 |
+            jq -er --argjson shard "$shard" '
+              [.packages[] | select(.name == "lmm-core") | .targets[]
+               | select(.kind | index("test")) | .name]
+              | sort | to_entries[] | select(.key % 4 == $shard)
+              | "--test", .value' > "$RUNNER_TEMP/core-integration-targets"
       - name: Compile Rust tests and preserve the commerce driver
         id: rust_test_compile
         if: ${{ !cancelled() }}
         working-directory: services/core
         run: |
+          if [[ "$RUST_TARGET_GROUP" == integration-[1-4] ]]; then
+            mapfile -t targets < "$RUNNER_TEMP/core-integration-targets"
+            cargo test --locked --no-run "${targets[@]}"
+            exit 0
+          fi
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked --all-targets --no-run --message-format=json > "$RUNNER_TEMP/core-test-artifacts.jsonl"
           if [[ "$RUST_TARGET_GROUP" != all && "$RUST_TARGET_GROUP" != unit ]]; then exit 0; fi
@@ -265,17 +281,7 @@ jobs:
             schema-identity)
               run_tests --lib -- core_schema:: identity:: --skip model_http:: ;;
             integration-[1-4])
-              shard=$(("${RUST_TARGET_GROUP#integration-}" - 1))
-              selected=$(cargo metadata --locked --no-deps --format-version 1 |
-                jq -er --argjson shard "$shard" '
-                  [.packages[] | select(.name == "lmm-core") | .targets[]
-                   | select(.kind | index("test")) | .name]
-                  | sort | to_entries[] | select(.key % 4 == $shard) | .value')
-              mapfile -t names <<<"$selected"
-              targets=()
-              for target in "${names[@]}"; do
-                targets+=(--test "$target")
-              done
+              mapfile -t targets < "$RUNNER_TEMP/core-integration-targets"
               run_tests "${targets[@]}" -- ;;
             *) echo "Unknown Rust target group: $RUST_TARGET_GROUP" >&2; exit 1 ;;
           esac 2>&1 | tee "$RUNNER_TEMP/core-tests.log"

@@ -505,6 +505,11 @@ test('automatic Core checks partition every Rust target across independent runne
   assert.doesNotMatch(source, /continue-on-error:/);
   const executor = source.match(/run_tests\(\) \{[\s\S]*?case "\$RUST_TARGET_GROUP" in[\s\S]*?\besac\b/)?.[0];
   assert.ok(executor);
+  const selector = source.match(
+    /      - name: Select Cargo integration targets\n[\s\S]*?        run: \|\n([\s\S]*?)(?=      - name:)/
+  )?.[1];
+  assert.ok(selector);
+  assert.match(source, /mapfile -t targets < "\$RUNNER_TEMP\/core-integration-targets"\n\s+cargo test --locked --no-run "\$\{targets\[@\]\}"/);
   const metadata = {packages: [
     {name: 'lmm-core', targets: [
       ...['delta', 'alpha', 'gamma', 'beta', 'epsilon'].map(name => ({kind: ['test'], name})),
@@ -515,11 +520,20 @@ test('automatic Core checks partition every Rust target across independent runne
   ]};
   const stub = 'cargo() { if [[ $1 == metadata ]]; then printf "%s\\n" "$METADATA"; else printf "%s\\n" "$*"; fi; }\n';
   function calls(group, targets = metadata) {
-    return execFileSync('bash', ['-euo', 'pipefail', '-c', stub + executor], {
-      env: { ...process.env, RUST_TARGET_GROUP: group, METADATA: JSON.stringify(targets) },
-      stdio: ['ignore', 'pipe', 'pipe'],
-      encoding: 'utf8',
-    }).trim().split('\n').map(line => line.split(' --skip synthetic_live_proof')[0]);
+    const temp = mkdtempSync(join(tmpdir(), 'lmm-ci-target-test-'));
+    try {
+      const select = group.startsWith('integration-') ? selector : '';
+      return execFileSync('bash', ['-euo', 'pipefail', '-c', stub + select + executor], {
+        env: {
+          ...process.env, RUST_TARGET_GROUP: group, RUNNER_TEMP: temp,
+          METADATA: JSON.stringify(targets),
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+        encoding: 'utf8',
+      }).trim().split('\n').map(line => line.split(' --skip synthetic_live_proof')[0]);
+    } finally {
+      rmSync(temp, { recursive: true });
+    }
   }
   const runner = 'test --locked --no-fail-fast ';
   assert.deepEqual(calls('all'), [runner + '--all-targets --']);
