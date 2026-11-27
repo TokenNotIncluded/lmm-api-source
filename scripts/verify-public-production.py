@@ -2,6 +2,7 @@
 """Read-only acceptance for the public origin; never confirms a native transaction."""
 import argparse
 from dataclasses import dataclass, field
+from hashlib import sha256
 from html import unescape
 from html.parser import HTMLParser
 import json
@@ -13,7 +14,8 @@ import urllib.request
 
 ORIGIN = "https://api.lmm.best"
 MAX_BODY = 8 * 1024 * 1024
-APP_PAGES = ("/", "/sign-in", "/console")
+SIGN_IN_PATH = "/sign-in"
+APP_PAGES = ("/", SIGN_IN_PATH, "/console")
 LEGAL_LOCALES = {"en": "", "zh-CN": "/legal/current/zh-CN", "zh-TW": "/legal/current/zh-TW"}
 LEGAL_DOCUMENTS = ("user-agreement", "privacy-policy", "refund-policy")
 LEGAL_CONTACT_DOMAIN = "lmm.best"
@@ -99,7 +101,9 @@ def verify_legal_documents(fetch, check_api):
     return len(LEGAL_LOCALES) * len(LEGAL_DOCUMENTS)
 
 
-def verify(fetch, expected_version=None, *, check_legal_api=False):
+def verify(fetch, expected_version=None, *, check_legal_api=False, expected_web_sha256=None):
+    if expected_web_sha256 is not None and not re.fullmatch(r"[0-9a-f]{64}", expected_web_sha256):
+        raise ValueError("expected Web SHA-256 must be 64 lowercase hexadecimal digits")
     readiness = fetch(ORIGIN + "/health/ready")
     if readiness.status != 200 or "json" not in readiness.content_type:
         raise ValueError("readiness endpoint did not return HTTP 200 JSON")
@@ -129,10 +133,15 @@ def verify(fetch, expected_version=None, *, check_legal_api=False):
     if not request_id or not re.fullmatch(r"[A-Za-z0-9._:-]{1,256}", request_id):
         raise ValueError("public status response has no usable request ID")
     assets = set()
+    web_sha256 = None
     for path in APP_PAGES:
         response = fetch(ORIGIN + path)
         if response.status != 200 or "text/html" not in response.content_type:
             raise ValueError(f"public page {path} is not HTTP 200 HTML")
+        if path == SIGN_IN_PATH:
+            web_sha256 = sha256(response.body).hexdigest()
+            if expected_web_sha256 is not None and web_sha256 != expected_web_sha256:
+                raise ValueError("public sign-in HTML does not match the selected Web artifact")
         parser = Assets()
         parser.feed(response.body.decode("utf-8"))
         local = set()
@@ -162,12 +171,13 @@ def verify(fetch, expected_version=None, *, check_legal_api=False):
     legal_documents = verify_legal_documents(fetch, check_legal_api)
     return {"origin": ORIGIN, "backend_version": data["version"], "pages": len(APP_PAGES),
             "assets": len(assets), "asset_bytes": total, "legal_documents": legal_documents,
-            "legal_api_checked": check_legal_api}
+            "legal_api_checked": check_legal_api, "sign_in_sha256": web_sha256}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--expected-backend-version")
+    parser.add_argument("--expected-web-sha256", help="require the deployed manifest digest for sign-in HTML")
     parser.add_argument("--legal-api", action="store_true", help="also require the localized legal JSON endpoints")
     args = parser.parse_args()
     opener = urllib.request.build_opener(SameOriginRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context()))
@@ -185,7 +195,11 @@ def main():
             return Response(response.status, response.headers.get("Content-Type", ""), body,
                             dict(response.headers.items()))
 
-    print(json.dumps(verify(fetch, args.expected_backend_version, check_legal_api=args.legal_api), sort_keys=True))
+    print(json.dumps(
+        verify(fetch, args.expected_backend_version, check_legal_api=args.legal_api,
+               expected_web_sha256=args.expected_web_sha256),
+        sort_keys=True,
+    ))
 
 
 if __name__ == "__main__":

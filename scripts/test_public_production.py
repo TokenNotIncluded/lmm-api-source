@@ -1,4 +1,5 @@
 """Offline regression coverage for read-only public release acceptance."""
+from hashlib import sha256
 import importlib.util
 import json
 from pathlib import Path
@@ -66,6 +67,14 @@ class AcceptanceTest(unittest.TestCase):
         self.responses["/user-agreement"] = self.responses["/"]
         with self.assertRaisesRegex(ValueError, "missing en legal document"):
             module.verify(self.fetch)
+
+    def test_public_sign_in_is_bound_to_the_selected_web_archive(self):
+        expected = sha256(self.responses["/sign-in"].body).hexdigest()
+        self.assertEqual(module.verify(self.fetch, expected_web_sha256=expected)["sign_in_sha256"], expected)
+        with self.assertRaisesRegex(ValueError, "does not match the selected Web artifact"):
+            module.verify(self.fetch, expected_web_sha256="0" * 64)
+        with self.assertRaisesRegex(ValueError, "64 lowercase hexadecimal"):
+            module.verify(self.fetch, expected_web_sha256="not-a-digest")
 
     def test_public_readiness_requires_a_ready_database(self):
         self.responses["/health/ready"] = module.Response(
