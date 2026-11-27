@@ -64,6 +64,7 @@ import {
   type NativePriceRule,
 } from './native-price-rules'
 import { NativeRouterPrices } from './native-router-prices'
+import { GroupPriceRows, NativeRulePrices } from './native-rule-prices'
 import { OfficialBatchPriceReview } from './official-batch-price-review'
 import { OfficialPriceEditor } from './official-price-editor'
 import {
@@ -538,6 +539,20 @@ function PricingWorkspace({
     })
   }
 
+  const publishedRules = new Map(
+    readPriceRules(configuration.prices).map((rule) => [
+      priceSelectorKey(rule),
+      rule,
+    ])
+  )
+  const rulePrices = (rule: NativePriceRule) => (
+    <NativeRulePrices
+      rule={rule}
+      current={publishedRules.get(priceSelectorKey(rule))}
+      configuration={configuration}
+      cached={query.isError}
+    />
+  )
   const groupedMultipliers = new Map<string, Set<number>>()
   for (const rule of rules) {
     if (rule.speed !== 'standard') continue
@@ -552,7 +567,8 @@ function PricingWorkspace({
           <TableRow>
             <TableHead>{t('Group')}</TableHead>
             <TableHead>{t('Original group description')}</TableHead>
-            <TableHead>{t('Group price')}</TableHead>
+            <TableHead>{t('Group multiplier')}</TableHead>
+            <TableHead>{t('Model prices')}</TableHead>
             <TableHead className='text-right'>{t('Actions')}</TableHead>
           </TableRow>
         </TableHeader>
@@ -573,6 +589,12 @@ function PricingWorkspace({
                     : values?.size
                       ? t('Mixed price multipliers')
                       : t('Unset price')}
+                </TableCell>
+                <TableCell>
+                  <GroupPriceRows
+                    rules={rules.filter((rule) => rule.group === name)}
+                    render={rulePrices}
+                  />
                 </TableCell>
                 <TableCell className='text-right'>
                   <Button
@@ -787,11 +809,9 @@ function PricingWorkspace({
               <TableHead>
                 {t('Group')} / {t('Speed')}
               </TableHead>
-              <TableHead>{t('Input')}</TableHead>
-              <TableHead>{t('Output')}</TableHead>
-              <TableHead>{t('Cache read')}</TableHead>
-              <TableHead>{t('Cache write')}</TableHead>
-              <TableHead>{t('Request fee')}</TableHead>
+              <TableHead>
+                {t('Base rate')} → {t('Configured unit rate')}
+              </TableHead>
               <TableHead>{t('Multiplier')}</TableHead>
               <TableHead className='bg-background sticky right-0 z-10 w-24 text-right'>
                 {t('Actions')}
@@ -818,19 +838,7 @@ function PricingWorkspace({
                       : `${rule.speed} · ${t('Read only')}`}
                   </div>
                 </TableCell>
-                {(
-                  [
-                    'input',
-                    'output',
-                    'cache_read',
-                    'cache_write',
-                    'request',
-                  ] as const
-                ).map((key) => (
-                  <TableCell key={key} className='tabular-nums'>
-                    {priceRateText(rule, key) ?? '—'}
-                  </TableCell>
-                ))}
+                <TableCell>{rulePrices(rule)}</TableCell>
                 <TableCell className='tabular-nums'>
                   <div>
                     {microsToUsd(rule.group_multiplier_ppm)} ×{' '}
@@ -937,7 +945,7 @@ function PricingWorkspace({
         )}
         <p className='text-muted-foreground mt-3 text-xs leading-5'>
           {t(
-            'Token prices are USD per 1M tokens; request fees are USD per request. Tier prices follow the configured tier order. A dash means that dimension does not apply.'
+            'Unit rates include group and speed multipliers. Token rates are USD per million tokens. Request fees are USD per request. User discounts and ledger rounding apply at settlement.'
           )}
         </p>
       </div>

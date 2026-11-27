@@ -40,6 +40,27 @@ export function hasDecimalPriceRates(mode: unknown) {
   return mode === 'tiered_decimal' || mode === 'official_flat'
 }
 
+/** Published unit rates, before the request-specific discount and ledger rounding. */
+export function priceRatePair(
+  amount: unknown,
+  decimal: boolean,
+  groupPpm: unknown,
+  speedPpm: unknown
+) {
+  const n = decimal ? integer(record(amount)?.numerator) : integer(amount)
+  const d = decimal ? integer(record(amount)?.denominator) : 1_000_000n
+  if (n === null || d === null || d === 0n) return null
+  const group = integer(groupPpm)
+  const speed = integer(speedPpm)
+  return {
+    base: fraction(n, d),
+    final:
+      group === null || speed === null
+        ? null
+        : fraction(n * group * speed, d * 1_000_000_000_000n),
+  }
+}
+
 /** Configured USD / 1M token rates, or USD / request, including both ppm multipliers.
  * This is a catalog display, not a settlement calculation or a user quote.
  */
@@ -57,25 +78,22 @@ export function nativeConfiguredPrice(
     return null
   }
   if (!decimal && rule.tiered != null) return null
-  const group = integer(rule.group_multiplier_ppm)
-  const speed = integer(rule.speed_multiplier_ppm)
-  if (group === null || speed === null) return null
-  let numerator: bigint | null
-  let denominator: bigint | null
+  let amount: unknown
   if (decimal) {
     const tariff = record(rule.tiered)
     // A time-dependent tariff cannot be presented as one unconditional price.
     if (!tariff || tariff.calendar || !Array.isArray(tariff.tiers)) return null
     const tier = record(tariff.tiers[tierIndex])
-    const rate = record(record(tier?.rates)?.[dimension])
-    numerator = integer(rate?.numerator)
-    denominator = integer(rate?.denominator)
+    amount = record(tier?.rates)?.[dimension]
   } else {
-    numerator = integer(record(rule.rates)?.[dimension])
-    denominator = 1_000_000n
+    amount = record(rule.rates)?.[dimension]
   }
-  if (numerator === null || denominator === null || denominator === 0n) {
-    return null
-  }
-  return fraction(numerator * group * speed, denominator * 1_000_000_000_000n)
+  return (
+    priceRatePair(
+      amount,
+      decimal,
+      rule.group_multiplier_ppm,
+      rule.speed_multiplier_ppm
+    )?.final ?? null
+  )
 }
