@@ -26,6 +26,8 @@ pub struct ChannelOverrides {
 #[serde(deny_unknown_fields)]
 pub struct GlobalModelPolicy {
     pub pass_through_request_enabled: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub honor_request_service_tier: bool,
     pub thinking_model_blacklist: Vec<String>,
     pub chat_completions_to_responses_policy: ChatResponsesPolicy,
     pub ping_interval_enabled: bool,
@@ -115,4 +117,36 @@ pub(super) fn validate_channel_overrides(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GlobalModelPolicy;
+    use serde_json::{from_value, json, to_value};
+
+    #[test]
+    fn service_tier_opt_in_preserves_the_previous_policy_wire_format() {
+        let previous = json!({
+            "pass_through_request_enabled": false,
+            "thinking_model_blacklist": [],
+            "chat_completions_to_responses_policy": {
+                "enabled": false, "all_channels": false,
+                "channel_ids": [], "model_patterns": [], "overrides": {}
+            },
+            "ping_interval_enabled": false,
+            "ping_interval_seconds": 60
+        });
+        let policy: GlobalModelPolicy = from_value(previous.clone()).unwrap();
+        assert!(!policy.honor_request_service_tier);
+        assert_eq!(to_value(policy).unwrap(), previous);
+
+        for enabled in [true, false] {
+            let mut document = previous.clone();
+            document["honor_request_service_tier"] = json!(enabled);
+            let policy: GlobalModelPolicy = from_value(document.clone()).unwrap();
+            assert_eq!(policy.honor_request_service_tier, enabled);
+            let expected = if enabled { document } else { previous.clone() };
+            assert_eq!(to_value(policy).unwrap(), expected);
+        }
+    }
 }

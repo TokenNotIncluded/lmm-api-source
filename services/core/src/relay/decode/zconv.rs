@@ -360,12 +360,20 @@ impl Decoder {
         value: &Value,
         out: &mut Vec<Event>,
     ) -> Result<(), RelayError> {
-        let usage_path =
-            if self.protocol == UpstreamProtocol::Responses && value.get("response").is_some() {
-                "/response/usage"
-            } else {
-                "/usage"
-            };
+        let usage_path = if self.protocol == UpstreamProtocol::Responses
+            && value.get("response").is_some()
+        {
+            "/response/usage"
+        } else if self.protocol == UpstreamProtocol::Anthropic && value.get("message").is_some() {
+            "/message/usage"
+        } else {
+            "/usage"
+        };
+        let admitted_anthropic_grade = self.protocol == UpstreamProtocol::Anthropic
+            && self.expected_speed.is_some()
+            && value.pointer(usage_path).is_some_and(|usage| {
+                usage.get("service_tier").is_some() || usage.get("speed").is_some()
+            });
         let legacy_receipt = self.legacy_openrouter_usage && value.get("usage").is_some();
         let cost_details = matches!(
             self.protocol,
@@ -374,30 +382,41 @@ impl Decoder {
             .pointer(usage_path)
             .is_some_and(|usage| usage.get("cost_details").is_some());
         let project_openrouter = self.openrouter_stream && value.is_object();
-        let payload = if legacy_receipt || cost_details || project_openrouter {
-            let mut content = value.clone();
-            if project_openrouter {
-                self.project_openrouter_stream(&mut content)?;
-            }
-            if legacy_receipt {
-                // This owner-selected billing DTO is Core business evidence, not a
-                // second content parser or a fallback after library conversion.
-                content.as_object_mut().unwrap().remove("usage");
-            } else if cost_details {
-                // Only usage.cost is the account charge. Supplemental cost_details
-                // must not block content conversion or become a billing fallback.
-                // receipt() below still reads the untouched authoritative value.
-                content
-                    .pointer_mut(usage_path)
-                    .and_then(Value::as_object_mut)
-                    .unwrap()
-                    .remove("cost_details");
-            }
-            serde_json::to_vec(&content)
-                .map_err(|_| RelayError::Protocol("invalid upstream receipt"))?
-        } else {
-            frame.data.as_bytes().to_vec()
-        };
+        let payload =
+            if legacy_receipt || cost_details || project_openrouter || admitted_anthropic_grade {
+                let mut content = value.clone();
+                if admitted_anthropic_grade {
+                    // admit() checked this attempt's speed and capacity. The authoritative
+                    // usage below still comes from the untouched provider receipt.
+                    let usage = content
+                        .pointer_mut(usage_path)
+                        .and_then(Value::as_object_mut)
+                        .unwrap();
+                    usage.remove("speed");
+                    usage.remove("service_tier");
+                }
+                if project_openrouter {
+                    self.project_openrouter_stream(&mut content)?;
+                }
+                if legacy_receipt {
+                    // This owner-selected billing DTO is Core business evidence, not a
+                    // second content parser or a fallback after library conversion.
+                    content.as_object_mut().unwrap().remove("usage");
+                } else if cost_details {
+                    // Only usage.cost is the account charge. Supplemental cost_details
+                    // must not block content conversion or become a billing fallback.
+                    // receipt() below still reads the untouched authoritative value.
+                    content
+                        .pointer_mut(usage_path)
+                        .and_then(Value::as_object_mut)
+                        .unwrap()
+                        .remove("cost_details");
+                }
+                serde_json::to_vec(&content)
+                    .map_err(|_| RelayError::Protocol("invalid upstream receipt"))?
+            } else {
+                frame.data.as_bytes().to_vec()
+            };
         let capacity = count(value).saturating_add(1);
         let mut tokens = vec![zconv::json::Token::EMPTY; capacity];
         let mut events =

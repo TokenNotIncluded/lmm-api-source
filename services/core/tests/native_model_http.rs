@@ -164,10 +164,29 @@ async fn server(protocol: Protocol, missing_usage: bool) -> Server {
     }
 }
 fn gateway(pool: &PgPool, server: &Server, protocol: Protocol, key_id: i64) -> ModelGateway {
-    let prices=PriceSnapshot::compile(serde_json::from_value(json!({"version":1,"rules":[{"id":1,"model":"native-model","group":"allowed","speed":"standard","rates":{"input":2000000,"output":4000000,"cache_read":500000,"cache_write":0,"request":0},"group_multiplier_ppm":1000000,"speed_multiplier_ppm":1000000}]})).unwrap()).unwrap();
+    gateway_with_priority(pool, server, protocol, key_id, false)
+}
+
+fn gateway_with_priority(pool: &PgPool, server: &Server, protocol: Protocol, key_id: i64, priority: bool) -> ModelGateway {
+    let mut pricing: PriceConfig = serde_json::from_value(json!({"version":1,"rules":[{"id":1,"model":"native-model","group":"allowed","speed":"standard","rates":{"input":2000000,"output":4000000,"cache_read":500000,"cache_write":0,"request":0},"group_multiplier_ppm":1000000,"speed_multiplier_ppm":1000000}]})).unwrap();
+    let mut speeds = vec![Speed::Standard];
+    let policy = priority.then(|| {
+        let mut fast = pricing.rules[0].clone();
+        fast.id = 2;
+        fast.speed = Speed::Fast;
+        fast.speed_multiplier_ppm = 2_000_000;
+        pricing.rules.push(fast);
+        speeds.push(Speed::Fast);
+        serde_json::from_value(json!({
+            "honor_request_service_tier":true,"pass_through_request_enabled":true,
+            "thinking_model_blacklist":[],"chat_completions_to_responses_policy":{},
+            "ping_interval_enabled":false,"ping_interval_seconds":30
+        })).unwrap()
+    });
+    let prices = PriceSnapshot::compile(pricing).unwrap();
     let routes = RoutingConfig {
         channel_overrides: Default::default(),
-        global_model_policy: None,
+        global_model_policy: policy,
         channel_affinity: None,
         routing_reliability: None,
         version: 1,
@@ -187,7 +206,7 @@ fn gateway(pool: &PgPool, server: &Server, protocol: Protocol, key_id: i64) -> M
             model: "native-model".into(),
             group: "allowed".into(),
             enabled: true,
-            speeds: vec![Speed::Standard],
+            speeds: speeds.clone(),
             targets: vec![RouteTarget {
                 id: 1,
                 upstream_id: 1,
@@ -195,7 +214,7 @@ fn gateway(pool: &PgPool, server: &Server, protocol: Protocol, key_id: i64) -> M
                 enabled: true,
                 priority: 0,
                 weight: 1,
-                speeds: vec![Speed::Standard],
+                speeds,
                 client_protocols: None,
                 payload: PayloadPolicy::Adapt,
                 timeout_ms: 5000,
@@ -389,6 +408,15 @@ async fn native_missing_usage_holds_funds_and_ambiguous_credentials_never_dispat
 /// HTTP. Only supplier responses are synthetic; identity and funds use PostgreSQL.
 #[sqlx::test(migrations = false)]
 async fn dashboard_key_four_protocol_http_lifecycle_and_settlement(pool: PgPool) {
+    four_protocol_lifecycle(pool, false).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn official_scalar_four_protocol_http_lifecycle_and_settlement(pool: PgPool) {
+    four_protocol_lifecycle(pool, true).await;
+}
+
+async fn four_protocol_lifecycle(pool: PgPool, publish_official: bool) {
     let (identity, ledger, session, _, _, account) = fixture(&pool, 1000).await;
     sqlx::query("INSERT INTO core_identity.user_routing_groups(user_id,group_name,enabled,source_reference) VALUES (7,'allowed',true,'synthetic:key-protocol-lifecycle')")
         .execute(&pool).await.unwrap();
@@ -401,84 +429,77 @@ async fn dashboard_key_four_protocol_http_lifecycle_and_settlement(pool: PgPool)
     ] {
         suppliers.push((protocol, server(protocol, false).await));
     }
-    let prices = PriceSnapshot::compile(serde_json::from_value(json!({
+    let prices: PriceConfig = serde_json::from_value(json!({
         "version":1,"rules":[{"id":1,"model":"native-model","group":"allowed","speed":"standard",
             "rates":{"input":2000000,"output":4000000,"cache_read":500000,"cache_write":0,"request":0},
             "group_multiplier_ppm":1000000,"speed_multiplier_ppm":1000000}]
-    })).unwrap()).unwrap();
-    let routing = Arc::new(
-        lmm_core::routing::Router::new(
-            RoutingConfig {
-                channel_overrides: Default::default(),
-                global_model_policy: None,
-                channel_affinity: None,
-                routing_reliability: None,
-                version: 1,
-                groups: vec![ModelGroup {
-                    name: "allowed".into(),
-                    enabled: true,
-                }],
-                upstreams: suppliers
-                    .iter()
-                    .enumerate()
-                    .map(|(index, (protocol, supplier))| UpstreamConfig {
-                        id: (index + 1) as u64,
-                        endpoint: Endpoint::local_loopback(supplier.endpoint.clone()).unwrap(),
-                        protocol: *protocol,
-                        credential: CredentialRef { id: 7, revision: 1 },
-                        enabled: true,
-                    })
-                    .collect(),
-                routes: vec![ModelRoute {
-                    id: 1,
-                    model: "native-model".into(),
-                    group: "allowed".into(),
-                    enabled: true,
-                    speeds: vec![Speed::Standard],
-                    targets: suppliers
-                        .iter()
-                        .enumerate()
-                        .map(|(index, (protocol, _))| RouteTarget {
-                            id: (index + 1) as u64,
-                            upstream_id: (index + 1) as u64,
-                            upstream_model: "provider-model".into(),
-                            enabled: true,
-                            priority: 0,
-                            weight: 1,
-                            speeds: vec![Speed::Standard],
-                            client_protocols: Some(vec![*protocol]),
-                            payload: PayloadPolicy::Adapt,
-                            timeout_ms: 5000,
-                        })
-                        .collect(),
-                    failover: FailoverPolicy::default(),
-                }],
-                aliases: vec![],
-            },
-            Arc::new(prices),
-        )
-        .unwrap(),
-    );
-    let gateway = ModelGateway::new(
-        pool.clone(),
-        routing.clone(),
-        vec![UpstreamCredential {
-            reference: CredentialRef { id: 7, revision: 1 },
-            secret: "synthetic-upstream-key".into(),
+    })).unwrap();
+    let config = RoutingConfig {
+        channel_overrides: Default::default(),
+        global_model_policy: None,
+        channel_affinity: None,
+        routing_reliability: None,
+        version: 1,
+        groups: vec![ModelGroup {
+            name: "allowed".into(),
+            enabled: true,
         }],
-        BTreeMap::new(),
-        Limits {
-            total_timeout: Duration::from_secs(3),
-            hook_timeout: Duration::from_secs(2),
-            max_output_tokens: 20,
-            ..Default::default()
-        },
-        ChargePolicy {
-            input_token_ceiling: 100,
-            lease_seconds: 30,
-        },
-    )
-    .unwrap();
+        upstreams: suppliers
+            .iter()
+            .enumerate()
+            .map(|(index, (protocol, supplier))| UpstreamConfig {
+                id: (index + 1) as u64,
+                endpoint: Endpoint::local_loopback(supplier.endpoint.clone()).unwrap(),
+                protocol: *protocol,
+                credential: CredentialRef { id: 7, revision: 1 },
+                enabled: true,
+            })
+            .collect(),
+        routes: vec![ModelRoute {
+            id: 1,
+            model: "native-model".into(),
+            group: "allowed".into(),
+            enabled: true,
+            speeds: vec![Speed::Standard],
+            targets: suppliers
+                .iter()
+                .enumerate()
+                .map(|(index, (protocol, _))| RouteTarget {
+                    id: (index + 1) as u64,
+                    upstream_id: (index + 1) as u64,
+                    upstream_model: "provider-model".into(),
+                    enabled: true,
+                    priority: 0,
+                    weight: 1,
+                    speeds: vec![Speed::Standard],
+                    client_protocols: Some(vec![*protocol]),
+                    payload: PayloadPolicy::Adapt,
+                    timeout_ms: 5000,
+                })
+                .collect(),
+            failover: FailoverPolicy::default(),
+        }],
+        aliases: vec![],
+    };
+    let mut release = store::ReleaseDocument {
+        contract_version: CONTRACT_VERSION,
+        routing: config,
+        pricing: prices,
+    };
+    let mut publisher = None;
+    let mut frozen_tariffs = Vec::new();
+    if publish_official {
+        let admin = identity.bootstrap_user(8, 6).await.unwrap().secret;
+        let control = official_publication::Publisher::new(&pool, admin, &release).await;
+        release = control.publish(4_000_000).await;
+        official_publication::use_local_suppliers(&mut release, &suppliers);
+        let rule = &release.pricing.rules[0];
+        let price_version = format!("routing-{}-rule-{}", release.pricing.version, rule.id);
+        let digest = rule.tiered.as_ref().unwrap().source_digest.clone();
+        publisher = Some((control, price_version, digest));
+    }
+    let gateway = four_protocol_gateway(&pool, release, vec![]);
+    let routing = gateway.dashboard_routing();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
     let auth = LegacyAuthConfig::new(&origin, &[43; 32])
@@ -652,6 +673,17 @@ async fn dashboard_key_four_protocol_http_lifecycle_and_settlement(pool: PgPool)
             "SELECT state,key_id,settled,input_tokens,output_tokens FROM core_charging.requests WHERE id=$1"
         ).bind(&request_id).fetch_one(&pool).await.unwrap();
         assert_eq!(charge, ("settled".into(), key_id, 49, 10, 20));
+        if let Some((_, version, digest)) = &publisher {
+            let frozen = official_publication::frozen(&pool, &request_id).await;
+            assert_eq!(frozen["version"].as_str(), Some(version.as_str()));
+            assert_eq!(
+                frozen["tiered"]["tariff"]["source_digest"].as_str(),
+                Some(digest.as_str())
+            );
+            official_publication::check_frozen(&frozen, *protocol);
+            official_publication::check_attempt(&pool, &request_id, index + 1, *protocol).await;
+            frozen_tariffs.push((request_id.clone(), frozen));
+        }
         let hold:(i64,bool,bool)=sqlx::query_as(
             "SELECT captured,closed,capture_journal_id IS NOT NULL FROM core_charging.ledger_holds WHERE request_id=$1"
         ).bind(&request_id).fetch_one(&pool).await.unwrap();
@@ -663,6 +695,19 @@ async fn dashboard_key_four_protocol_http_lifecycle_and_settlement(pool: PgPool)
             "key_protocol_case protocol={protocol:?} request_id_unique=true settled_credits=49 reserved_credits=0"
         );
         cases.push((path, header, body));
+    }
+    if let Some((control, _, digest)) = &publisher {
+        assert_eq!(frozen_tariffs.len(), 4);
+        let repriced = control.publish(8_000_000).await;
+        let newer = serde_json::to_value(repriced.pricing).unwrap();
+        assert_eq!(newer["version"], 3);
+        assert_ne!(
+            newer["rules"][0]["tiered"]["source_digest"].as_str(),
+            Some(digest.as_str())
+        );
+        for (id, original) in &frozen_tariffs {
+            assert_eq!(official_publication::frozen(&pool, id).await, *original);
+        }
     }
     let before = client
         .get(format!("{origin}/api/token/{key_id}"))
@@ -745,3 +790,41 @@ async fn dashboard_key_four_protocol_http_lifecycle_and_settlement(pool: PgPool)
         "key_protocol_lifecycle protocols=4 requests=4 settled_credits=196 revoked_rejections=4 no_extra_dispatch_or_ledger_entries=true"
     );
 }
+
+fn four_protocol_gateway(
+    pool: &PgPool,
+    release: store::ReleaseDocument,
+    contexts: Vec<lmm_core::model_http::ExternalModelContext>,
+) -> ModelGateway {
+    let router = lmm_core::routing::Router::new(
+        release.routing,
+        Arc::new(PriceSnapshot::compile(release.pricing).unwrap()),
+    )
+    .unwrap();
+    ModelGateway::new_with_provider_policy(
+        pool.clone(),
+        Arc::new(router),
+        vec![UpstreamCredential {
+            reference: CredentialRef { id: 7, revision: 1 },
+            secret: "synthetic-upstream-key".into(),
+        }],
+        BTreeMap::new(),
+        Limits {
+            total_timeout: Duration::from_secs(3),
+            hook_timeout: Duration::from_secs(2),
+            max_output_tokens: 20,
+            ..Default::default()
+        },
+        ChargePolicy {
+            input_token_ceiling: 100,
+            lease_seconds: 30,
+        },
+        lmm_core::model_http::ProviderPolicy::new(contexts, 100).unwrap(),
+    )
+    .unwrap()
+}
+
+#[path = "native_model_http/gemini_tier_controls.rs"]
+mod gemini_tier_controls;
+#[path = "native_model_http/official_publication.rs"]
+mod official_publication;

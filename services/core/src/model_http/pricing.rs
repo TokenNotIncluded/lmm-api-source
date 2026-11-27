@@ -150,13 +150,6 @@ impl PricingSurface {
                 .quote_at(&route.model, &route.group, Speed::Standard, as_of)
                 .map_err(|_| PricingError::Unavailable)?
                 .ok_or(PricingError::Unavailable)?;
-            let token_price_ok = super::routing::credit_price_with_calendar(
-                quote,
-                &route.model,
-                &route.group,
-                calendar.as_ref(),
-            )
-            .is_ok();
             let mut apis = BTreeSet::new();
             let mut upstream_budget_contract_required = false;
             for target in route
@@ -166,6 +159,9 @@ impl PricingSurface {
             {
                 let Some(upstream) = upstreams.get(&target.upstream_id).filter(|u| u.enabled)
                 else {
+                    continue;
+                };
+                let Ok(quote) = quote.for_target(upstream.protocol, target.payload) else {
                     continue;
                 };
                 let raw_model = target.raw_http_model(
@@ -263,7 +259,14 @@ impl PricingSurface {
                     {
                         continue;
                     }
-                } else if !token_price_ok {
+                } else if super::routing::credit_price_with_calendar(
+                    quote,
+                    &route.model,
+                    &route.group,
+                    calendar.as_ref(),
+                )
+                .is_err()
+                {
                     // Unsupported mixed request/token tariffs cannot invoke
                     // either the text relay or a native tool contract.
                     continue;
@@ -559,7 +562,7 @@ fn constant_token_rates(
     quote: PriceQuote,
     calendar: bool,
 ) -> Result<Option<ConstantTokenRates>, PricingError> {
-    let Some(compiled) = quote.tiered().filter(|_| !calendar) else {
+    let Some(compiled) = quote.tariff_template_for_display().filter(|_| !calendar) else {
         return Ok(None);
     };
     let tariff = compiled.tariff();
@@ -950,6 +953,7 @@ pub(crate) mod tests {
             document.routing.version += 1;
             document.routing.global_model_policy = Some(model_policy::GlobalModelPolicy {
                 pass_through_request_enabled: enabled,
+                honor_request_service_tier: false,
                 thinking_model_blacklist: vec![],
                 chat_completions_to_responses_policy: Default::default(),
                 ping_interval_enabled: false,
@@ -1351,6 +1355,8 @@ pub(crate) mod tests {
             .find(|r| r.model == "jev")
             .unwrap();
         rule.billing_mode = BillingMode::TieredDecimal;
+        rule.group_multiplier_ppm = 1_000_000;
+        rule.speed_multiplier_ppm = 1_000_000;
         rule.rates = TokenRates {
             input: 0,
             output: 0,
@@ -1404,8 +1410,18 @@ pub(crate) mod tests {
                 .unwrap();
             let jev = projection.models.iter().find(|m| m.model == "jev").unwrap();
             if accepted {
-                assert_eq!(jev.billing_status, "usage_dependent");
+                assert_eq!(jev.billing_status, "configured");
                 assert_eq!(jev.apis, ["system-one"]);
+                let fixed = jev
+                    .token_price
+                    .as_ref()
+                    .and_then(|price| price.constant_token_rates.as_ref())
+                    .expect("the single unconditional System One input price is known");
+                assert_eq!(fixed.input.numerator, "21");
+                assert_eq!(fixed.input.denominator, "500");
+                assert_eq!(fixed.output.numerator, "0");
+                assert!(fixed.cache_read.is_none());
+                assert!(fixed.cache_write.is_none());
             } else {
                 assert_eq!(jev.billing_status, "unavailable");
                 assert!(jev.apis.is_empty());

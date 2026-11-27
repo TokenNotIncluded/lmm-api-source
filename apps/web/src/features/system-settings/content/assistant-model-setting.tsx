@@ -13,6 +13,7 @@ import {
   type NativeUsersScope,
 } from '@/features/native-users/access'
 import { api } from '@/lib/api'
+import { ROLE } from '@/lib/roles'
 
 const pluginPath = '/api/assistant/settings/model-route'
 const projectionPath = '/api/option/assistant-model'
@@ -115,14 +116,17 @@ export function AssistantModelSetting({ scope }: { scope: NativeUsersScope }) {
     data &&
     (data.group !== data.effectiveGroup || data.model !== data.effectiveModel)
   )
+  const editDisabled =
+    scope.role !== ROLE.SUPER_ADMIN ||
+    state === 'saving' ||
+    conflict ||
+    read.isError
   const canSave = Boolean(
     data &&
+    !editDisabled &&
     ((draft && (selected !== current || group !== data.group)) || pending) &&
     options.includes(selected) &&
-    !conflict &&
     !read.isFetching &&
-    !read.isError &&
-    state !== 'saving' &&
     state !== 'failed'
   )
   async function save() {
@@ -209,13 +213,9 @@ export function AssistantModelSetting({ scope }: { scope: NativeUsersScope }) {
           <NativeSelect
             id='assistant-plugin-group'
             value={group}
-            disabled={
-              state === 'saving' ||
-              conflict ||
-              read.isError ||
-              groups.length === 0
-            }
+            disabled={editDisabled || groups.length === 0}
             onChange={(event) => {
+              if (editDisabled) return
               const next = event.target.value
               const choices = data.routes[next] ?? []
               const model = choices.includes(selected)
@@ -249,13 +249,9 @@ export function AssistantModelSetting({ scope }: { scope: NativeUsersScope }) {
           <NativeSelect
             id='assistant-host-model'
             value={selected}
-            disabled={
-              options.length === 0 ||
-              state === 'saving' ||
-              conflict ||
-              read.isError
-            }
+            disabled={editDisabled || options.length === 0}
             onChange={(event) => {
+              if (editDisabled) return
               const model = event.target.value
               setDraft(
                 model === current && group === data.group

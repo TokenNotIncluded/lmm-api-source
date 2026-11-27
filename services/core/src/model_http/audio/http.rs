@@ -6,7 +6,7 @@ use crate::{
         audio::{AudioUsageFormat, validate_chat_usage_retention, validate_unique_json},
         charging::{self, Outcome},
     },
-    routing::{PayloadPolicy, Protocol, ReplayPermission, RouteRequest},
+    routing::{PayloadPolicy, Protocol, ReplayPermission, RouteRequest, Speed},
 };
 use rand::Rng as _;
 use serde::Deserialize;
@@ -77,9 +77,14 @@ fn audio_signal(value: &Value) -> bool {
     }
 }
 pub(crate) fn handles(gateway: &ModelGateway, raw: &[u8]) -> bool {
-    let Ok(value) = serde_json::from_slice::<Value>(raw) else {
+    let Ok(Value::Object(mut fields)) = serde_json::from_slice::<Value>(raw) else {
         return false;
     };
+    // An ignored tier can contain arbitrary JSON, including an apparent audio modality.
+    for name in ["service_tier", "serviceTier", "speed"] {
+        fields.remove(name);
+    }
+    let value = Value::Object(fields);
     if audio_signal(&value) {
         return true;
     }
@@ -116,7 +121,18 @@ struct ChatRequest {
     stream_options: Option<StreamOptions>,
     n: Option<u32>,
     temperature: Option<serde_json::Number>,
+    #[serde(default, deserialize_with = "present_tier")]
+    service_tier: Option<Value>,
+    #[serde(default, rename = "serviceTier", deserialize_with = "present_tier")]
+    camel_tier: Option<Value>,
+    #[serde(default, deserialize_with = "present_tier")]
+    speed: Option<Value>,
 }
+
+fn present_tier<'de, D: serde::Deserializer<'de>>(input: D) -> Result<Option<Value>, D::Error> {
+    Value::deserialize(input).map(Some)
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StreamOptions {
@@ -234,6 +250,27 @@ impl ChatRequest {
         }
         Ok(request)
     }
+    fn check_service_tier(&self, honor: bool, route_speed: Speed) -> Result<(), RelayError> {
+        let requested = if honor {
+            relay::Request::requested_service_speed_fields(
+                ClientProtocol::Chat,
+                self.service_tier.as_ref(),
+                self.camel_tier.as_ref(),
+                self.speed.as_ref(),
+            )?
+        } else {
+            None
+        };
+        // AudioRule prices the same bounded audio tariff for this model and supplier.
+        if route_speed != Speed::Standard || requested.is_some_and(|speed| speed != Speed::Standard)
+        {
+            return Err(RelayError::Unsupported(
+                "accelerated audio tier is unavailable",
+            ));
+        }
+        Ok(())
+    }
+
     fn wire(&self, model: &str) -> std::result::Result<Vec<u8>, RelayError> {
         let mut value = json!({"model":model,"messages":self.messages,"max_completion_tokens":self.max_completion_tokens,"stream":self.stream == Some(true),"n":1});
         if self.stream == Some(true) {
@@ -338,6 +375,11 @@ async fn execute(
         }
     }
     let (group, mut plan) = selected.ok_or(RelayError::RouteUnavailable)?;
+    request.check_service_tier(
+        plan.global_policy()
+            .is_some_and(|policy| policy.config.honor_request_service_tier),
+        plan.speed(),
+    )?;
     let canonical = plan.canonical_model().to_owned();
     let attempt = Arc::new(plan.start().map_err(|_| RelayError::RouteUnavailable)?);
     if attempt.protocol() != Protocol::OpenAiChat

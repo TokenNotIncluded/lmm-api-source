@@ -260,6 +260,10 @@ async fn audio_http_pg_settles_four_counters_once_and_preserves_raw_receipt(pool
     runtime.optional("core_model").await;
     let supplier = Supplier::start(false).await;
     let gateway = gateway(&runtime.pool, &supplier);
+    assert!(!handles(
+        &gateway,
+        br#"{"model":"text-only","serviceTier":{"type":"input_audio"}}"#,
+    ));
     let reply = gateway
         .router()
         .oneshot(request(&f.key, "audio-success"))
@@ -379,6 +383,30 @@ fn audio_chat_preserves_multiturn_text_history_on_the_wire() {
     assert_eq!(wire["messages"], messages);
     assert_eq!(wire["model"], "supplier-model");
     assert_eq!(wire["max_completion_tokens"], 16);
+}
+
+#[test]
+fn audio_tier_fields_use_standard_audio_pricing_and_stay_off_wire() {
+    let base = json!({"model":"audio-public","messages":[{"role":"user","content":"hi"}],"max_completion_tokens":16});
+    for field in ["speed", "service_tier", "serviceTier"] {
+        let mut body = base.clone();
+        body[field] = json!({"type":"input_audio"});
+        let request = ChatRequest::parse(&serde_json::to_vec(&body).unwrap()).unwrap();
+        assert!(request.check_service_tier(false, Speed::Standard).is_ok());
+        assert!(request.check_service_tier(true, Speed::Standard).is_err());
+        let wire: Value = serde_json::from_slice(&request.wire("upstream").unwrap()).unwrap();
+        assert!(wire.get(field).is_none());
+    }
+    for speed in ["standard", "fast", "ultrafast"] {
+        let mut body = base.clone();
+        body["speed"] = json!(speed);
+        let request = ChatRequest::parse(&serde_json::to_vec(&body).unwrap()).unwrap();
+        assert_eq!(
+            request.check_service_tier(true, Speed::Standard).is_ok(),
+            speed == "standard",
+        );
+        assert!(request.check_service_tier(false, Speed::Fast).is_err());
+    }
 }
 
 #[test]

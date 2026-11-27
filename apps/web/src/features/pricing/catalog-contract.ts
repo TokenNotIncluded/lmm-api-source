@@ -366,6 +366,9 @@ export const nativeRuntimeSchema = z.object({
   ),
 })
 
+export type NativeConstantTokenRates = NonNullable<
+  z.infer<typeof nativeTokenPriceSchema>['constant_token_rates']
+>
 export type NativePricingDocument = z.infer<typeof nativePricingSchema>
 export type NativePricingContext = Pick<NativePricingDocument, 'rate_basis'>
 export type NativeImageVariant = z.infer<typeof nativeImageVariantSchema>

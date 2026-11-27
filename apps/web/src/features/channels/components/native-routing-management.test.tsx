@@ -4774,3 +4774,654 @@ test('fetching a channel catalog previews editable changes and only Save publish
   assert.equal(previews[0].metadata.display_name, 'catalog-last')
   assert.equal(writes.length, 1)
 })
+test('channel onboarding persists missing-price selections without routing them', async () => {
+  const config: NativeConfiguration = fixture()
+  config.bindings.discoveries['1'] = {
+    models: ['model-a'],
+    observed_at: 1,
+    pending_models: ['model-c'],
+  }
+  const originalPrices = structuredClone(config.prices)
+  const originalRoutes = structuredClone(config.routing.routes)
+  const writes: string[] = []
+  api.request = (async (options: {
+    url: string
+    method: string
+    data?: Record<string, unknown>
+  }) => {
+    const ok = (data: unknown) => ({ data: { success: true, data } })
+    if (options.method === 'GET' && options.url.endsWith('/configuration')) {
+      return ok(structuredClone(config))
+    }
+    assert.deepEqual(options.data?.expected_version, config.version)
+    writes.push(options.url)
+    if (options.url.endsWith('/models/synchronize')) {
+      assert.equal(options.method, 'POST')
+      config.bindings.discoveries[1].models = ['model-a', 'model-b']
+    } else {
+      assert.equal(
+        options.url,
+        '/core/v1/admin/routing/channels/1/models/pending'
+      )
+      assert.equal(options.method, 'PUT')
+      const models = options.data?.models
+      assert.ok(Array.isArray(models))
+      assert.deepEqual([...models].sort(), ['model-b', 'model-c'])
+      config.bindings.discoveries[1].pending_models = [...models]
+    }
+    config.version.routing++
+    config.routing.version++
+    return ok({ version: { ...config.version }, routes_published: false })
+  }) as typeof api.request
+  const page = await mount('channels', true, {
+    native_channel_observations: false,
+  })
+  const dialog = () =>
+    required(page.querySelector<HTMLElement>('[role="dialog"]'))
+  const box = (name: string) =>
+    page.querySelector<HTMLInputElement>(`input[aria-label="${name}"]`)
+  const click = (element: HTMLElement) =>
+    act(async () => {
+      element.click()
+    })
+  await until(() => page.textContent?.includes('Model onboarding') ?? false)
+  await click(button(page, 'Model onboarding'))
+  await until(() => box('model-c')?.checked === true)
+  assert.equal(box('model-a')?.disabled, true)
+  await click(button(dialog(), 'Sync models'))
+  await until(() => !!box('model-b') && !box('model-b')?.disabled)
+  assert.equal(box('model-b')?.checked, false)
+  assert.equal(box('model-c')?.checked, true)
+  await click(required(box('model-b')))
+  await click(button(dialog(), 'Save pending models'))
+  await until(() => writes.length === 2 && !button(dialog(), 'Close').disabled)
+  await click(button(dialog(), 'Close'))
+  await until(() => !page.querySelector('[role="dialog"]'))
+  await click(button(page, 'Model onboarding'))
+  await until(() => box('model-b')?.checked === true)
+  assert.equal(box('model-c')?.checked, true)
+  assert.match(dialog().textContent ?? '', /Pending pricing/)
+  assert.deepEqual(config.prices, originalPrices)
+  assert.deepEqual(config.routing.routes, originalRoutes)
+})
+test('pending route requires a reviewed digest and leaves unrelated prices and routes alone', () =>
+  checkPendingRoute('model-b'))
+
+test('a new public model name preserves the selected upstream target and its context', () =>
+  checkPendingRoute('public-model-b'))
+
+async function checkPendingRoute(publicModel: string) {
+  const config: NativeConfiguration = fixture()
+  const model = 'model-b'
+  config.bindings.discoveries[1] = {
+    models: [model],
+    observed_at: 1,
+    pending_models: [model],
+  }
+  config.bindings.contexts.push({
+    upstream_id: 1,
+    upstream_model: model,
+    protocol: 'openai_chat',
+    endpoint: config.routing.upstreams[0].endpoint,
+    max_input_tokens: 4096,
+    max_output_tokens: 1024,
+    contract_revision: 'test-v1',
+  })
+  config.bindings.official_prices = {
+    models: {
+      [publicModel]: {
+        source: 'fixture',
+        source_unit: 'USD/1M tokens',
+        rates: {
+          input: 100,
+          output: 200,
+          cache_read: 20,
+          cache_write: 125,
+          request: 0,
+        },
+      },
+    },
+    group_multipliers_ppm: { default: 1000000 },
+    speed_multipliers_ppm: { fast: 1600000, ultrafast: 2400000 },
+  }
+  const before = structuredClone(config.routing.routes)
+  const digest = 'a'.repeat(64)
+  const mutations: string[] = []
+  let preview: Record<string, unknown> | undefined
+  api.request = (async (opts: {
+    url: string
+    method: string
+    data?: Record<string, unknown>
+  }) => {
+    const ok = (data: unknown) => ({ data: { success: true, data } })
+    if (opts.method === 'GET' && opts.url.endsWith('/configuration')) {
+      return ok(structuredClone(config))
+    }
+    mutations.push(opts.url)
+    if (opts.url.endsWith('/models/preview')) {
+      assert.equal(opts.data?.editing, false)
+      preview = opts.data?.model as Record<string, unknown>
+      assert.deepEqual(preview.prices, [])
+      assert.deepEqual(preview.expected_version, { routing: 1, pricing: 1 })
+      return ok({ confirmation_digest: digest })
+    }
+    assert.equal(opts.method, 'POST')
+    assert.equal(opts.url, '/core/v1/admin/routing/models')
+    const route = required(opts.data)
+      .route as NativeConfiguration['routing']['routes'][number]
+    assert.deepEqual(opts.data, { ...preview, confirmation_digest: digest })
+    assert.equal(route.model, publicModel)
+    assert.equal(route.group, 'default')
+    assert.equal(route.enabled, true)
+    assert.equal(route.targets[0].upstream_id, 1)
+    assert.equal(route.targets[0].upstream_model, model)
+    config.routing.routes.push(route)
+    config.bindings.discoveries[1].pending_models = []
+    config.version = { routing: 2, pricing: 2 }
+    config.routing.version = 2
+    config.prices.version = 2
+    return ok({ version: config.version })
+  }) as typeof api.request
+  const page = await mount('channels', true, {
+    native_channel_observations: false,
+  })
+  const dialog = () =>
+    required(page.querySelector<HTMLElement>('[role="dialog"]'))
+  const click = (element: HTMLElement) =>
+    act(async () => {
+      element.click()
+    })
+  await until(() => page.textContent?.includes('Model onboarding') ?? false)
+  await click(button(page, 'Model onboarding'))
+  await until(() => !!page.querySelector('input[aria-label="model-b"]'))
+  await click(button(dialog(), 'Pricing'))
+  if (publicModel !== model) {
+    const options = required(dialog().querySelector('details'))
+    await click(required(options.querySelector('summary')))
+    await changeInput(required(options.querySelector('input')), publicModel)
+  }
+  await until(() => dialog().textContent?.includes('Preview route') ?? false)
+  assert.equal(button(dialog(), 'Publish route').disabled, true)
+  await click(button(dialog(), 'Preview route'))
+  await until(() => !button(dialog(), 'Publish route').disabled)
+  assert.deepEqual(config.routing.routes, before)
+  await click(button(dialog(), 'Publish route'))
+  await until(
+    () =>
+      !!page.querySelector<HTMLInputElement>('input[aria-label="model-b"]')
+        ?.disabled
+  )
+  assert.deepEqual(config.routing.routes[0], before[0])
+  assert.deepEqual(mutations, [
+    '/core/v1/admin/routing/models/preview',
+    '/core/v1/admin/routing/models',
+  ])
+}
+
+for (const mapped of [false, true]) {
+  test(`channel onboarding uses the ${mapped ? 'saved route' : 'selected catalog ID'} for price lookup`, async () => {
+    const config: NativeConfiguration = fixture()
+    const upstream = 'supplier/sku'
+    const saved = 'public/saved'
+    const alternative = 'public/other'
+    config.bindings.discoveries[1] = {
+      models: [upstream],
+      pending_models: [upstream],
+      observed_at: 1,
+    }
+    if (mapped) {
+      for (const [i, name] of [alternative, saved].entries()) {
+        const route = structuredClone(config.routing.routes[0])
+        route.id = i + 2
+        route.model = name
+        Object.assign(route.targets[0], {
+          id: route.id,
+          upstream_model: upstream,
+          enabled: false,
+        })
+        config.routing.routes.push(route)
+      }
+      config.bindings.official_prices = {
+        models: {
+          [saved]: {
+            source: 'saved-source',
+            source_unit: 'USD/token',
+            rates: {
+              input: 2,
+              output: 3,
+              cache_read: 0,
+              cache_write: 0,
+              request: 0,
+            },
+          },
+        },
+        group_multipliers_ppm: { default: 1000000 },
+        speed_multipliers_ppm: { fast: 1000000, ultrafast: 1000000 },
+      }
+    }
+    const previews: unknown[] = []
+    api.request = (async (opts: {
+      url: string
+      method: string
+      data?: Record<string, unknown>
+    }) => {
+      const ok = (data: unknown) => ({ data: { success: true, data } })
+      if (opts.method === 'GET' && opts.url.endsWith('/configuration')) {
+        return ok(structuredClone(config))
+      }
+      assert.equal(
+        opts.url,
+        '/core/v1/admin/routing/channels/1/models/prices/preview'
+      )
+      assert.equal(opts.method, 'POST')
+      previews.push(opts.data)
+      return ok({ channel_id: 1, model: opts.data?.model, quote: null })
+    }) as typeof api.request
+    const page = await mount('channels', true, {
+      native_channel_observations: false,
+    })
+    await until(() => page.textContent?.includes('Model onboarding') === true)
+    await act(async () => button(page, 'Model onboarding').click())
+    const dialog = required(page.querySelector('[role="dialog"]'))
+    await until(() => dialog.textContent?.includes('Pricing') === true)
+    await act(async () => button(dialog, 'Pricing').click())
+    const editor = () => dialog.querySelector<HTMLTextAreaElement>('textarea')
+    await until(() => Boolean(editor()?.value))
+    const text = required(editor()).value
+    assert.ok(text.includes(mapped ? saved : upstream))
+    if (mapped) assert.ok(text.includes('saved-source'))
+    await act(async () => button(dialog, 'Fetch upstream prices').click())
+    await until(() => previews.length === 1)
+    assert.deepEqual(previews[0], {
+      model: mapped ? saved : upstream,
+      ...(!mapped && { upstream_model: upstream }),
+    })
+    assert.equal(required(editor()).value, text)
+    if (mapped) {
+      const selector = required(
+        [...dialog.querySelectorAll('select')].find((el) =>
+          [...el.options].some((option) => option.value === alternative)
+        )
+      )
+      assert.equal(selector.value, saved)
+      await act(async () => {
+        selector.value = alternative
+        selector.dispatchEvent(new Event('change', { bubbles: true }))
+      })
+      await until(() => editor()?.value.includes(alternative) === true)
+      await act(async () => button(dialog, 'Fetch upstream prices').click())
+      await until(() => previews.length === 2)
+      assert.deepEqual(previews[1], {
+        model: alternative,
+      })
+    }
+  })
+}
+
+test('pending pricing keeps the public model name separate from the selected channel catalog entry', () =>
+  checkPendingPrice())
+test('a newly selected catalog entry can price a model already routed through another channel', () =>
+  checkPendingPrice(2))
+test('a newly selected catalog entry cannot silently quote another target on the same channel', () =>
+  checkPendingPrice(1))
+
+async function checkPendingPrice(boundChannel?: number) {
+  const config: NativeConfiguration = fixture()
+  const upstream = 'vendor/catalog-model'
+  const alias = 'public-catalog-model'
+  if (boundChannel) {
+    if (boundChannel !== 1) {
+      config.routing.upstreams.push({
+        ...config.routing.upstreams[0],
+        id: boundChannel,
+      })
+    }
+    const route = config.routing.routes[0]
+    route.model = alias
+    route.targets[0].upstream_id = boundChannel
+  }
+  config.bindings.discoveries[1] = {
+    models: [upstream],
+    observed_at: 1,
+    pending_models: [upstream],
+  }
+  let requested: Record<string, unknown> | undefined
+  let reviewed: NativeConfiguration['bindings']['official_prices']
+  api.request = (async (options: {
+    url: string
+    method: string
+    data?: Record<string, unknown>
+  }) => {
+    const ok = (data: unknown) => ({ data: { success: true, data } })
+    if (options.method === 'GET' && options.url.endsWith('/configuration')) {
+      return ok(structuredClone(config))
+    }
+    if (options.url.endsWith('/configuration/preview')) {
+      assert.equal(options.method, 'POST')
+      assert.deepEqual(options.data?.expected_version, config.version)
+      const bindings = required(options.data)
+        .bindings as NativeConfiguration['bindings']
+      reviewed = bindings.official_prices
+      return ok({
+        saved: false,
+        bindings,
+        expected_version: config.version,
+        confirmation_digest: 'a'.repeat(64),
+      })
+    }
+    assert.equal(
+      options.url,
+      '/core/v1/admin/routing/channels/1/models/prices/preview'
+    )
+    assert.equal(options.method, 'POST')
+    requested = required(options.data)
+    if (boundChannel === 1) {
+      return ok({ channel_id: 1, model: alias, quote: null })
+    }
+    return ok({
+      channel_id: 1,
+      model: requested.model,
+      quote: {
+        model: requested.model,
+        source: {
+          kind: 'channel',
+          channel_id: 1,
+          upstream_model: upstream,
+        },
+        currency: 'USD',
+        source_token_unit: 'per_token',
+        token_unit: 'per_million_tokens',
+        rates: {
+          input: '2',
+          output: '4',
+          cache_read: '0',
+          cache_write: '0',
+          request: '0',
+        },
+        context_tiers: null,
+      },
+    })
+  }) as typeof api.request
+  const page = await mount('channels', true, {
+    native_channel_observations: false,
+  })
+  const click = (element: HTMLElement) =>
+    act(async () => {
+      element.click()
+    })
+  await until(() => page.textContent?.includes('Model onboarding') ?? false)
+  await click(button(page, 'Model onboarding'))
+  const dialog = required(page.querySelector<HTMLElement>('[role="dialog"]'))
+  await until(() => dialog.textContent?.includes('Pricing') ?? false)
+  await click(button(dialog, 'Pricing'))
+  const section = required(
+    dialog.querySelector<HTMLElement>(`section[aria-label="${upstream}"]`)
+  )
+  const nameOptions = required(section.querySelector('details'))
+  assert.equal(nameOptions.open, false)
+  await click(required(nameOptions.querySelector('summary')))
+  const input = required(nameOptions.querySelector('input'))
+  await changeInput(input, alias)
+  await until(
+    () =>
+      section
+        .querySelector('textarea')
+        ?.value.includes(`model = "${alias}"`) === true
+  )
+  const original = required(section.querySelector('textarea')).value
+  await click(button(section, 'Fetch upstream prices'))
+  await until(() => Boolean(requested))
+  assert.deepEqual(requested, { model: alias, upstream_model: upstream })
+  if (boundChannel === 1) {
+    await until(
+      () =>
+        section.textContent?.includes('No matching upstream prices') === true
+    )
+    assert.equal(required(section.querySelector('textarea')).value, original)
+    assert.equal(reviewed, undefined)
+    return
+  }
+  await until(() => !button(section, 'Preview changes').disabled)
+  await click(button(section, 'Preview changes'))
+  await until(() => !!reviewed)
+  assert.deepEqual(Object.keys(required(reviewed).models), [alias])
+  assert.equal(required(reviewed).models[alias].rates.input, 2_000_000)
+  assert.equal(required(reviewed).models[alias].source, 'channel/1')
+  assert.deepEqual(config.bindings.discoveries[1].pending_models, [upstream])
+}
+
+for (const [protocol, meter] of [
+  ['openai_responses', 'cache_write_12h'],
+  ['anthropic_messages', 'cache_write_1h'],
+] as const) {
+  test(`pending route and official price previews keep missing ${meter} as a draft`, async () => {
+    const { writeOfficialToml } =
+      await import('@/features/system-settings/billing/official-price-toml')
+    const config: NativeConfiguration = fixture()
+    const model = 'provider-neutral-id'
+    const zero = { numerator: 0, denominator: 1 }
+    const paid = { numerator: 2, denominator: 1 }
+    const rates = {
+      input: paid,
+      output: paid,
+      cache_read: zero,
+      cache_write: paid,
+    }
+    const tariff = {
+      revision: protocol === 'openai_responses' ? 4 : 2,
+      source_digest: '1'.repeat(64),
+      uses_cache_read: true,
+      uses_cache_write: true,
+      [`uses_${meter}`]: true,
+      tiers: [
+        { up_to_input_tokens: 100, rates: { ...rates, [meter]: paid } },
+        { up_to_input_tokens: null, rates: { ...rates } },
+      ],
+    }
+    const price = {
+      source: 'manual',
+      source_unit: 'USD/token',
+      billing_mode: 'tiered_decimal' as const,
+      rates: { input: 0, output: 0, cache_read: 0, cache_write: 0, request: 0 },
+      tiered: tariff,
+    }
+    config.routing.upstreams[0].protocol = protocol
+    config.bindings.discoveries[1] = {
+      models: [model],
+      pending_models: [model],
+      observed_at: 1,
+    }
+    config.bindings.contexts.push({
+      upstream_id: 1,
+      upstream_model: model,
+      protocol,
+      endpoint: config.routing.upstreams[0].endpoint,
+      max_input_tokens: 4096,
+      max_output_tokens: 1024,
+      contract_revision: 'fixture',
+    })
+    config.bindings.official_prices = {
+      models: { [model]: price },
+      group_multipliers_ppm: { default: 1000000 },
+      speed_multipliers_ppm: { fast: 1000000, ultrafast: 1000000 },
+    }
+    const previews: NativeConfiguration['bindings'][] = []
+    api.request = (async (opts: {
+      url: string
+      method: string
+      data?: NativeConfiguration
+    }) => {
+      const ok = (data: unknown) => ({ data: { success: true, data } })
+      if (opts.method === 'GET' && opts.url.endsWith('/configuration')) {
+        return ok(structuredClone(config))
+      }
+      assert.equal(opts.method, 'POST')
+      assert.ok(opts.url.endsWith('/configuration/preview'))
+      const bindings = required(opts.data).bindings
+      previews.push(bindings)
+      return ok({
+        saved: false,
+        bindings,
+        expected_version: config.version,
+        confirmation_digest: 'a'.repeat(64),
+      })
+    }) as typeof api.request
+    const page = await mount('channels', true, {
+      native_channel_observations: false,
+    })
+    const click = (element: HTMLElement) => act(async () => element.click())
+    await until(() => page.textContent?.includes('Model onboarding') === true)
+    await click(button(page, 'Model onboarding'))
+    const dialog = required(page.querySelector('[role=dialog]'))
+    await until(() => dialog.textContent?.includes('Pricing') === true)
+    await click(button(dialog, 'Pricing'))
+    const fieldset = required(dialog.querySelector('fieldset'))
+    assert.equal(button(fieldset, 'Preview route').disabled, true)
+    assert.match(
+      required(fieldset.querySelector('[role=alert]')).textContent ?? '',
+      new RegExp(meter)
+    )
+    const editor = required(
+      dialog.querySelector('section[aria-label="Official base price"]')
+    )
+    await until(() => Boolean(editor.querySelector('textarea')?.value))
+    const textarea = required(editor.querySelector('textarea'))
+    const setText = required(
+      Object.getOwnPropertyDescriptor(
+        dom.HTMLTextAreaElement.prototype,
+        'value'
+      )?.set
+    )
+    async function edit(text: string) {
+      await act(async () => {
+        setText.call(textarea, text)
+        textarea.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      await until(() => !button(editor, 'Preview changes').disabled)
+    }
+    const draft = `${textarea.value}\n# pending provider confirmation\n`
+    await edit(draft)
+    await click(button(editor, 'Preview changes'))
+    await until(
+      () =>
+        editor.querySelector('[role=alert]')?.textContent?.includes(meter) ===
+        true
+    )
+    const issue =
+      required(editor.querySelector('[role=alert]')).textContent ?? ''
+    assert.match(issue, /numerator = 0, denominator = 1/)
+    assert.match(issue, /unknown prices in the draft/)
+    assert.equal(textarea.value, draft)
+    assert.equal(previews.length, 0)
+    const { readFile } = await import('node:fs/promises')
+    try {
+      for (const locale of ['zh-CN', 'zh-TW', 'ja', 'fr', 'ru', 'vi']) {
+        const messages: { translation: Record<string, string> } = JSON.parse(
+          await readFile(
+            new URL(`../../../i18n/locales/${locale}.json`, import.meta.url),
+            'utf8'
+          )
+        )
+        assert.ok(
+          messages.translation[issue] && messages.translation[issue] !== issue
+        )
+        i18n.addResourceBundle(locale, 'translation', messages.translation)
+        await act(async () => {
+          await i18n.changeLanguage(locale)
+        })
+        assert.equal(
+          required(editor.querySelector('[role=alert]')).textContent,
+          messages.translation[issue]
+        )
+        assert.equal(
+          required(fieldset.querySelector('[role=alert]')).textContent,
+          messages.translation[issue]
+        )
+      }
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en')
+      })
+    }
+    const corrected = {
+      ...price,
+      tiered: {
+        ...tariff,
+        tiers: [
+          tariff.tiers[0],
+          { up_to_input_tokens: null, rates: { ...rates, [meter]: zero } },
+        ],
+      },
+    }
+    await edit(writeOfficialToml(model, corrected))
+    await click(button(editor, 'Preview changes'))
+    await until(() => previews.length === 1)
+    assert.deepEqual(
+      previews[0].official_prices?.models[model].tiered?.tiers[1].rates[meter],
+      zero
+    )
+    assert.equal(Object.hasOwn(tariff.tiers[1].rates, meter), false)
+  })
+}
+
+test('official price preview preserves a confirmed free scalar write across four protocols in one route group', async () => {
+  const { previewOfficialPriceToml } =
+    await import('@/features/system-settings/billing/official-price-api')
+  const { writeOfficialToml } =
+    await import('@/features/system-settings/billing/official-price-toml')
+  const { readNativeRoutingScope } = await import('../native-api')
+  login()
+  const config: NativeConfiguration = fixture()
+  const route = config.routing.routes[0]
+  const protocols = [
+    'openai_chat',
+    'openai_responses',
+    'anthropic_messages',
+    'gemini',
+  ]
+  config.routing.upstreams = protocols.map((protocol, position) => ({
+    ...config.routing.upstreams[0],
+    id: position + 1,
+    protocol,
+  }))
+  route.targets = config.routing.upstreams.map(({ id }) => ({
+    ...route.targets[0],
+    id,
+    upstream_id: id,
+  }))
+  const flat = {
+    source: 'manual',
+    source_unit: 'USD/1M tokens',
+    rates: { input: 3, output: 5, cache_read: 1, cache_write: 0, request: 0 },
+  }
+  const sent: string[] = []
+  api.request = (async (opts: {
+    method: string
+    url: string
+    data?: NativeConfiguration
+  }) => {
+    sent.push(opts.method)
+    const ok = (data: unknown) => ({ data: { success: true, data } })
+    if (opts.method === 'GET') {
+      assert.ok(opts.url.endsWith('/configuration'))
+      return ok(structuredClone(config))
+    }
+    assert.ok(opts.url.endsWith('/configuration/preview'))
+    const bindings = required(opts.data).bindings
+    assert.deepEqual(bindings.official_prices?.models[route.model], flat)
+    return ok({
+      saved: false,
+      expected_version: config.version,
+      confirmation_digest: 'b'.repeat(64),
+      bindings,
+    })
+  }) as typeof api.request
+  const seen = await previewOfficialPriceToml(
+    required(readNativeRoutingScope()),
+    config,
+    route.model,
+    writeOfficialToml(route.model, flat)
+  )
+  assert.deepEqual(sent, ['GET', 'POST'])
+  assert.deepEqual(seen.changes.added, [route.model])
+})

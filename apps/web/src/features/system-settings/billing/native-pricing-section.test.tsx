@@ -324,6 +324,41 @@ for (const entry of ['model-pricing']) {
     assert.ok(!requests.some((url) => url.startsWith('/api/option')))
   })
 }
+test('ordinary pricing renders the effective tier columns and opens the model’s official editor', async () => {
+  section = 'model-pricing'
+  const { container, writes } = await mount(true, 100, false, (config) => {
+    Object.assign(config.prices.rules[0], {
+      billing_mode: 'tiered_decimal',
+      rates: { input: 0, output: 0, cache_read: 0, cache_write: 0, request: 0 },
+      tiered: {
+        tiers: [
+          {
+            up_to_input_tokens: null,
+            rates: {
+              input: { numerator: 1, denominator: 2000000 },
+              output: { numerator: 3, denominator: 2 },
+              cache_read: { numerator: 0, denominator: 1 },
+            },
+          },
+        ],
+      },
+    })
+  })
+  await until(() => !!container.querySelector('tbody tr'))
+  const row = container.querySelector('tbody tr')
+  assert.ok(row)
+  const displayed = [...row.querySelectorAll('td')]
+    .slice(2, 7)
+    .map((cell) => cell.textContent)
+  assert.deepEqual(displayed, ['0.0000005', '1.5', '0', '—', '—'])
+  await clickPriceAction('Official base price', row)
+  const editor = () =>
+    document.querySelector('section[aria-label="Official base price"]')
+  await until(() => Boolean(editor()?.querySelector('textarea')))
+  assert.equal(editor()?.querySelector('h3')?.textContent, 'imported-model')
+  assert.equal(writes.length, 0)
+})
+
 test('group pricing shows one group row with old description and editable multiplier', async () => {
   section = 'group-pricing'
   const { container, requests, writes } = await mount()
@@ -333,7 +368,10 @@ test('group pricing shows one group row with old description and editable multip
   const row = container.querySelector('tbody tr')
   assert.ok(row)
   assert.match(row.textContent ?? '', /default.*Original description.*0\.75×/)
-  assert.doesNotMatch(container.textContent ?? '', /Original configuration/)
+  assert.doesNotMatch(
+    container.textContent ?? '',
+    /Original configuration|Official base price/
+  )
   assert.doesNotMatch(
     container.querySelector('table')?.textContent ?? '',
     /imported-model/
@@ -373,7 +411,7 @@ test('router pricing stages only eligible upstream-cost rules and preserves ordi
   )
   assert.doesNotMatch(
     container.textContent ?? '',
-    /Original configuration|imported-model|deepseek-search|JSON|Cache write/
+    /Original configuration|Official base price|imported-model|deepseek-search|JSON|Cache write/
   )
   assert.equal(container.querySelector('table'), null)
   assert.ok(

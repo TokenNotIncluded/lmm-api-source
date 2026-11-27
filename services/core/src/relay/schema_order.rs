@@ -486,6 +486,30 @@ impl<'de> Deserialize<'de> for Members<'de> {
     }
 }
 
+/// Project the selected top-level control without re-encoding nested schemas or numbers.
+/// RequestObject has already validated this bounded input and rejected ambiguous keys.
+pub(super) fn project_request_tier(
+    body: &[u8],
+    field: Option<(&str, &str)>,
+) -> serde_json::Result<Vec<u8>> {
+    use serde::ser::{SerializeMap, Serializer};
+
+    let Members(members) = serde_json::from_slice(body)?;
+    let mut buffer = Vec::with_capacity(body.len());
+    let mut serializer = serde_json::Serializer::new(&mut buffer);
+    let mut map = serializer.serialize_map(None)?;
+    for (key, value) in members {
+        if !matches!(key.as_str(), "service_tier" | "serviceTier" | "speed") {
+            map.serialize_entry(&key, value)?;
+        }
+    }
+    if let Some((key, value)) = field {
+        map.serialize_entry(key, value)?;
+    }
+    map.end()?;
+    Ok(buffer)
+}
+
 fn parse_json(raw: &str) -> Option<Node> {
     parse_node(serde_json::from_str::<&RawValue>(raw).ok()?, 0)
 }

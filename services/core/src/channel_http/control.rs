@@ -9,6 +9,7 @@ pub(super) mod catalog;
 pub(super) mod configuration;
 pub(super) mod copy;
 pub(super) mod observations;
+mod official_prices;
 mod opening;
 pub(super) mod price_drafts;
 mod provider_presets;
@@ -40,9 +41,17 @@ use std::{collections::BTreeSet, sync::Arc};
 pub enum ManagementError {
     Storage,
     Invalid,
+    OfficialPriceIncompatible {
+        model: String,
+        group: String,
+        speed: crate::routing::Speed,
+        reason: &'static str,
+    },
     Conflict,
     BindingChanged,
-    TargetTimeoutTooShort { required_min_timeout_ms: u64 },
+    TargetTimeoutTooShort {
+        required_min_timeout_ms: u64,
+    },
     CommitUnknown,
     ApplyPending,
 }
@@ -285,6 +294,12 @@ impl ManagedChannels {
         new_keys: &BTreeSet<(u64, u64)>,
     ) -> Result<(), ManagementError> {
         bindings.validate(document)?;
+        if let Some(official) = &bindings.official_prices {
+            // A prices-only editor must not override a model's official rates.
+            if official.compile(&document.routing, &document.pricing)? != document.pricing {
+                return Err(ManagementError::Invalid);
+            }
+        }
         document
             .clone()
             .into_router()
@@ -701,6 +716,12 @@ impl IntoResponse for Failure {
                 "CHANNEL_CONTROL_INVALID",
                 "Invalid routing or price configuration",
             ),
+            Self::Management(ManagementError::OfficialPriceIncompatible { model, group, speed, reason }) => {
+                return (StatusCode::BAD_REQUEST, Json(json!({
+                    "success": false, "code": "CHANNEL_CONTROL_INVALID", "message": reason,
+                    "data": {"model": model, "group": group, "speed": speed}
+                }))).into_response();
+            }
             Self::Management(ManagementError::TargetTimeoutTooShort { required_min_timeout_ms }) => {
                 return (
                     StatusCode::CONFLICT,

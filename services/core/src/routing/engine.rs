@@ -92,9 +92,16 @@ impl Upstream {
 struct Target {
     config: RouteTarget,
     upstream: Arc<Upstream>,
+    // Only mixed official flat prices need per-target specialization. Existing
+    // prices (including time-selected calendar tariffs) stay on the pinned plan.
+    official_prices: BTreeMap<Speed, PriceQuote>,
 }
 
 impl Target {
+    fn quote(&self, speed: Speed, template: &PriceQuote) -> PriceQuote {
+        *self.official_prices.get(&speed).unwrap_or(template)
+    }
+
     fn available(&self) -> bool {
         self.config.enabled
             && self.config.weight > 0
@@ -186,7 +193,7 @@ pub(crate) struct ScopedModelName<'a> {
     pub(crate) canonical: Option<String>,
 }
 
-struct Snapshot {
+pub(crate) struct Snapshot {
     channel_overrides: BTreeMap<u64, super::model_policy::ChannelOverrides>,
     global_model_policy: Option<Arc<super::model_policy::Compiled>>,
     affinity: Arc<super::affinity::Runtime>,
@@ -401,7 +408,19 @@ impl Snapshot {
                 {
                     return Err(RoutingError::InvalidConfig("OpenRouter payload protocol"));
                 }
+                let mut official_prices = BTreeMap::new();
+                for &speed in &target.speeds {
+                    if let Some(template) = prices.template(&route.model, &route.group, speed)
+                        && template.billing_mode() == super::BillingMode::OfficialFlat
+                    {
+                        official_prices.insert(
+                            speed,
+                            template.for_target(upstream.config.protocol, target.payload)?,
+                        );
+                    }
+                }
                 targets.push(Arc::new(Target {
+                    official_prices,
                     config: target.clone(),
                     upstream: Arc::clone(upstream),
                 }));
@@ -471,7 +490,7 @@ impl Router {
         })
     }
 
-    fn snapshot(&self) -> Result<Arc<Snapshot>, RoutingError> {
+    pub(crate) fn snapshot(&self) -> Result<Arc<Snapshot>, RoutingError> {
         self.active
             .read()
             .map(|active| Arc::clone(&active))
@@ -660,6 +679,55 @@ impl Router {
         protocol: Protocol,
         affinity: Option<[u8; 32]>,
     ) -> Result<Vec<RoutePlan>, RoutingError> {
+        self.snapshot()?
+            .http_model_groups(model, groups, protocol, affinity, None)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn route_responses_ws_groups(
+        &self,
+        model: &str,
+        groups: &[String],
+        affinity: Option<[u8; 32]>,
+        pinned_target: Option<(u64, CredentialRef)>,
+    ) -> Result<Vec<RoutePlan>, RoutingError> {
+        self.snapshot()?
+            .ws_model_groups(model, groups, affinity, pinned_target, None)
+    }
+}
+
+impl Snapshot {
+    pub(crate) fn honor_request_service_tier(&self) -> bool {
+        self.global_model_policy
+            .as_ref()
+            .is_some_and(|policy| policy.config.honor_request_service_tier)
+    }
+
+    pub(crate) fn route_responses_http_bound(
+        self: &Arc<Self>,
+        request: RouteRequest<'_>,
+        pinned_target: (u64, CredentialRef),
+    ) -> Result<RoutePlan, RoutingError> {
+        let require_speed_field =
+            requested_model(request.model, request.speed)?.1 != Speed::Standard;
+        Router::route_in_snapshot(
+            self.clone(),
+            request,
+            &mut rand::rng(),
+            RouteTransport::ResponsesHttp { pinned_target },
+            require_speed_field,
+            &mut HashMap::new(),
+        )
+    }
+
+    pub(crate) fn http_model_groups(
+        self: &Arc<Self>,
+        model: &str,
+        groups: &[String],
+        protocol: Protocol,
+        affinity: Option<[u8; 32]>,
+        body_speed: Option<Speed>,
+    ) -> Result<Vec<RoutePlan>, RoutingError> {
         self.route_groups(
             model,
             groups,
@@ -668,29 +736,17 @@ impl Router {
             RouteTransport::Http {
                 allow_passthrough: false,
             },
+            body_speed,
         )
     }
 
-    pub(crate) fn route_responses_http_bound(
-        &self,
-        request: RouteRequest<'_>,
-        pinned_target: (u64, CredentialRef),
-    ) -> Result<RoutePlan, RoutingError> {
-        Self::route_in_snapshot(
-            self.snapshot()?,
-            request,
-            &mut rand::rng(),
-            RouteTransport::ResponsesHttp { pinned_target },
-            &mut HashMap::new(),
-        )
-    }
-
-    pub(crate) fn route_responses_ws_groups(
-        &self,
+    pub(crate) fn ws_model_groups(
+        self: &Arc<Self>,
         model: &str,
         groups: &[String],
         affinity: Option<[u8; 32]>,
         pinned_target: Option<(u64, CredentialRef)>,
+        body_speed: Option<Speed>,
     ) -> Result<Vec<RoutePlan>, RoutingError> {
         self.route_groups(
             model,
@@ -698,18 +754,20 @@ impl Router {
             Protocol::OpenAiResponses,
             affinity,
             RouteTransport::ResponsesWebSocket { pinned_target },
+            body_speed,
         )
     }
 
     fn route_groups(
-        &self,
+        self: &Arc<Self>,
         model: &str,
         groups: &[String],
         protocol: Protocol,
         affinity: Option<[u8; 32]>,
         transport: RouteTransport,
+        body_speed: Option<Speed>,
     ) -> Result<Vec<RoutePlan>, RoutingError> {
-        let snapshot = self.snapshot()?;
+        let require_speed_field = requested_model(model, body_speed)?.1 != Speed::Standard;
         let mut plans = Vec::new();
         // All group alternatives belong to one request. Advance each channel's
         // pool once so unused group plans cannot starve a key from actual traffic.
@@ -718,7 +776,7 @@ impl Router {
             let request = RouteRequest {
                 model,
                 group,
-                speed: None,
+                speed: body_speed,
                 protocol,
                 replay: ReplayPermission::Denied,
             };
@@ -730,19 +788,21 @@ impl Router {
                 digest.update([0]);
                 digest.update(group.as_bytes());
                 let mut rng = rand::rngs::StdRng::from_seed(digest.finalize().into());
-                Self::route_in_snapshot(
-                    snapshot.clone(),
+                Router::route_in_snapshot(
+                    self.clone(),
                     request,
                     &mut rng,
                     transport,
+                    require_speed_field,
                     &mut credentials,
                 )
             } else {
-                Self::route_in_snapshot(
-                    snapshot.clone(),
+                Router::route_in_snapshot(
+                    self.clone(),
                     request,
                     &mut rand::rng(),
                     transport,
+                    require_speed_field,
                     &mut credentials,
                 )
             };
@@ -756,7 +816,9 @@ impl Router {
         }
         Ok(plans)
     }
+}
 
+impl Router {
     pub(super) fn route_with_rng<R: RngExt + ?Sized>(
         &self,
         request: RouteRequest<'_>,
@@ -776,6 +838,7 @@ impl Router {
             request,
             rng,
             RouteTransport::Http { allow_passthrough },
+            false,
             &mut HashMap::new(),
         )
     }
@@ -785,6 +848,7 @@ impl Router {
         request: RouteRequest<'_>,
         rng: &mut R,
         transport: RouteTransport,
+        require_speed_field: bool,
         credentials: &mut HashMap<u64, CredentialRef>,
     ) -> Result<RoutePlan, RoutingError> {
         if !valid_group(request.group) {
@@ -849,6 +913,21 @@ impl Router {
                                 })
                         }
                     }
+                    && (!require_speed_field
+                        || target
+                            .config
+                            .payload
+                            .accelerated_field(
+                                target.config.payload.wire_protocol(
+                                    request.protocol,
+                                    target.upstream.config.protocol,
+                                    snapshot.global_model_policy.as_deref(),
+                                    target.upstream.config.id,
+                                    request.model,
+                                ),
+                                speed,
+                            )
+                            .is_some())
                     && target.config.allows_client(request.protocol)
                     && target.config.speeds.contains(&speed)
                     && (target
@@ -1364,7 +1443,7 @@ impl RoutePlan {
                 credential: candidate.credential,
                 route: self.route.clone(),
                 version: self.snapshot.version,
-                quote: self.quote,
+                quote: candidate.target.quote(self.speed, &self.quote),
                 calendar: self.calendar.clone(),
                 number: index as u8 + 1,
                 speed: self.speed,
@@ -1405,6 +1484,8 @@ impl RoutePlan {
         self.snapshot.version
     }
 
+    /// Route metadata. A mixed official template cannot be charged. Use the
+    /// actual Attempt's quote to freeze a price before any reservation.
     pub fn quote(&self) -> PriceQuote {
         self.quote
     }
@@ -1483,7 +1564,7 @@ impl RoutePlan {
                 credential: candidate.credential,
                 route: Arc::clone(&self.route),
                 version: self.snapshot.version,
-                quote: self.quote,
+                quote: candidate.target.quote(self.speed, &self.quote),
                 calendar: self.calendar.clone(),
                 number: self.attempts,
                 speed: self.speed,

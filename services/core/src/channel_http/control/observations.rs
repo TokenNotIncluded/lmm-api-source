@@ -422,6 +422,31 @@ pub(super) async fn probe(
     headers: &HeaderMap,
     id: u64,
 ) -> Result<crate::model_http::channel_operations::ChannelProbe, Failure> {
+    observe_catalog(state, headers, id, None).await
+}
+
+pub(in crate::channel_http) async fn price_preview(
+    State(state): State<ChannelState>,
+    headers: HeaderMap,
+    Path(id): Path<u64>,
+    Json(selection): Json<crate::model_http::channel_operations::ChannelPriceSelection>,
+) -> Result<Json<Value>, Failure> {
+    if !selection.valid() {
+        return Err(ManagementError::Invalid.into());
+    }
+    let result = observe_catalog(&state, &headers, id, Some(&selection)).await?;
+    Ok(Json(json!({
+        "success": true,
+        "data": {"channel_id": id, "model": selection.model, "quote": result.price}
+    })))
+}
+
+async fn observe_catalog(
+    state: &ChannelState,
+    headers: &HeaderMap,
+    id: u64,
+    selection: Option<&crate::model_http::channel_operations::ChannelPriceSelection>,
+) -> Result<crate::model_http::channel_operations::ChannelProbe, Failure> {
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
     super::super::admit(state, headers).await?;
     let gateway = management.gateway.as_ref().ok_or(Failure::Disabled)?;
@@ -442,7 +467,12 @@ pub(super) async fn probe(
         .map_err(ManagementError::from)?;
     tx.commit().await.map_err(ManagementError::from)?;
     let timer = std::time::Instant::now();
-    let outcome = gateway.probe_channel_snapshot(&upstream).await;
+    let outcome = gateway
+        .probe_channel_snapshot(
+            &upstream,
+            selection.map(|request| (request, before.routing.routes.as_slice())),
+        )
+        .await;
     let duration_ms = outcome.as_ref().map_or_else(
         |_| timer.elapsed().as_millis().min(9_007_199_254_740_991) as i64,
         |probe| probe.response_time_ms.min(9_007_199_254_740_991) as i64,

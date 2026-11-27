@@ -169,6 +169,11 @@ pub(super) fn credit_price_with_calendar(
     group: &str,
     calendar: Option<&crate::routing::FrozenCalendar>,
 ) -> Result<Price, RelayError> {
+    if quote.billing_mode() == crate::routing::BillingMode::OfficialFlat {
+        return Err(RelayError::Invalid(
+            "official token price requires a selected upstream",
+        ));
+    }
     let rates = quote.rates();
     if let Some(tariff) = quote.tiered() {
         let (group_multiplier_ppm, speed_multiplier_ppm) = quote.multipliers_ppm();
@@ -411,15 +416,13 @@ impl Bridge {
         {
             return Err(RelayError::RouteUnavailable);
         }
-        let upstream = match attempt.protocol() {
-            Protocol::OpenAiChat
-                if request.client == ClientProtocol::Chat
-                    && attempt.payload_policy() == crate::routing::PayloadPolicy::Adapt
-                    && model_policy
-                        .is_some_and(|p| p.upgrade_chat(attempt.upstream_id(), &request.model)) =>
-            {
-                UpstreamProtocol::Responses
-            }
+        let upstream = match attempt.payload_policy().wire_protocol(
+            protocol,
+            attempt.protocol(),
+            model_policy,
+            attempt.upstream_id(),
+            &request.model,
+        ) {
             Protocol::OpenAiChat => UpstreamProtocol::Chat,
             Protocol::OpenAiResponses => UpstreamProtocol::Responses,
             Protocol::AnthropicMessages => UpstreamProtocol::Anthropic,
@@ -478,6 +481,7 @@ impl Bridge {
         .with_cache_creation_mode(price.tiered.as_ref().and_then(|t| t.cache_creation_mode))
         .with_availability_guard(Arc::new(move || availability.is_available()));
         route.overrides = attempt.overrides.clone();
+        route.model_attempt = Some(attempt.clone());
         if passthrough {
             request.passthrough_body(&route)?;
         }
@@ -491,7 +495,6 @@ impl Bridge {
         {
             return Err(RelayError::RouteUnavailable);
         }
-        route.model_attempt = Some(attempt.clone());
         Ok((
             Selected {
                 attempt,
@@ -549,6 +552,17 @@ impl RouteProvider for Bridge {
         failure: crate::relay::AttemptFailure,
     ) -> RelayFuture<'a, Option<Route>> {
         Box::pin(self.retry_selected_route(context, request, route, failure))
+    }
+}
+
+#[cfg(test)]
+impl crate::routing::PriceQuote {
+    pub(crate) fn freeze_for_price_test(
+        self,
+        model: &str,
+        group: &str,
+    ) -> Result<Price, RelayError> {
+        credit_price(self, model, group)
     }
 }
 

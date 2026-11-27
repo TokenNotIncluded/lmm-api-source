@@ -184,6 +184,7 @@ export function NativeGroupPrices({
               item.speed === speed
           )
         const rates = rule?.rates as Record<string, number | string> | undefined
+        const official = rule?.billing_mode === 'official_flat'
         const tokenRates =
           rule &&
           (!rule.billing_mode || rule.billing_mode === 'tokens') &&
@@ -228,7 +229,7 @@ export function NativeGroupPrices({
                     ))}
                   </dl>
                 )}
-                {!onChange && tokenRates && (
+                {((!onChange && tokenRates) || official) && (
                   <div className='space-y-2'>
                     <h5 className='text-sm font-medium'>
                       {t('Base price (1×)')}
@@ -238,16 +239,21 @@ export function NativeGroupPrices({
                         <div key={key}>
                           <dt className='text-muted-foreground'>{label}</dt>
                           <dd>
-                            {typeof rates[key] === 'number'
-                              ? microsToUsd(rates[key])
-                              : '—'}
+                            {nativeConfiguredPrice(
+                              {
+                                ...rule,
+                                group_multiplier_ppm: 1_000_000,
+                                speed_multiplier_ppm: 1_000_000,
+                              },
+                              key as keyof typeof dimensions
+                            ) ?? '—'}
                           </dd>
                         </div>
                       ))}
                     </dl>
                   </div>
                 )}
-                {!onChange && (
+                {(!onChange || official) && (
                   <dl className='flex flex-wrap gap-x-5 gap-y-2 text-sm'>
                     <div>
                       <dt className='text-muted-foreground'>
@@ -260,7 +266,7 @@ export function NativeGroupPrices({
                           : '—'}
                       </dd>
                     </div>
-                    {tokenRates &&
+                    {(tokenRates || official) &&
                       (['cache_read', 'cache_write', 'request'] as const).map(
                         (key) => (
                           <div key={key}>
@@ -273,7 +279,7 @@ export function NativeGroupPrices({
                       )}
                   </dl>
                 )}
-                {onChange && (
+                {onChange && !official && (
                   <div className='grid min-w-0 gap-4 sm:grid-cols-2'>
                     {typeof rule.group_multiplier_ppm === 'number' ||
                     typeof rule.group_multiplier_ppm === 'string' ? (
@@ -313,21 +319,25 @@ export function NativeGroupPrices({
                 {t('No published price for this speed.')}
               </p>
             )}
-            {onChange && defaultRule && Number.isSafeInteger(nextId) && (
-              <Button
-                type='button'
-                variant='outline'
-                onClick={() =>
-                  replace(rule, {
-                    ...defaultRule,
-                    id: nextId,
-                    group: route.group,
-                  })
-                }
-              >
-                {t('Copy prices from the default group')}
-              </Button>
-            )}
+            {onChange &&
+              !official &&
+              defaultRule &&
+              defaultRule.billing_mode !== 'official_flat' &&
+              Number.isSafeInteger(nextId) && (
+                <Button
+                  type='button'
+                  variant='outline'
+                  onClick={() =>
+                    replace(rule, {
+                      ...defaultRule,
+                      id: nextId,
+                      group: route.group,
+                    })
+                  }
+                >
+                  {t('Copy prices from the default group')}
+                </Button>
+              )}
             {onChange &&
               !rule &&
               !defaultRule &&

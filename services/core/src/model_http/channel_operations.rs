@@ -14,9 +14,71 @@ mod channel_balance_decimal_oracle_tests;
 #[path = "channel_catalog_tests.rs"]
 mod channel_catalog_tests;
 
+pub(crate) mod source_rates;
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ChannelPriceFormat {
+    OpenrouterUsdPerToken,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ChannelPriceSelection {
+    pub model: String,
+    upstream_model: Option<String>,
+    format: Option<ChannelPriceFormat>,
+}
+
+struct ChannelPriceLookup<'a> {
+    model: &'a str,
+    upstream_model: &'a str,
+    explicit_format: bool,
+}
+
+impl ChannelPriceSelection {
+    pub(crate) fn valid(&self) -> bool {
+        let valid = |id: &str| {
+            !id.trim().is_empty() && id.len() <= 256 && !id.chars().any(char::is_control)
+        };
+        valid(&self.model) && self.upstream_model.as_deref().is_none_or(valid)
+    }
+
+    fn resolve<'a>(
+        &'a self,
+        channel_id: u64,
+        routes: &'a [crate::routing::ModelRoute],
+    ) -> Option<ChannelPriceLookup<'a>> {
+        let mut mapped = routes
+            .iter()
+            .filter(|route| route.model == self.model)
+            .flat_map(|route| &route.targets)
+            .filter(|target| target.upstream_id == channel_id)
+            .map(|target| target.upstream_model.as_str());
+        let explicit = self.upstream_model.as_deref();
+        let upstream_model = match mapped.next() {
+            Some(first)
+                if mapped.all(|id| id == first) && explicit.is_none_or(|id| id == first) =>
+            {
+                first
+            }
+            Some(_) => return None,
+            // A newly discovered model may have an explicit source before a route exists.
+            None => explicit?,
+        };
+        Some(ChannelPriceLookup {
+            model: &self.model,
+            upstream_model,
+            explicit_format: self.format.is_some(),
+        })
+    }
+}
+
 #[derive(Serialize)]
 pub(crate) struct ChannelProbe {
     pub models: Vec<String>,
+    #[serde(skip)]
+    pub price: Option<source_rates::SourceQuote>,
     pub response_time_ms: u64,
     pub validation_scope: &'static str,
     pub inference_tested: bool,
@@ -47,7 +109,13 @@ pub(crate) fn validate_publication_prices(
                 // rules remain publishable and are selected later with quote_at.
                 let quote = prices
                     .template(&route.model, &route.group, *speed)
-                    .ok_or(RelayError::Invalid("missing route price"))?;
+                    .ok_or(RelayError::Invalid("missing route price"))?
+                    .for_target(upstream.protocol, target.payload)
+                    .map_err(|_| {
+                        RelayError::Invalid(
+                            "official price cannot meter this target protocol and payload",
+                        )
+                    })?;
                 if let Some(kind) = tool_price::ToolKind::from_protocol(upstream.protocol) {
                     if route.model != kind.model()
                         || !tool_price::PersistedToolPrice::supports_quote(kind, quote)
@@ -121,12 +189,10 @@ struct CatalogPage {
 }
 
 fn parse_models(
-    bytes: &[u8],
+    value: &Value,
     protocol: crate::routing::Protocol,
     secret: &str,
 ) -> Result<CatalogPage, RelayError> {
-    let value: serde_json::Value =
-        serde_json::from_slice(bytes).map_err(|_| RelayError::RouteUnavailable)?;
     let (field, name) = if protocol == crate::routing::Protocol::Gemini {
         ("models", "name")
     } else {
@@ -312,14 +378,28 @@ impl ModelGateway {
     pub(crate) async fn probe_channel_snapshot(
         &self,
         upstream: &crate::routing::UpstreamConfig,
+        selection: Option<(&ChannelPriceSelection, &[crate::routing::ModelRoute])>,
     ) -> Result<ChannelProbe, RelayError> {
-        self.probe_channel_snapshot_health(upstream, &[], &mut false, &mut None)
+        let lookup = selection.and_then(|(request, routes)| request.resolve(upstream.id, routes));
+        self.read_channel_catalog(upstream, lookup, &[], &mut false, &mut None)
             .await
     }
 
     pub(super) async fn probe_channel_snapshot_health(
         &self,
         upstream: &crate::routing::UpstreamConfig,
+        keywords: &[String],
+        keyword_match: &mut bool,
+        retry_at: &mut Option<std::time::SystemTime>,
+    ) -> Result<ChannelProbe, RelayError> {
+        self.read_channel_catalog(upstream, None, keywords, keyword_match, retry_at)
+            .await
+    }
+
+    async fn read_channel_catalog(
+        &self,
+        upstream: &crate::routing::UpstreamConfig,
+        selection: Option<ChannelPriceLookup<'_>>,
         keywords: &[String],
         keyword_match: &mut bool,
         retry_at: &mut Option<std::time::SystemTime>,
@@ -337,6 +417,15 @@ impl ModelGateway {
             | ("https://api.stepfun.com", "/v1/models") => crate::routing::Protocol::OpenAiChat,
             _ => upstream.protocol,
         };
+        // A compatible model-list envelope alone does not specify currency or units.
+        let quoted_model = selection.filter(|request| {
+            matches!(
+                catalog_protocol,
+                crate::routing::Protocol::OpenAiChat
+                    | crate::routing::Protocol::OpenAiResponses
+                    | crate::routing::Protocol::OpenAiEmbeddings
+            ) && (request.explicit_format || url.as_str() == "https://openrouter.ai/api/v1/models")
+        });
         #[cfg(test)]
         let url = if let Some(mapping) = &self.balance_probe_loopback {
             if url.origin().ascii_serialization() != mapping.origin {
@@ -356,7 +445,7 @@ impl ModelGateway {
             .try_acquire_owned()
             .map_err(|_| RelayError::RouteUnavailable)?;
         let started = std::time::Instant::now();
-        let models = tokio::time::timeout(self.limits.total_timeout, async {
+        let (models, price) = tokio::time::timeout(self.limits.total_timeout, async {
             let mut url = url;
             let mut models = BTreeSet::new();
             let mut cursors = BTreeSet::new();
@@ -406,13 +495,26 @@ impl ModelGateway {
                 }
                 let bytes =
                     native_http::read_response_bytes(&connection, response, &self.limits).await?;
-                let page = parse_models(&bytes, catalog_protocol, &credential)?;
+                let value: Value =
+                    serde_json::from_slice(&bytes).map_err(|_| RelayError::RouteUnavailable)?;
+                let page = parse_models(&value, catalog_protocol, &credential)?;
                 models.extend(page.models);
                 if models.len() > 10_000 {
                     return Err(RelayError::RouteUnavailable);
                 }
                 let Some(cursor) = page.next_cursor else {
-                    return Ok(models.into_iter().collect());
+                    // OpenAI-compatible catalogues use a single data envelope.
+                    let price = match quoted_model {
+                        Some(request) => source_rates::channel_models(
+                            &value,
+                            upstream.id,
+                            request.model,
+                            request.upstream_model,
+                        )
+                        .map_err(|_| RelayError::Invalid("invalid provider price"))?,
+                        None => None,
+                    };
+                    return Ok((models.into_iter().collect(), price));
                 };
                 if !cursors.insert(cursor.clone()) {
                     return Err(RelayError::RouteUnavailable);
@@ -432,6 +534,7 @@ impl ModelGateway {
         .map_err(|_| RelayError::RouteUnavailable)??;
         Ok(ChannelProbe {
             models,
+            price,
             response_time_ms: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
             validation_scope: "model_catalog",
             inference_tested: false,
@@ -444,10 +547,17 @@ mod tests {
     use crate::routing::Protocol;
     #[test]
     fn provider_catalogues_preserve_model_ids_without_exposing_provider_documents() {
-        assert_eq!(parse_models(br#"{"data":[{"id":"model-z","owner":"private"},{"id":"model-a"},{"id":"model-a"}]}"#,Protocol::OpenAiChat,"synthetic-secret").unwrap().models,vec!["model-a","model-z"]);
         assert_eq!(
             parse_models(
-                br#"{"models":[{"name":"models/gemini-test","description":"private"}]}"#,
+                &serde_json::json!({"data":[{"id":"model-z","owner":"private"},{"id":"model-a"},{"id":"model-a"}]}),
+                Protocol::OpenAiChat,
+                "synthetic-secret"
+            ).unwrap().models,
+            vec!["model-a", "model-z"]
+        );
+        assert_eq!(
+            parse_models(
+                &serde_json::json!({"models":[{"name":"models/gemini-test","description":"private"}]}),
                 Protocol::Gemini,
                 "synthetic-secret"
             )
@@ -456,11 +566,11 @@ mod tests {
             vec!["gemini-test"]
         );
         for invalid in [
-            br#"{"data":[{"id":"synthetic-secret"}]}"#.as_slice(),
-            br#"{"data":[{}]}"#,
-            br#"{"error":"no access"}"#,
+            serde_json::json!({"data":[{"id":"synthetic-secret"}]}),
+            serde_json::json!({"data":[{}]}),
+            serde_json::json!({"error":"no access"}),
         ] {
-            assert!(parse_models(invalid, Protocol::OpenAiChat, "synthetic-secret").is_err());
+            assert!(parse_models(&invalid, Protocol::OpenAiChat, "synthetic-secret").is_err());
         }
         assert_eq!(
             endpoint("https://api.example/v1/", Protocol::OpenAiResponses)

@@ -3,6 +3,7 @@ import { LosslessNumber } from 'lossless-json'
 import { z } from 'zod'
 
 import { microsToUsd } from '@/features/channels/components/native-model-draft'
+import { hasDecimalPriceRates } from '@/features/channels/lib/native-price-display'
 import {
   parseNativeDocument,
   stringifyNativeDocument,
@@ -16,7 +17,7 @@ export const nativePriceRuleSchema = z
     group: z.string().trim().min(1),
     speed: z.enum(['standard', 'fast', 'ultrafast']),
     billing_mode: z
-      .enum(['tokens', 'upstream_cost', 'tiered_decimal'])
+      .enum(['tokens', 'upstream_cost', 'tiered_decimal', 'official_flat'])
       .optional(),
     rates: z.object({
       input: z.number().int().nonnegative().safe(),
@@ -92,7 +93,7 @@ export function priceRateText(
   key: PriceRateKey
 ): string | null {
   if (rule.billing_mode === 'upstream_cost') return null
-  if (rule.billing_mode !== 'tiered_decimal') {
+  if (!hasDecimalPriceRates(rule.billing_mode)) {
     return microsToUsd(rule.rates[key])
   }
   if (key === 'request') return null

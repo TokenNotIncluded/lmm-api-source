@@ -351,6 +351,12 @@ async fn read_turn(
     } = stream;
     let deadline = Instant::now() + limits.total_timeout;
     let mut sequence = 0_u64;
+    let speed = turn
+        .route
+        .model_attempt
+        .as_ref()
+        .ok_or(RelayError::RouteUnavailable)?
+        .speed();
     let credential = turn
         .route
         .credential
@@ -420,6 +426,7 @@ async fn read_turn(
             }
             _ => continue,
         }
+        crate::relay::validate_openai_reported_tier(speed, event["response"].get("service_tier"))?;
         correlation.decorate_active(&mut event);
         let terminal = crate::relay::responses_ws::terminal(&event)
             .map_err(|error| RelayError::Protocol(error.0))?;
@@ -498,20 +505,26 @@ impl Turn {
             return Err(RelayError::Forbidden);
         }
         let (principal, secret, groups) = gateway.authenticate(headers).await?;
-        let request = Request::parse_responses_ws(
+        let mut request = Request::parse_responses_ws(
             &create.request_json,
             &gateway.limits,
             create.previous_response_id.is_some(),
             create.generate,
         )?;
-        let plans = gateway
+        let snapshot = gateway
             .bridge
             .routing
-            .route_responses_ws_groups(
+            .snapshot()
+            .map_err(super::model_route_error)?;
+        let body_speed =
+            request.apply_service_tier_policy(snapshot.honor_request_service_tier())?;
+        let plans = snapshot
+            .ws_model_groups(
                 &request.model,
                 &groups,
                 session_affinity(headers, &principal, request.prompt_cache_hint())?,
                 pinned_target,
+                body_speed,
             )
             .map_err(super::model_route_error)?;
         let mut authorized = gateway

@@ -7,6 +7,7 @@ import {
 } from 'lossless-json'
 import { z } from 'zod'
 
+import type { OfficialCatalog } from '@/features/system-settings/billing/official-price-toml'
 import { api } from '@/lib/api'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
@@ -96,6 +97,7 @@ export type NativeConfiguration = {
   }
   prices: NativePrices
   bindings: {
+    official_prices?: OfficialCatalog
     balance_probes?: Record<string, NativeBalanceProbe>
     legacy_balance?: Record<string, NativeLegacyBalance>
     key_pools?: Record<
@@ -109,7 +111,10 @@ export type NativeConfiguration = {
     contexts: NativeContext[]
     vendors: Record<string, NativeVendor>
     models: Record<string, NativeModelMetadata>
-    discoveries: Record<string, { models: string[]; observed_at: number }>
+    discoveries: Record<
+      string,
+      { models: string[]; observed_at: number; pending_models?: string[] }
+    >
     price_drafts: Record<string, NativePriceDraft>
   }
   secret_storage_enabled: boolean
@@ -573,6 +578,7 @@ const configurationSchema = z.object({
     rules: z.array(z.record(z.string(), z.unknown())),
   }),
   bindings: z.object({
+    official_prices: z.record(z.string(), z.unknown()).optional(),
     balance_probes: z.record(z.string(), nativeBalanceProbeSchema).default({}),
     legacy_balance: z.record(z.string(), nativeLegacyBalanceSchema).default({}),
     key_pools: z
@@ -624,6 +630,7 @@ const configurationSchema = z.object({
       z.object({
         models: z.array(z.string()),
         observed_at: z.number().int().min(1).max(253_402_300_799),
+        pending_models: z.array(z.string()).optional(),
       })
     ),
     price_drafts: z.record(

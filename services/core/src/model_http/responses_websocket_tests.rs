@@ -155,7 +155,8 @@ async fn supplier_upgrade(
             if input=="missing" {usage["input_tokens_details"].as_object_mut().unwrap().remove("cache_write_tokens");}
             if input=="missing12h" {usage["input_tokens_details"]["cache_write_tokens_details"].as_object_mut().unwrap().remove("ttl_12h_tokens");}
             if input=="contradiction" {usage["input_tokens_details"]["cache_write_tokens_details"]["ttl_12h_tokens"]=json!(4);}
-            let terminal=json!({"type":if cancelled{"response.cancelled"}else{"response.completed"},"response":{"id":id,"status":if cancelled{"cancelled"}else{"completed"},"output":[],"usage":usage}});
+            let mut terminal=json!({"type":if cancelled{"response.cancelled"}else{"response.completed"},"response":{"id":id,"status":if cancelled{"cancelled"}else{"completed"},"output":[],"usage":usage}});
+            if input=="mismatched_tier" { terminal["response"]["service_tier"]=json!("priority"); }
             let ping_after_terminal=input=="controls";
             s.completed.lock().unwrap().insert(id,body);
             if socket.send(ServerMessage::Text(terminal.to_string().into())).await.is_err(){break;}
@@ -1211,7 +1212,7 @@ async fn ws06_official_exact_rejects_before_handshake_and_unknown_usage_holds(po
     assert_eq!(lab.peer.supplier.handshakes.load(Ordering::SeqCst), 0);
     drop(socket);
     drop(core);
-    for (index, input) in ["missing", "missing12h", "contradiction"]
+    for (index, input) in ["missing", "missing12h", "contradiction", "mismatched_tier"]
         .iter()
         .enumerate()
     {

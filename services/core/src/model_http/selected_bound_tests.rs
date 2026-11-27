@@ -140,8 +140,28 @@ impl CompatibilityProvider {
 }
 
 fn compatibility_gateway(f: &Fixture, base: &str, protocol: Protocol) -> ModelGateway {
+    compatibility_gateway_with_tiers(f, base, protocol, None)
+}
+
+fn compatibility_gateway_with_tiers(
+    f: &Fixture,
+    base: &str,
+    protocol: Protocol,
+    honor_body_tier: Option<bool>,
+) -> ModelGateway {
     let original = gateway(f, base, vec![]);
     let mut document = original.bridge.routing.catalog_document().unwrap();
+    document.routing.global_model_policy = honor_body_tier.map(|enabled| {
+        serde_json::from_value(json!({
+            "honor_request_service_tier": enabled,
+            "pass_through_request_enabled": true,
+            "thinking_model_blacklist": [],
+            "chat_completions_to_responses_policy": {},
+            "ping_interval_enabled": false,
+            "ping_interval_seconds": 30
+        }))
+        .unwrap()
+    });
     document.routing.upstreams[0].protocol = protocol;
     let mut policies: Vec<routing::PayloadPolicy> = vec![
         serde_json::from_value(json!({"legacy_openai":{}})).unwrap(),
@@ -169,10 +189,26 @@ fn compatibility_gateway(f: &Fixture, base: &str, protocol: Protocol) -> ModelGa
         route.targets[0].id = id;
         route.targets[0].upstream_model = name.clone();
         route.targets[0].payload = policy;
+        if index == 1 {
+            route.speeds.extend([Speed::Fast, Speed::Ultrafast]);
+            route.targets[0].speeds = route.speeds.clone();
+        }
         document.routing.routes.push(route);
         let mut price = price.clone();
         price.id = id;
         price.model = name;
+        if index == 1 {
+            for (rule_id, speed, multiplier) in [
+                (11, Speed::Fast, 2_000_000),
+                (12, Speed::Ultrafast, 3_000_000),
+            ] {
+                let mut accelerated = price.clone();
+                accelerated.id = rule_id;
+                accelerated.speed = speed;
+                accelerated.speed_multiplier_ppm = multiplier;
+                document.pricing.rules.push(accelerated);
+            }
+        }
         document.pricing.rules.push(price);
     }
     ModelGateway::new_with_provider_policy(
@@ -329,7 +365,7 @@ async fn legacy_openai_gateway_forwards_selected_policy_and_settles(pool: PgPool
         } else {
             Protocol::OpenAiResponses
         };
-        let g = compatibility_gateway(&f, &provider.endpoint, protocol);
+        let g = compatibility_gateway_with_tiers(&f, &provider.endpoint, protocol, Some(true));
         for stream in [false, true] {
             for (model, allowed) in [("compat-0", false), ("compat-1", true), ("compat-2", false)] {
                 let id = format!("compat-success-{chat}-{stream}-{model}");
@@ -382,6 +418,47 @@ async fn legacy_openai_gateway_forwards_selected_policy_and_settles(pool: PgPool
 }
 
 #[sqlx::test(migrations = false)]
+async fn requested_speed_binds_provider_reservation_and_receipt(pool: PgPool) {
+    let f = fixture(pool, 10_000_000).await;
+    let provider = CompatibilityProvider::start().await;
+    for (chat, protocol) in [
+        (true, Protocol::OpenAiChat),
+        (false, Protocol::OpenAiResponses),
+    ] {
+        for (policy, hint, expected_speed, multiplier) in [
+            (None, None, None, 1_i64),
+            (None, Some("fast"), None, 1),
+            (Some(false), Some("ultrafast"), None, 1),
+            (Some(true), Some("fast"), Some("fast"), 2),
+            (Some(true), Some("ultrafast"), Some("ultrafast"), 3),
+        ] {
+            let g = compatibility_gateway_with_tiers(&f, &provider.endpoint, protocol, policy);
+            let mut body = if chat {
+                json!({"model":"compat-1","messages":[{"role":"user","content":"hello"}],"max_completion_tokens":16})
+            } else {
+                json!({"model":"compat-1","input":"hello","max_output_tokens":16})
+            };
+            if let Some(hint) = hint {
+                body["speed"] = json!(hint);
+                if policy != Some(true) {
+                    body["service_tier"] = json!("priority");
+                }
+            }
+            let (status, response, id) =
+                compatibility_call(&g, &f, chat, "tier-contract", body.to_string()).await;
+            assert_eq!(status, 200, "{response}");
+            let wire = provider.bodies.lock().unwrap().last().unwrap().clone();
+            assert_eq!(wire.get("speed").and_then(|v| v.as_str()), expected_speed);
+            assert!(wire.get("service_tier").is_none());
+            let charge = receipt(&g, &id).await;
+            assert_eq!(charge.reserved, GLOBAL_INPUT * multiplier);
+            assert_eq!(charge.price.input_per_million, 1_000_000 * multiplier);
+            assert_eq!(charge.settled, 2 * multiplier);
+        }
+    }
+}
+
+#[sqlx::test(migrations = false)]
 async fn legacy_openai_gateway_rejects_before_reserve_or_provider(pool: PgPool) {
     let f = fixture(pool, 10_000_000).await;
     let provider = CompatibilityProvider::start().await;
@@ -391,7 +468,7 @@ async fn legacy_openai_gateway_rejects_before_reserve_or_provider(pool: PgPool) 
         } else {
             Protocol::OpenAiResponses
         };
-        let g = compatibility_gateway(&f, &provider.endpoint, protocol);
+        let g = compatibility_gateway_with_tiers(&f, &provider.endpoint, protocol, Some(true));
         let mut cases = Vec::new();
         for name in [
             "service_tier",
@@ -2351,3 +2428,6 @@ mod legacy_recovery_tests;
 
 #[path = "checkpoint_timeout_tests.rs"]
 mod checkpoint_timeout_tests;
+
+#[path = "anthropic_tier_tests.rs"]
+mod anthropic_tier_tests;

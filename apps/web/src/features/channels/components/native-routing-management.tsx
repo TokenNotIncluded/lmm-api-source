@@ -88,6 +88,7 @@ import {
   NativeChannelTagField,
 } from './native-channel-fields'
 import { NativeChannelFilterFields } from './native-channel-filter-fields'
+import { NativeChannelOnboarding } from './native-channel-onboarding'
 import {
   NativeChannelOperationsSummary,
   NativeChannelSortFields,
@@ -255,6 +256,7 @@ function NativeRoutingWorkspace({
   const [copySuffix, setCopySuffix] = useState('_copy')
   const copyPending = useRef(false)
   const [copyChannel, setCopyChannel] = useState<NativeUpstream | null>(null)
+  const [onboardingId, setOnboardingId] = useState<number | null>(null)
   const [usageChannel, setUsageChannel] = useState<NativeUpstream | null>(null)
   const [copyError, setCopyError] = useState<string | null>(null)
   const [section, setSection] = useState<Section>(initialSection)
@@ -1917,6 +1919,15 @@ function NativeRoutingWorkspace({
                     <div className='native-channel-actions'>
                       <Button
                         type='button'
+                        variant='outline'
+                        className='min-h-11 px-2'
+                        disabled={writeDisabled}
+                        onClick={() => setOnboardingId(channel.id)}
+                      >
+                        {t('Model onboarding')}
+                      </Button>
+                      <Button
+                        type='button'
                         variant='ghost'
                         className='min-h-11 px-2'
                         title={t('Fetch Models')}
@@ -2436,6 +2447,19 @@ function NativeRoutingWorkspace({
           {t('Next')}
         </Button>
       </div>
+      {onboardingId !== null && (
+        <NativeChannelOnboarding
+          key={onboardingId}
+          scope={scope}
+          configuration={configuration}
+          channelId={onboardingId}
+          onRefresh={async () => {
+            const result = await query.refetch({ throwOnError: true })
+            if (!result.data) throw new Error(t('Failed to load data'))
+          }}
+          onClose={() => setOnboardingId(null)}
+        />
+      )}
       {balanceChannel && (
         <NativeBalanceDialog
           key={balanceChannel.id}

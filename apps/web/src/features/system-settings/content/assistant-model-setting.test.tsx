@@ -41,6 +41,7 @@ const { createRootRoute, createRouter, createMemoryHistory, RouterProvider } =
 const { createInstance } = await import('i18next')
 const { I18nextProvider } = await import('react-i18next')
 const { api } = await import('@/lib/api')
+const { ROLE } = await import('@/lib/roles')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { AssistantPluginSettings } = await import('./assistant-plugin-settings')
 const i18n = createInstance()
@@ -301,9 +302,62 @@ test('the assistant plugin switches the host-group model only after Save, using 
       ]
     )
     assert.deepEqual(pref, { group: 'support', model: 'second', revision: 1 })
+    assert.deepEqual(
+      requests
+        .filter(({ url }) => url === pluginPath || url === hostModelPath)
+        .map(({ method, url }) => [method, url]),
+      [
+        ['get', pluginPath],
+        ['get', hostModelPath],
+        ['put', pluginPath],
+        ['put', hostModelPath],
+        ['get', pluginPath],
+        ['get', hostModelPath],
+      ]
+    )
     assert.equal(select.value, 'second')
     assert.equal(button(section, 'Save').disabled, true)
     assert.equal(field(page.container).value, 'Published label')
+  } finally {
+    await page.cleanup()
+  }
+})
+test('a read-only administrator sees the saved model and cannot publish a pending host change', async () => {
+  const { auth } = useAuthStore.getState()
+  assert.ok(auth.user)
+  auth.setUser({ ...auth.user, role: ROLE.ADMIN })
+  pref = { group: 'support', model: 'second', revision: 1 }
+  const page = await renderPlugin()
+  try {
+    await until(
+      () => Boolean(page.container.querySelector('#assistant-host-model')),
+      'saved plugin configuration'
+    )
+    const group = page.container.querySelector<HTMLSelectElement>(
+      '#assistant-plugin-group'
+    )
+    const model = page.container.querySelector<HTMLSelectElement>(
+      '#assistant-host-model'
+    )
+    const section = model?.closest('section')
+    assert.ok(group && model && section)
+    assert.equal(group.value, 'support')
+    assert.equal(model.value, 'second')
+    assert.match(section.textContent ?? '', /Pending/)
+    assert.equal(group.disabled, true)
+    assert.equal(model.disabled, true)
+    assert.equal(button(section, 'Save').disabled, true)
+    await click(section, 'Save')
+    assert.deepEqual(
+      requests
+        .filter(({ url }) => url === pluginPath || url === hostModelPath)
+        .map(({ method, url }) => [method, url]),
+      [
+        ['get', pluginPath],
+        ['get', hostModelPath],
+      ]
+    )
+    assert.equal(hostModel.model, 'first')
   } finally {
     await page.cleanup()
   }

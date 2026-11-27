@@ -362,7 +362,7 @@ impl CatalogSurface {
                 // describe a single rate for all admission times.
                 let fixed_tariff = prices
                     .quote(&route.model, &group.name, Speed::Standard)
-                    .and_then(|price| price.tiered())
+                    .and_then(|price| price.tariff_template_for_display())
                     .map(|compiled| compiled.tariff());
                 let names = std::iter::once(route.model.as_str()).chain(
                     aliases_by_route
@@ -688,8 +688,6 @@ fn api_supported(
         if name != kind.model() || !PersistedToolPrice::supports_quote(kind, quote) {
             return false;
         }
-    } else if super::routing::credit_price(quote, &route.model, &route.group).is_err() {
-        return false;
     }
     // Health/operational stops can recover without publishing new config. Check
     // every potentially selectable target, including lower priority targets.
@@ -716,6 +714,14 @@ fn api_supported(
     // usage receipts. Its fixed clients must work with every selectable target.
     !targets.is_empty()
         && targets.into_iter().all(|(t, u)| {
+            let Ok(quote) = quote.for_target(u.protocol, t.payload) else {
+                return false;
+            };
+            if tool.is_none()
+                && super::routing::credit_price(quote, &route.model, &route.group).is_err()
+            {
+                return false;
+            }
             t.payload.adapts(client, u.protocol)
                 && u128::from(t.timeout_ms) >= total_timeout.as_millis()
                 && (t.upstream_model == name || client.input_only() || tool.is_some())
@@ -1876,6 +1882,7 @@ mod tests {
                     target.payload = PayloadPolicy::Passthrough;
                     r.global_model_policy = Some(crate::routing::model_policy::GlobalModelPolicy {
                         pass_through_request_enabled: mode == 2,
+                        honor_request_service_tier: false,
                         thinking_model_blacklist: vec![],
                         chat_completions_to_responses_policy: Default::default(),
                         ping_interval_enabled: false,

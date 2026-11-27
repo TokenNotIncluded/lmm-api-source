@@ -1,10 +1,10 @@
-//! First-release OpenAI compatibility may not select an unpriced service tier.
+//! Client tier controls require both global opt-in and a priced provider contract.
 use super::{ClientProtocol, Limits, Request, Route, UpstreamProtocol};
 use crate::routing::PayloadPolicy;
 use serde_json::{Value, json};
 
 #[test]
-fn standard_only_openai_rejects_unpriced_tiers_and_speed_before_encoding() {
+fn tier_fields_are_ignored_by_default_and_require_a_priced_attempt_when_enabled() {
     for (client, upstream) in [
         (ClientProtocol::Chat, UpstreamProtocol::Chat),
         (ClientProtocol::Responses, UpstreamProtocol::Responses),
@@ -36,38 +36,43 @@ fn standard_only_openai_rejects_unpriced_tiers_and_speed_before_encoding() {
                 for tier in ["fast", "ultrafast", "priority", "auto", "flex", "scale"] {
                     let mut body = base.clone();
                     body[field] = json!(tier);
-                    let request = Request::parse_deferred_openai(
+                    let mut request = Request::parse_deferred_openai(
                         client,
                         &serde_json::to_vec(&body).unwrap(),
                         &Limits::default(),
                     )
                     .unwrap();
-                    assert!(
-                        request.upstream(&route).is_err(),
-                        "{client:?} {stream} {field} {tier}"
-                    );
-                    assert!(request.upstream_body(&route).is_err());
-                    let default = route.clone().with_payload_policy(PayloadPolicy::Adapt);
-                    let baseline = Request::parse(
-                        client,
-                        &serde_json::to_vec(&base).unwrap(),
-                        &Limits::default(),
-                    )
-                    .unwrap();
-                    assert_eq!(
-                        request.upstream_body(&default).unwrap(),
-                        baseline.upstream_body(&default).unwrap(),
-                        "{client:?} {stream} {field} {tier}"
-                    );
-                    // OpenRouter never grants legacy OpenAI tier controls.
+                    assert!(!request.can_forward_original_tier());
+                    assert_eq!(request.apply_service_tier_policy(false).unwrap(), None);
+                    let payload = request.upstream(&route).unwrap();
+                    assert!(payload.get(field).is_none());
                     if client == ClientProtocol::Chat {
+                        let router = route.clone().with_payload_policy(PayloadPolicy::OpenRouter);
+                        assert!(request.upstream(&router).unwrap().get(field).is_none());
+                    }
+                    if (field == "speed" && matches!(tier, "fast" | "ultrafast"))
+                        || (field == "service_tier"
+                            && (matches!(tier, "fast" | "priority")
+                                || (client == ClientProtocol::Responses && tier == "ultrafast")))
+                    {
+                        let speed = if tier != "ultrafast" {
+                            crate::routing::Speed::Fast
+                        } else {
+                            crate::routing::Speed::Ultrafast
+                        };
+                        assert_eq!(
+                            request.apply_service_tier_policy(true).unwrap(),
+                            Some(speed)
+                        );
+                        assert!(request.upstream(&route).is_err());
+                        assert!(request.upstream_body_to(upstream, "real").is_err());
                         assert!(
                             request
-                                .upstream(
-                                    &route.clone().with_payload_policy(PayloadPolicy::OpenRouter)
-                                )
+                                .upstream(&route.clone().with_payload_policy(PayloadPolicy::Adapt))
                                 .is_err()
                         );
+                    } else {
+                        assert!(request.apply_service_tier_policy(true).is_err());
                     }
                 }
             }
@@ -75,12 +80,16 @@ fn standard_only_openai_rejects_unpriced_tiers_and_speed_before_encoding() {
                 let mut body = base.clone();
                 body["service_tier"] = tier.clone();
                 body["speed"] = json!("standard");
-                let request = Request::parse_deferred_openai(
+                let mut request = Request::parse_deferred_openai(
                     client,
                     &serde_json::to_vec(&body).unwrap(),
                     &Limits::default(),
                 )
                 .unwrap();
+                assert_eq!(
+                    request.apply_service_tier_policy(true).unwrap(),
+                    Some(crate::routing::Speed::Standard)
+                );
                 let payload = request.upstream(&route).unwrap();
                 assert_eq!(payload["service_tier"], tier);
                 assert_eq!(payload["speed"], "standard");

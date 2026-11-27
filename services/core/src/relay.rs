@@ -16,7 +16,9 @@ pub(crate) mod native_gemini;
 #[cfg(test)]
 mod openrouter_tests;
 pub(crate) mod provider_network;
+mod reported_tier;
 mod request;
+pub(crate) use reported_tier::validate_openai_reported_tier;
 #[cfg(test)]
 mod responses_client_tests;
 pub(crate) mod responses_ws;
@@ -1143,11 +1145,13 @@ impl Worker {
             &self.inner.limits,
             route.cache_creation_mode,
         )
+        .with_expected_speed(route.model_attempt.as_ref().map(|attempt| attempt.speed()))
         .with_openrouter_stream(route.payload_policy.openrouter_chat())
         .with_legacy_openrouter_usage(matches!(
             route.payload_policy,
             crate::routing::PayloadPolicy::LegacyOpenRouterChatUsageV1
         ));
+        decoder.check_service_tier_headers(response.headers())?;
         if self.request.stream {
             self.stop_keepalive().await?;
             self.send_head()?;

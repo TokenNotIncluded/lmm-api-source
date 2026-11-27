@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use super::config::{MAX_ROUTES, valid_group, valid_id, valid_model};
-use super::{RoutingError, Speed};
+use super::{PayloadPolicy, Protocol, RoutingError, Speed, TieredTariff};
 
 pub const MULTIPLIER_ONE: u32 = 1_000_000;
 pub const MAX_MULTIPLIER: u32 = 1_000_000_000;
@@ -17,6 +17,9 @@ pub enum BillingMode {
     Tokens,
     UpstreamCost,
     TieredDecimal,
+    /// Official flat source shared by targets with different provider meters.
+    /// A target must resolve this template before admission or charging.
+    OfficialFlat,
 }
 impl BillingMode {
     fn is_tokens(&self) -> bool {
@@ -61,6 +64,32 @@ pub struct PriceRule {
     pub rates: TokenRates,
     pub group_multiplier_ppm: u32,
     pub speed_multiplier_ppm: u32,
+}
+
+/// An official flat template encodes one uniform source write rate, including
+/// an explicit zero, and never takes lifetime evidence from an imported tariff.
+fn official_flat_source(tariff: &TieredTariff) -> bool {
+    let [tier] = tariff.tiers.as_slice() else {
+        return false;
+    };
+    let rates = tier.rates;
+    tariff.revision == 2
+        && tariff.calendar.is_none()
+        && tariff.uses_cache_read
+        && tariff.uses_cache_write
+        && tariff.uses_cache_write_1h
+        && !tariff.uses_cache_write_12h
+        && tier.up_to_input_tokens.is_none()
+        && rates.cache_write_1h == Some(rates.cache_write)
+        && rates.cache_write_12h.is_none()
+        && [
+            rates.input,
+            rates.output,
+            rates.cache_read,
+            rates.cache_write,
+        ]
+        .iter()
+        .all(|r| r.denominator == 1_000_000 && r.numerator <= i64::MAX as u64)
 }
 
 /// Independently versioned prices. A route release pins exactly one price version.
@@ -173,7 +202,7 @@ impl CreditQuote {
         input_tokens: u64,
         output_tokens: u64,
     ) -> Result<Credits, RoutingError> {
-        if let Some(tariff) = self.price.tiered {
+        if let Some(tariff) = self.price.tiered() {
             return tariff
                 .reservation_ceiling_with_discount(
                     input_tokens,
@@ -228,7 +257,7 @@ impl CreditQuote {
         if self.price.rounding.is_some() && usage.cache_write != 0 {
             return Err(RoutingError::InvalidRequest);
         }
-        if let Some(tariff) = self.price.tiered {
+        if let Some(tariff) = self.price.tiered() {
             return tariff
                 .charge_with_discount(
                     super::TieredUsage {
@@ -298,7 +327,7 @@ impl CreditQuote {
         semantics: super::InputSemantics,
     ) -> Result<Credits, RoutingError> {
         self.price
-            .tiered
+            .tiered()
             .ok_or(RoutingError::InvalidRequest)?
             .charge_with_discount(
                 usage,
@@ -323,6 +352,7 @@ fn rounded_amount(numerator: u128, denominator: u128) -> Result<u64, RoutingErro
 /// Immutable request-local price evidence. No floating point or database lookup.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PriceQuote {
+    bound_official_flat: bool,
     rounding: Option<TokenRounding>,
     billing_mode: BillingMode,
     tiered: Option<super::CompiledTariff>,
@@ -363,7 +393,77 @@ impl PriceQuote {
             _ => false,
         }
     }
+    /// Resolve a published scalar witness against the actual upstream's meter.
+    /// Historical tariffs already have a fixed dialect and are returned intact.
+    pub fn for_target(
+        mut self,
+        protocol: Protocol,
+        payload: PayloadPolicy,
+    ) -> Result<Self, RoutingError> {
+        if self.billing_mode != BillingMode::OfficialFlat {
+            return Ok(self);
+        }
+        let invalid = RoutingError::InvalidConfig("official flat target");
+        if payload == PayloadPolicy::LegacyOpenRouterChatUsageV1 {
+            return Err(invalid);
+        }
+        let mut tariff = self.tiered.ok_or(RoutingError::MissingPrice)?.tariff();
+        let rates = &mut tariff.tiers[0].rates;
+        match protocol {
+            Protocol::OpenAiChat | Protocol::OpenAiResponses => {
+                tariff.revision = 4;
+                tariff.uses_cache_write_1h = false;
+                tariff.uses_cache_write_12h = true;
+                rates.cache_write_1h = None;
+                rates.cache_write_12h = Some(rates.cache_write);
+            }
+            Protocol::AnthropicMessages => {}
+            Protocol::Gemini
+            | Protocol::SystemOne
+            | Protocol::OpenAiEmbeddings
+            | Protocol::JinaRerank => {
+                let input_only = protocol != Protocol::Gemini;
+                if input_only
+                    && (rates.cache_write.numerator != 0
+                        || rates.output.numerator != 0
+                        || rates.cache_read.numerator != 0)
+                {
+                    return Err(invalid);
+                }
+                // Gemini does not report write usage. Other targets still bind
+                // the source write rate from this same immutable witness.
+                rates.cache_write.numerator = 0;
+                tariff.revision = 1;
+                tariff.uses_cache_read = !input_only;
+                tariff.uses_cache_write = false;
+                tariff.uses_cache_write_1h = false;
+                rates.cache_write_1h = None;
+            }
+            Protocol::DeepSeekSearch | Protocol::DeepSeekFetch => return Err(invalid),
+        }
+        self.tiered = Some(tariff.compile()?);
+        self.billing_mode = BillingMode::TieredDecimal;
+        self.bound_official_flat = true;
+        Ok(self)
+    }
+
+    /// Admission-only origin for a concrete quote produced from a mixed official
+    /// source. Provider evidence rules are still owned by the frozen contract.
+    pub(crate) fn is_bound_official_flat(&self) -> bool {
+        self.bound_official_flat
+    }
+
+    /// Display-only source rates. Unlike an executable quote, these describe the
+    /// model's uniform official prices before any provider metering contract.
+    pub(crate) fn tariff_template_for_display(self) -> Option<super::CompiledTariff> {
+        self.tiered
+    }
+
+    /// A route-level flat template cannot supply an executable tariff.
     pub fn tiered(&self) -> Option<super::CompiledTariff> {
+        if self.billing_mode == BillingMode::OfficialFlat {
+            return None;
+        }
         self.tiered
     }
     pub fn billing_mode(&self) -> BillingMode {
@@ -388,7 +488,7 @@ impl PriceQuote {
     /// Round UP once, after summing all dimensions and both multipliers.
     /// Task 03 must apply this once to a logical request; retries are not new fees.
     pub fn charge(&self, usage: Usage) -> Result<MicroUsd, RoutingError> {
-        if let Some(tariff) = self.tiered {
+        if let Some(tariff) = self.tiered() {
             return tariff
                 .charge(
                     super::TieredUsage {
@@ -425,6 +525,11 @@ impl PriceQuote {
     }
 
     fn numerator(&self, usage: Usage) -> Result<u128, RoutingError> {
+        if self.billing_mode == BillingMode::OfficialFlat {
+            return Err(RoutingError::InvalidConfig(
+                "unresolved official flat price",
+            ));
+        }
         if self.billing_mode == BillingMode::UpstreamCost {
             return Err(RoutingError::InvalidConfig(
                 "upstream cost cannot be inferred from token counts",
@@ -495,8 +600,13 @@ impl PriceSnapshot {
             {
                 return Err(RoutingError::InvalidConfig("legacy ratio rounding"));
             }
+            if rule.billing_mode == BillingMode::OfficialFlat
+                && !rule.tiered.as_ref().is_some_and(official_flat_source)
+            {
+                return Err(RoutingError::InvalidConfig("official flat template"));
+            }
             let tiered = match (&rule.tiered, rule.billing_mode) {
-                (Some(tariff), BillingMode::TieredDecimal)
+                (Some(tariff), BillingMode::TieredDecimal | BillingMode::OfficialFlat)
                     if [
                         rule.rates.input,
                         rule.rates.output,
@@ -537,6 +647,7 @@ impl PriceSnapshot {
                 return Err(RoutingError::InvalidConfig("upstream-cost router price"));
             }
             let quote = PriceQuote {
+                bound_official_flat: false,
                 rounding: rule.rounding,
                 billing_mode: rule.billing_mode,
                 tiered,
@@ -719,6 +830,7 @@ mod a07_tests {
 
     fn quote(rates: TokenRates) -> PriceQuote {
         PriceQuote {
+            bound_official_flat: false,
             rounding: None,
             billing_mode: BillingMode::Tokens,
             tiered: None,

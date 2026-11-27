@@ -7,6 +7,7 @@ import {
   type PriceRateKey,
 } from '@/features/system-settings/billing/native-price-rules'
 
+import { hasDecimalPriceRates } from '../lib/native-price-display'
 import type { NativePrices } from '../native-api'
 import { microsToUsd } from './native-model-draft'
 
@@ -47,11 +48,13 @@ export function NativePriceRuleList({ prices }: { prices: NativePrices }) {
           const model = typeof raw.model === 'string' ? raw.model : t('Unknown')
           const mode = !rule
             ? t('Unknown')
-            : rule.billing_mode === 'tiered_decimal'
-              ? t('Tiered pricing')
-              : rule.billing_mode === 'upstream_cost'
-                ? t('Upstream cost')
-                : t('Token pricing')
+            : rule.billing_mode === 'official_flat'
+              ? t('Official base price')
+              : rule.billing_mode === 'tiered_decimal'
+                ? t('Tiered pricing')
+                : rule.billing_mode === 'upstream_cost'
+                  ? t('Upstream cost')
+                  : t('Token pricing')
           return (
             <article
               key={String(raw.id ?? index)}
@@ -77,7 +80,7 @@ export function NativePriceRuleList({ prices }: { prices: NativePrices }) {
                   const value = rule ? priceRateText(rule, key) : null
                   const notApplicable =
                     rule?.billing_mode === 'upstream_cost' ||
-                    (rule?.billing_mode === 'tiered_decimal' &&
+                    (hasDecimalPriceRates(rule?.billing_mode) &&
                       key === 'request')
                   return (
                     <div key={key} className='min-w-0 space-y-1'>

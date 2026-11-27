@@ -1,6 +1,7 @@
 //! Native Gemini text/image/function adapter. Routing and settlement remain host-owned.
 //! Wire reference: googleapis/python-genai ddd7d821497afe97a392e599ccffd5dd5011e44c
 //! (Apache-2.0); independently implemented, no upstream source copied.
+use super::request::BodyTier;
 #[cfg(test)]
 use super::{BlockKind, Event, FinishReason, Usage};
 use super::{ClientProtocol, Limits, RelayError, Request, UpstreamProtocol};
@@ -140,9 +141,13 @@ pub(crate) fn parse(
     if body.len() > limits.request_bytes {
         return Err(RelayError::Limit("request body"));
     }
-    let v = serde_json::from_slice::<Unique>(body)
+    let mut v = serde_json::from_slice::<Unique>(body)
         .map_err(|_| RelayError::Invalid("invalid or ambiguous Gemini JSON"))?
         .0;
+    let tier = BodyTier::take(
+        v.as_object_mut()
+            .ok_or(RelayError::Invalid("expected Gemini object"))?,
+    );
     keys(
         &v,
         &[
@@ -415,6 +420,7 @@ pub(crate) fn parse(
         }
     }
     request.client = ClientProtocol::Gemini;
+    request.set_body_tier(tier);
     request.google_search = google_search;
     request.continuation_token = continuation_token(v.get("continuationToken"), limits)?;
     if let Some(captured) = super::schema_order::gemini_schemas(body) {

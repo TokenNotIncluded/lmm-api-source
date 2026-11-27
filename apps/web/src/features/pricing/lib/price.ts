@@ -19,6 +19,12 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
+import {
+  getCurrencyFormattingLocale,
+  parseDecimalRational,
+} from '@/lib/currency'
+
+import type { NativeConstantTokenRates } from '../catalog-contract'
 import { QUOTA_TYPE_VALUES, TOKEN_UNIT_DIVISORS } from '../constants'
 import type {
   PricingModel,
@@ -27,6 +33,7 @@ import type {
   PriceDisplayCurrency,
   PricingGroupPrices,
 } from '../types'
+import { exactRateDecimal } from './cache-write-rate'
 import { getConfiguredGroupRatio, getDisplayGroupRatio } from './model-helpers'
 /*
 Copyright (C) 2023-2026 QuantumNous
@@ -115,6 +122,87 @@ export function getTokenPriceUSD(
     : Number.NaN
 }
 
+const constantRateFields: Partial<
+  Record<PriceType, keyof NativeConstantTokenRates>
+> = {
+  input: 'input',
+  output: 'output',
+  cache: 'cache_read',
+  create_cache: 'cache_write',
+}
+
+/** A headline rate must agree exactly across every visible group. */
+function frozenTokenRate(model: PricingModel, type: PriceType, group?: string) {
+  const field = constantRateFields[type]
+  const rates = model.group_constant_token_rates
+  if (!field || !rates || !hasCanonicalPricing(model)) return undefined
+  if (group && model.group_prices?.[group]) return rates[group]?.[field]
+  const reference = Object.values(rates).find((rate) => rate[field] != null)?.[
+    field
+  ]
+  if (!reference) return undefined
+  const numerator = BigInt(reference.numerator)
+  const denominator = BigInt(reference.denominator)
+  for (const name of model.enable_groups) {
+    const native = rates[name]
+    const rate = native
+      ? native[field]
+      : parseDecimalRational(getTokenPriceUSD(model, type, name))
+    if (
+      !rate ||
+      BigInt(rate.numerator) * denominator !==
+        numerator * BigInt(rate.denominator)
+    ) {
+      return null
+    }
+  }
+  return reference
+}
+
+export function hasCacheReadPrice(
+  model: PricingModel,
+  group?: string
+): boolean {
+  const exact = frozenTokenRate(model, 'cache', group)
+  if (exact !== undefined) return exact !== null
+  const prices = group ? model.group_prices?.[group] : undefined
+  return (prices ?? model).cache_read_price != null
+}
+
+export function formatFrozenTokenPriceUSD(
+  model: PricingModel,
+  type: PriceType,
+  unit: TokenUnit,
+  group?: string
+) {
+  const rate = frozenTokenRate(model, type, group)
+  if (rate === undefined) return undefined
+  if (rate === null) return '-'
+  const numerator = BigInt(rate.numerator)
+  const denominator =
+    BigInt(rate.denominator) * BigInt(TOKEN_UNIT_DIVISORS[unit])
+  const exact = exactRateDecimal(numerator, denominator)
+  const locale = getCurrencyFormattingLocale()
+  const [whole, fraction] = exact?.split('.') ?? []
+  if (whole && whole.length <= 18) {
+    const format = new Intl.NumberFormat(locale)
+    const integer = format.format(BigInt(whole))
+    const separator =
+      format.formatToParts(1.1).find((part) => part.type === 'decimal')
+        ?.value ?? '.'
+    return `${integer}${fraction ? separator + fraction : ''} USD`
+  }
+  const approximate = new Intl.NumberFormat(locale, {
+    notation:
+      numerator < denominator / 1_000_000n ||
+      numerator / denominator >= 10n ** 18n
+        ? 'scientific'
+        : 'standard',
+    maximumSignificantDigits: 6,
+  }).format(Number(numerator) / Number(denominator))
+  return `≈ ${approximate} USD (${numerator}/${denominator} USD)`
+}
+
 /**
  * Format token-based price for display
  */
@@ -129,6 +217,15 @@ export function formatPrice(
     return '-'
   }
 
+  if (displayCurrency === 'USD') {
+    const exact = formatFrozenTokenPriceUSD(
+      model,
+      type,
+      tokenUnit,
+      selectedGroup
+    )
+    if (exact !== undefined) return exact
+  }
   const displayGroupRatio = getDisplayGroupRatio(model, selectedGroup)
 
   const amountUSD =
@@ -157,6 +254,10 @@ export function formatGroupPrice(
     return '-'
   }
 
+  if (displayCurrency === 'USD') {
+    const exact = formatFrozenTokenPriceUSD(model, type, tokenUnit, group)
+    if (exact !== undefined) return exact
+  }
   const ratio = model.group_prices
     ? 1
     : getConfiguredGroupRatio(groupRatio, group)

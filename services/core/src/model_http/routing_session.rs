@@ -121,6 +121,30 @@ impl Session {
     }
 }
 
+// A retry uses the existing reservation. Its next supplier must interpret
+// usage under the same frozen cache contract, even on the same wire protocol.
+fn compatible_official_meter(
+    primary: &crate::billing::charging::Price,
+    next: &crate::billing::charging::Price,
+) -> bool {
+    let signature = |price: &crate::billing::charging::Price| {
+        price.tiered.as_ref().map(|stored| {
+            let tariff = &stored.tariff;
+            (
+                stored.input_semantics,
+                stored.missing_cache_creation_is_zero,
+                stored.cache_creation_mode,
+                tariff.revision,
+                tariff.uses_cache_read,
+                tariff.uses_cache_write,
+                tariff.uses_cache_write_1h,
+                tariff.uses_cache_write_12h,
+            )
+        })
+    };
+    signature(primary) == signature(next)
+}
+
 impl Bridge {
     pub(in crate::model_http) fn select_with_fallbacks(
         &self,
@@ -212,7 +236,11 @@ impl Bridge {
                     else {
                         continue;
                     };
+                    let official = selected.attempt.quote().is_bound_official_flat()
+                        || candidate.attempt.quote().is_bound_official_flat();
                     if next.protocol != route.protocol
+                        || (official
+                            && !compatible_official_meter(&selected.price, &candidate.price))
                         || !matches!(
                             next.count_plan,
                             crate::relay::input_count::CountPlan::ContextMax
@@ -458,5 +486,61 @@ impl Bridge {
         selected.quote = previous.quote;
         op.selected = Some(selected);
         Ok(Some(candidate.route.clone()))
+    }
+}
+
+#[cfg(test)]
+mod mixed_official_meter_tests {
+    use super::compatible_official_meter;
+    use crate::{billing::charging::Price, routing::InputSemantics};
+    use serde_json::json;
+
+    #[test]
+    fn retry_compares_frozen_evidence_contracts_even_when_prices_are_free() {
+        let zero = json!({"numerator":0,"denominator":1});
+        let input = json!({"numerator":2,"denominator":1});
+        let primary: Price = serde_json::from_value(json!({
+            "model":"metered","group":"default","version":"routing-1-rule-1",
+            "input_per_million":0,"cached_per_million":0,"output_per_million":0,
+            "tiered":{"input_semantics":"inclusive","group_multiplier_ppm":1_000_000,
+            "speed_multiplier_ppm":1_000_000,"credits_per_usd":500_000,"tariff":{
+              "revision":2,"source_digest":"12".repeat(32),"uses_cache_read":true,
+              "uses_cache_write":true,"uses_cache_write_1h":true,"tiers":[{
+                "up_to_input_tokens":null,"rates":{"input":input,"output":zero,"cache_read":zero,
+                "cache_write":zero,"cache_write_1h":zero}
+              }]
+            }}
+        }))
+        .unwrap();
+        primary.validate().unwrap();
+        let restored: Price =
+            serde_json::from_slice(&serde_json::to_vec(&primary).unwrap()).unwrap();
+        assert!(compatible_official_meter(&primary, &restored));
+
+        // Each alternative is a valid tariff; none can inherit the primary's
+        // interpretation of missing counters or its measurement categories.
+        for difference in 0..5 {
+            let mut candidate = primary.clone();
+            let stored = candidate.tiered.as_mut().unwrap();
+            match difference {
+                0 => stored.missing_cache_creation_is_zero = true,
+                1 => stored.input_semantics = InputSemantics::AnthropicText,
+                2 => stored.tariff.uses_cache_read = false,
+                3 => {
+                    stored.tariff.uses_cache_write_1h = false;
+                    stored.tariff.tiers[0].rates.cache_write_1h = None;
+                }
+                _ => {
+                    stored.tariff.revision = 4;
+                    stored.tariff.uses_cache_write_1h = false;
+                    stored.tariff.uses_cache_write_12h = true;
+                    let rates = &mut stored.tariff.tiers[0].rates;
+                    rates.cache_write_12h = rates.cache_write_1h.take();
+                }
+            }
+            candidate.validate().unwrap();
+            assert!(!compatible_official_meter(&primary, &candidate));
+            assert!(!compatible_official_meter(&candidate, &primary));
+        }
     }
 }

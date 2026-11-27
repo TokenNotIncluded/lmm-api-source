@@ -68,7 +68,7 @@ function groupPrices(
     row.billing_status === 'unavailable'
       ? undefined
       : row.token_price?.constant_token_rates
-  // The API has already applied both multipliers. Browser numbers are used for display.
+  // Keep numeric projections for sorting and exchange-rate conversions.
   const amount = (rate: { numerator: string; denominator: string } | null) =>
     rate ? Number(rate.numerator) / Number(rate.denominator) : null
   return {
@@ -211,6 +211,14 @@ export function adaptNativePricing(
       cache_read_price: commonPrice(prices, 'cache_read_price'),
       cache_write_price: commonPrice(prices, 'cache_write_price'),
       model_price: commonPrice(prices, 'model_price') ?? undefined,
+      group_constant_token_rates: Object.fromEntries(
+        rows.flatMap((row) =>
+          row.billing_status !== 'unavailable' &&
+          row.token_price?.constant_token_rates
+            ? [[row.group, row.token_price.constant_token_rates]]
+            : []
+        )
+      ),
       group_cache_write_12h_tiers: Object.fromEntries(
         rows.flatMap((row) =>
           row.token_price?.cache_write_12h_tiers

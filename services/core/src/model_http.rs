@@ -1155,11 +1155,21 @@ async fn dispatch_authorized(
         Ok(value) => value,
         Err(error) => return native::error_response(client, error),
     };
-    let plans = match gateway.bridge.routing.route_adapted_groups(
+    let snapshot = match gateway.bridge.routing.snapshot() {
+        Ok(snapshot) => snapshot,
+        Err(error) => return native::error_response(client, model_route_error(error)),
+    };
+    let body_speed = match request.apply_service_tier_policy(snapshot.honor_request_service_tier())
+    {
+        Ok(speed) => speed,
+        Err(error) => return native::error_response(client, error),
+    };
+    let plans = match snapshot.http_model_groups(
         &request.model,
         &groups,
         routing::client_protocol(client),
         affinity,
+        body_speed,
     ) {
         Ok(plans) => plans,
         Err(error) => return native::error_response(client, model_route_error(error)),
@@ -1190,8 +1200,10 @@ async fn dispatch_authorized(
         request.sse_ping = policy.config.ping_interval_enabled.then(|| {
             std::time::Duration::from_secs(u64::from(policy.config.ping_interval_seconds))
         });
-        if policy.config.pass_through_request_enabled {
-            request.original_http_body = Some(body.clone());
+        if policy.config.pass_through_request_enabled
+            && let Err(error) = request.set_http_passthrough_body(body.clone())
+        {
+            return native::error_response(client, error);
         }
     }
     let path = match client {

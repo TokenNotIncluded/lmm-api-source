@@ -29,7 +29,6 @@ import {
   type NativePriceRule,
 } from './native-price-rules'
 import { expressionPriceRule } from './native-pricing-sources'
-import { NativeUpstreamPriceSync } from './native-upstream-price-sync'
 
 type Tier = {
   up_to_input_tokens: number | null
@@ -49,7 +48,6 @@ export function NativePriceRuleDialog({
   groups,
   models,
   routing,
-  openUpstreamSync = false,
   onClose,
   onSave,
 }: {
@@ -57,7 +55,6 @@ export function NativePriceRuleDialog({
   groups: string[]
   models: string[]
   routing: NativeConfiguration['routing']
-  openUpstreamSync?: boolean
   onClose: () => void
   onSave: (rule: NativePriceRule) => void
 }) {
@@ -344,24 +341,6 @@ export function NativePriceRuleDialog({
                     ? t('Expression pricing')
                     : t('Use token prices')}
                 </Button>
-                {expression === null && (
-                  <NativeUpstreamPriceSync
-                    key={rule.model}
-                    model={rule.model}
-                    defaultOpen={openUpstreamSync}
-                    onApply={(incoming) =>
-                      setRates((current) => ({
-                        ...current,
-                        ...Object.fromEntries(
-                          Object.entries(incoming).map(([field, value]) => [
-                            field,
-                            microsToUsd(value),
-                          ])
-                        ),
-                      }))
-                    }
-                  />
-                )}
               </div>
             )}
             {expression !== null ? (

@@ -7,7 +7,7 @@ use super::{
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-use crate::routing::CacheCreationMode;
+use crate::routing::{CacheCreationMode, Speed};
 
 #[path = "decode/zconv.rs"]
 mod zconv_bridge;
@@ -22,6 +22,7 @@ struct Slot {
 }
 pub(crate) struct Decoder {
     protocol: UpstreamProtocol,
+    expected_speed: Option<Speed>,
     cache_creation_mode: Option<CacheCreationMode>,
     openrouter_stream: bool,
     legacy_openrouter_usage: bool,
@@ -366,6 +367,7 @@ impl Decoder {
     ) -> Self {
         Self {
             protocol,
+            expected_speed: None,
             cache_creation_mode,
             openrouter_stream: false,
             legacy_openrouter_usage: false,
@@ -381,6 +383,48 @@ impl Decoder {
             gemini_grounded_requests: None,
             continuation_token: None,
         }
+    }
+
+    pub(super) fn with_expected_speed(mut self, speed: Option<Speed>) -> Self {
+        self.expected_speed = speed;
+        self
+    }
+
+    fn check_native_grade(&self, reported: &str, fast_label: &str) -> Result<(), RelayError> {
+        if let Some(expected) = self.expected_speed {
+            let matches = match expected {
+                Speed::Standard => reported == "standard",
+                Speed::Fast => reported == fast_label,
+                Speed::Ultrafast => false,
+            };
+            if !matches {
+                return Err(RelayError::Protocol(
+                    "provider grade differs from frozen quote",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn check_service_tier_headers(
+        &self,
+        headers: &reqwest::header::HeaderMap,
+    ) -> Result<(), RelayError> {
+        if self.protocol == UpstreamProtocol::Gemini && self.expected_speed.is_some() {
+            let mut values = headers.get_all("x-gemini-service-tier").iter();
+            if let Some(value) = values.next() {
+                if values.next().is_some() {
+                    return Err(RelayError::Protocol("ambiguous provider grade header"));
+                }
+                self.check_native_grade(
+                    value
+                        .to_str()
+                        .map_err(|_| RelayError::Protocol("invalid provider grade header"))?,
+                    "priority",
+                )?;
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn with_openrouter_stream(mut self, enabled: bool) -> Self {
@@ -590,6 +634,9 @@ impl Decoder {
     fn admit(&self, value: &Value, full: bool) -> Result<(), RelayError> {
         match self.protocol {
             UpstreamProtocol::Chat => {
+                if let Some(expected) = self.expected_speed {
+                    super::validate_openai_reported_tier(expected, value.get("service_tier"))?;
+                }
                 let choices = value["choices"]
                     .as_array()
                     .ok_or(RelayError::Protocol("missing choices"))?;
@@ -627,6 +674,12 @@ impl Decoder {
                     value.get("response")
                 };
                 if let Some(response) = response {
+                    if let Some(expected) = self.expected_speed {
+                        super::validate_openai_reported_tier(
+                            expected,
+                            response.get("service_tier"),
+                        )?;
+                    }
                     plain_response(response)?;
                     if full
                         && !matches!(
@@ -654,15 +707,24 @@ impl Decoder {
             }
             UpstreamProtocol::Anthropic => {
                 let usage = value.get("message").unwrap_or(value).get("usage");
+                if let Some(reported) = usage
+                    .and_then(|usage| usage.get("speed"))
+                    .filter(|v| !v.is_null())
+                {
+                    self.check_native_grade(text(reported)?, "fast")?;
+                }
+                if usage
+                    .and_then(|usage| usage.get("service_tier"))
+                    .is_some_and(|tier| {
+                        self.expected_speed.is_none() || (!tier.is_null() && tier != "standard")
+                    })
+                {
+                    return Err(RelayError::Unsupported("provider-owned usage details"));
+                }
                 if usage.is_some_and(|usage| {
-                    [
-                        "server_tool_use",
-                        "service_tier",
-                        "inference_geo",
-                        "iterations",
-                    ]
-                    .iter()
-                    .any(|key| usage.get(key).is_some())
+                    ["server_tool_use", "inference_geo", "iterations"]
+                        .iter()
+                        .any(|key| usage.get(key).is_some())
                 }) {
                     return Err(RelayError::Unsupported("provider-owned usage details"));
                 }
@@ -683,6 +745,12 @@ impl Decoder {
                 }
             }
             UpstreamProtocol::Gemini => {
+                if let Some(reported) = value
+                    .get("usageMetadata")
+                    .and_then(|usage| usage.get("serviceTier"))
+                {
+                    self.check_native_grade(text(reported)?, "priority")?;
+                }
                 if let Some(candidates) = value.get("candidates") {
                     let candidates = candidates
                         .as_array()
@@ -755,6 +823,103 @@ impl Decoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn actual_native_grade_must_match_the_selected_quote() {
+        use reqwest::header::{HeaderMap, HeaderValue};
+
+        let anthropic = Decoder::new(UpstreamProtocol::Anthropic, &Limits::default())
+            .with_expected_speed(Some(Speed::Fast));
+        for full in [false, true] {
+            for (grade, accepted) in [
+                (serde_json::json!("fast"), true),
+                (serde_json::json!("standard"), false),
+                (serde_json::json!(123), false),
+            ] {
+                let message =
+                    serde_json::json!({"usage":{"speed":grade,"service_tier":"standard"}});
+                let data = if full {
+                    message
+                } else {
+                    serde_json::json!({"type":"message_start","message":message})
+                };
+                assert_eq!(anthropic.admit(&data, full).is_ok(), accepted);
+            }
+            assert!(
+                anthropic
+                    .admit(&serde_json::json!({"usage":{"service_tier":"batch"}}), full)
+                    .is_err()
+            );
+            assert!(
+                anthropic
+                    .admit(&serde_json::json!({"usage":{}}), full)
+                    .is_ok()
+            );
+
+            let gemini = Decoder::new(UpstreamProtocol::Gemini, &Limits::default())
+                .with_expected_speed(Some(Speed::Fast));
+            for (grade, accepted) in [
+                (serde_json::json!("priority"), true),
+                (serde_json::json!("standard"), false),
+                (serde_json::json!({}), false),
+            ] {
+                let data = serde_json::json!({"usageMetadata":{"serviceTier":grade}});
+                assert_eq!(gemini.admit(&data, full).is_ok(), accepted);
+            }
+            let mut headers = HeaderMap::new();
+            assert!(gemini.check_service_tier_headers(&headers).is_ok());
+            headers.insert(
+                "x-gemini-service-tier",
+                HeaderValue::from_static("priority"),
+            );
+            assert!(gemini.check_service_tier_headers(&headers).is_ok());
+            headers.insert(
+                "x-gemini-service-tier",
+                HeaderValue::from_static("standard"),
+            );
+            assert!(gemini.check_service_tier_headers(&headers).is_err());
+            headers.append(
+                "x-gemini-service-tier",
+                HeaderValue::from_static("priority"),
+            );
+            assert!(gemini.check_service_tier_headers(&headers).is_err());
+        }
+    }
+
+    #[test]
+    fn anthropic_stream_grade_is_checked_before_terminal_usage() {
+        let start = |grade| {
+            serde_json::json!({
+                "type":"message_start","message":{"id":"msg_test","type":"message","role":"assistant",
+                "content":[],"usage":{"input_tokens":3,"output_tokens":0,"speed":grade,"service_tier":"standard"}}
+            })
+        };
+        let delta = |grade| {
+            serde_json::json!({
+                "type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},
+                "usage":{"output_tokens":2,"speed":grade,"service_tier":"standard"}
+            })
+        };
+        let frame = |body: Value| Frame {
+            event: Some(body["type"].as_str().unwrap().to_owned()),
+            data: body.to_string(),
+        };
+        for (speed, grade) in [(Speed::Fast, "fast"), (Speed::Standard, "standard")] {
+            let mut decoder = Decoder::new(UpstreamProtocol::Anthropic, &Limits::default())
+                .with_expected_speed(Some(speed));
+            decoder.frame(frame(start(grade))).unwrap();
+            decoder.frame(frame(delta(grade))).unwrap();
+            decoder
+                .frame(frame(serde_json::json!({"type":"message_stop"})))
+                .unwrap();
+            assert!(decoder.eof().is_ok());
+        }
+        let mut decoder = Decoder::new(UpstreamProtocol::Anthropic, &Limits::default())
+            .with_expected_speed(Some(Speed::Fast));
+        decoder.frame(frame(start("fast"))).unwrap();
+        assert!(decoder.frame(frame(delta("standard"))).is_err());
+        assert!(!decoder.is_done());
+    }
 
     fn deepseek_receipt() -> Value {
         serde_json::json!({

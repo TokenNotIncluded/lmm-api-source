@@ -239,6 +239,8 @@ function decimal(value: number | string): Rational | null {
     : { numerator, denominator: 10n ** BigInt(-exponent) }
 }
 
+export { decimal as parseDecimalRational }
+
 function rate(value: number | undefined, exact?: string): Rational | null {
   if (!Number.isFinite(value) || !value || value <= 0) return null
   const parsed = decimal(exact && Number(exact) === value ? exact : value)

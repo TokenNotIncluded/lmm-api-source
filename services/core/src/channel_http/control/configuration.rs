@@ -47,6 +47,8 @@ pub(in crate::channel_http) struct Bindings {
     pub discoveries: BTreeMap<u64, super::catalog::Discovery>,
     #[serde(default)]
     pub price_drafts: BTreeMap<u64, super::price_drafts::PriceDraft>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub official_prices: Option<super::official_prices::OfficialPrices>,
     #[serde(default)]
     pub balance_probes: BTreeMap<u64, super::balance::BalanceProbe>,
     /// Explicit imported/operator-supplied old type; never inferred from a URL.
@@ -179,22 +181,83 @@ pub(in crate::channel_http) struct ConfigurationInput {
     confirmation_digest: Option<String>,
 }
 impl ConfigurationInput {
-    fn document(&self) -> Result<ReleaseDocument, ManagementError> {
-        if self.routing.version
-            != self
-                .expected_version
-                .routing
-                .checked_add(1)
-                .ok_or(ManagementError::Invalid)?
-            || self.prices.version < self.expected_version.pricing
+    fn prepare(
+        &mut self,
+        management: &ManagedChannels,
+    ) -> Result<ReleaseDocument, ManagementError> {
+        let current = next_document(management, self.expected_version)?;
+        if self.routing.version != current.routing.version
+            || self.prices.version < current.pricing.version
         {
             return Err(ManagementError::Invalid);
         }
-        Ok(ReleaseDocument {
+        let previous = management.current_bindings()?;
+        if (self.bindings.assistant_group.is_some()
+            && self.bindings.assistant_group != previous.assistant_group)
+            || (self.bindings.assistant_model.is_some()
+                && self.bindings.assistant_model != previous.assistant_model)
+        {
+            return Err(ManagementError::Conflict);
+        }
+        self.bindings.assistant_group = previous.assistant_group;
+        self.bindings.assistant_model = previous.assistant_model;
+
+        // Only the channel-specific endpoint edits pending selections. Carry
+        // them through full-document saves from clients predating the field.
+        for discovery in self.bindings.discoveries.values_mut() {
+            discovery.pending_models.clear();
+        }
+        let previous_upstreams: BTreeMap<_, _> = current
+            .routing
+            .upstreams
+            .iter()
+            .map(|upstream| (upstream.id, upstream))
+            .collect();
+        for upstream in &self.routing.upstreams {
+            if previous_upstreams
+                .get(&upstream.id)
+                .is_some_and(|old| old.same_destination(upstream))
+                && let Some(discovery) = previous.discoveries.get(&upstream.id)
+                && !discovery.pending_models.is_empty()
+            {
+                self.bindings
+                    .discoveries
+                    .entry(upstream.id)
+                    .or_insert_with(|| discovery.clone())
+                    .pending_models
+                    .clone_from(&discovery.pending_models);
+            }
+        }
+
+        if self.bindings.official_prices.is_none() {
+            self.bindings
+                .official_prices
+                .clone_from(&previous.official_prices);
+        }
+        if let Some(official) = &self.bindings.official_prices {
+            if previous.official_prices.as_ref() != Some(official)
+                && current.pricing.version.checked_add(1) != Some(self.prices.version)
+            {
+                return Err(ManagementError::Invalid);
+            }
+            if let Some(old) = &previous.official_prices {
+                self.prices.rules.retain(|rule| {
+                    !old.models.contains_key(&rule.model)
+                        || official.models.contains_key(&rule.model)
+                });
+            }
+            self.prices = official.compile(&self.routing, &self.prices)?;
+        }
+        if self.prices.version == current.pricing.version && self.prices != current.pricing {
+            return Err(ManagementError::Invalid);
+        }
+        let document = ReleaseDocument {
             contract_version: crate::routing::CONTRACT_VERSION,
             routing: self.routing.clone(),
             pricing: self.prices.clone(),
-        })
+        };
+        super::catalog::promote_pending(&document, &mut self.bindings)?;
+        Ok(document)
     }
     fn digest(&self) -> Result<String, ManagementError> {
         let value = serde_json::to_vec(&(
@@ -263,22 +326,8 @@ pub(in crate::channel_http) async fn preview(
             super::ReadView::Current,
         )
         .await?;
-    let current = next_document(management, input.expected_version)?;
     let mut input = input;
-    let (group, model) = management.assistant_route()?;
-    if (input.bindings.assistant_group.is_some() && input.bindings.assistant_group != group)
-        || (input.bindings.assistant_model.is_some() && input.bindings.assistant_model != model)
-    {
-        return Err(ManagementError::Conflict.into());
-    }
-    input.bindings.assistant_group = group;
-    input.bindings.assistant_model = model;
-    let document = input.document()?;
-    if document.pricing.version == input.expected_version.pricing
-        && document.pricing != current.pricing
-    {
-        return Err(ManagementError::Invalid.into());
-    }
+    let document = input.prepare(management)?;
     management.validate_bindings(&document, &input.bindings, &BTreeSet::new())?;
     let digest = input.digest()?;
     tx.rollback().await.map_err(ManagementError::from)?;
@@ -302,23 +351,9 @@ pub(in crate::channel_http) async fn publish(
         )
         .await?;
     let mut input = input;
-    let (group, model) = management.assistant_route()?;
-    if (input.bindings.assistant_group.is_some() && input.bindings.assistant_group != group)
-        || (input.bindings.assistant_model.is_some() && input.bindings.assistant_model != model)
-    {
-        return Err(ManagementError::Conflict.into());
-    }
-    input.bindings.assistant_group = group;
-    input.bindings.assistant_model = model;
-    let document = input.document()?;
+    let document = input.prepare(management)?;
     let digest = input.digest()?;
     if input.confirmation_digest.as_deref() != Some(digest.as_str()) {
-        return Err(ManagementError::Invalid.into());
-    }
-    let current = next_document(management, input.expected_version)?;
-    if document.pricing.version == input.expected_version.pricing
-        && document.pricing != current.pricing
-    {
         return Err(ManagementError::Invalid.into());
     }
     let version = management

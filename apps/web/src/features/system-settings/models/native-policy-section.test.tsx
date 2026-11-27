@@ -172,6 +172,7 @@ for (const [section, Section, conflict, mismatchedReadback] of policies) {
               )
             )
           } else {
+            assert.equal(policy.honor_request_service_tier, true)
             assert.deepEqual(policy.thinking_model_blacklist, [
               'moonshotai/kimi-k2-thinking',
               'kimi-k2-thinking',
@@ -238,6 +239,18 @@ for (const [section, Section, conflict, mismatchedReadback] of policies) {
           (b) => b.textContent === label
         )
       await until(() => !!button('Preview changes'))
+      if (section === 'global_model_policy') {
+        const label = [...container.querySelectorAll('label')].find(
+          (element) => element.textContent === 'Use the requested service tier'
+        )
+        assert.ok(label)
+        const toggle = container.querySelector<HTMLElement>(
+          `[role="switch"][aria-labelledby="${label.id}"]`
+        )
+        assert.ok(toggle)
+        assert.equal(toggle.getAttribute('aria-checked'), 'false')
+        await act(async () => toggle.click())
+      }
       await act(async () => button('Preview changes')?.click())
       await until(() => !!button('Confirm'))
       assert.ok(!requests.includes(`put ${path}`))

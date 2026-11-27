@@ -56,7 +56,9 @@ async fn vault_keys_persist_encrypt_rotate_retire_and_recover_into_real_transpor
         .unwrap();
     let app = managed_router(role.pool.clone(), management);
     let expected = Version::of(&fixture());
-    let input = channel_input(expected, 2, "synthetic-vault-primary-key");
+    let mut input = channel_input(expected, 2, "synthetic-vault-primary-key");
+    input["attachments"][0]["upstream_model"] = json!("supplier-model-a");
+    input["contexts"][0]["upstream_model"] = json!("supplier-model-a");
     assert_eq!(
         request(
             app.clone(),
@@ -222,7 +224,10 @@ async fn vault_keys_persist_encrypt_rotate_retire_and_recover_into_real_transpor
                     "Bearer synthetic-vault-secondary-key"
                 );
                 seen.fetch_add(1, Ordering::SeqCst);
-                axum::Json(json!({"data":[{"id":"model-a"}]}))
+                axum::Json(json!({"data":[
+                    {"id":"model-a","pricing":{"prompt":"8e-6"}},
+                    {"id":"supplier-model-a","pricing":{"prompt":"2e-6"}}
+                ]}))
             }
         }),
     );
@@ -258,9 +263,34 @@ async fn vault_keys_persist_encrypt_rotate_retire_and_recover_into_real_transpor
         Value::Null,
     )
     .await;
-    assert_eq!(probe["models"], json!(["model-a"]));
+    assert_eq!(probe["models"], json!(["model-a", "supplier-model-a"]));
     assert_eq!(probe["inference_tested"], false);
     assert_eq!(hits.load(Ordering::SeqCst), 1);
+    let price_path = "/core/v1/admin/routing/channels/2/models/prices/preview";
+    let selected = success(
+        &restored_app,
+        "POST",
+        price_path,
+        &admin,
+        json!({"model":"model-a","format":"openrouter_usd_per_token"}),
+    )
+    .await;
+    assert_eq!(selected["model"], "model-a");
+    assert_eq!(selected["quote"]["model"], "model-a");
+    assert_eq!(
+        selected["quote"]["source"],
+        json!({"kind":"channel","channel_id":2,"upstream_model":"supplier-model-a"})
+    );
+    assert_eq!(selected["quote"]["rates"]["input"], "2");
+    let conflicting = success(
+        &restored_app,
+        "POST",
+        price_path,
+        &admin,
+        json!({"model":"model-a","upstream_model":"model-a","format":"openrouter_usd_per_token"}),
+    )
+    .await;
+    assert!(conflicting["quote"].is_null());
     document = active(&pool).await;
     let synchronized = success(
         &restored_app,
@@ -270,7 +300,10 @@ async fn vault_keys_persist_encrypt_rotate_retire_and_recover_into_real_transpor
         json!({"expected_version": Version::of(&document)}),
     )
     .await;
-    assert_eq!(synchronized["models"], json!(["model-a"]));
+    assert_eq!(
+        synchronized["models"],
+        json!(["model-a", "supplier-model-a"])
+    );
     let configuration = success(
         &restored_app,
         "GET",
@@ -281,7 +314,7 @@ async fn vault_keys_persist_encrypt_rotate_retire_and_recover_into_real_transpor
     .await;
     assert_eq!(
         configuration["bindings"]["discoveries"]["2"]["models"],
-        json!(["model-a"])
+        json!(["model-a", "supplier-model-a"])
     );
     document = active(&pool).await;
     success(
@@ -693,4 +726,243 @@ async fn assistant_model_settings_publish_recover_and_preserve_other_routing_con
     .await;
     assert_eq!(reset["model"], reset["default_model"]);
     crate::assistant_model::check_replaced_model_grant(&pool, gateway, &ordinary, &policy).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn pending_models_survive_recovery_and_require_confirmed_priced_routes(pool: PgPool) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    const CONFIG: &str = "/core/v1/admin/routing/configuration";
+    const PREVIEW: &str = "/core/v1/admin/routing/configuration/preview";
+    const PENDING: &str = "/core/v1/admin/routing/channels/1/models/pending";
+    const SYNC: &str = "/core/v1/admin/routing/channels/1/models/synchronize";
+
+    fn proposal(current: &Value, price_change: bool) -> Value {
+        let mut input = json!({
+            "expected_version":current["version"], "bindings":current["bindings"],
+            "prices":current["prices"], "routing":current["routing"]
+        });
+        input["routing"]["version"] = json!(current["version"]["routing"].as_u64().unwrap() + 1);
+        if price_change {
+            input["prices"]["version"] = json!(current["version"]["pricing"].as_u64().unwrap() + 1);
+        }
+        input
+    }
+
+    fn add_route(input: &mut Value) {
+        let mut route = input["routing"]["routes"][0].clone();
+        route["id"] = json!(2);
+        route["model"] = json!("public-b");
+        route["targets"][0]["id"] = json!(2);
+        route["targets"][0]["upstream_model"] = json!("model-b");
+        input["routing"]["routes"]
+            .as_array_mut()
+            .unwrap()
+            .push(route);
+        input["bindings"]["contexts"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "upstream_id":1,"upstream_model":"model-b","protocol":"openai_chat",
+                "endpoint":"https://provider.example/v1/","max_input_tokens":1000,
+                "max_output_tokens":100,"contract_revision":"synthetic-b-v1",
+                "missing_cached_tokens_is_zero":true,"missing_cache_creation_tokens_is_zero":true
+            }));
+    }
+
+    async fn confirm(app: &Router, admin: &str, mut input: Value) -> Value {
+        let preview = success(app, "POST", PREVIEW, admin, input.clone()).await;
+        input["confirmation_digest"] = preview["confirmation_digest"].clone();
+        success(app, "PUT", CONFIG, admin, input).await
+    }
+
+    let (_, _, admin, ordinary) = vault_app(&pool).await;
+    let requests = Arc::new(AtomicUsize::new(0));
+    let observed = requests.clone();
+    let provider = Router::new().route(
+        "/v1/models",
+        axum::routing::get(move || {
+            let first = observed.fetch_add(1, Ordering::SeqCst) == 0;
+            async move {
+                axum::Json(if first {
+                    json!({"data":[{"id":"model-a"},{"id":"model-b"},{"id":"model-c"}]})
+                } else {
+                    json!({"data":[{"id":"model-a"}]})
+                })
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, provider).await.unwrap() });
+    let live = gateway(&pool)
+        .with_channel_secret_key(&[83; 32])
+        .unwrap()
+        .with_local_streaming()
+        .with_balance_probe_loopback("https://provider.example", &format!("http://{address}/"))
+        .unwrap();
+    let management = ManagedChannels::recover(pool.clone(), live).await.unwrap();
+    let app = managed_router(pool.clone(), management);
+    let current = success(&app, "GET", CONFIG, &admin, Value::Null).await;
+    let seeded = success(
+        &app,
+        "POST",
+        SYNC,
+        &admin,
+        json!({"expected_version":current["version"]}),
+    )
+    .await;
+    for names in [
+        json!(["model-a"]),
+        json!(["not-observed"]),
+        json!(["model-b", "model-b"]),
+    ] {
+        let invalid = json!({"expected_version":seeded["version"],"models":names});
+        assert_eq!(
+            request(app.clone(), "PUT", PENDING, &admin, invalid)
+                .await
+                .0,
+            StatusCode::BAD_REQUEST
+        );
+    }
+    let selected = json!({"expected_version":seeded["version"],"models":["model-b","model-c"]});
+    assert_eq!(
+        request(app.clone(), "PUT", PENDING, &ordinary, selected.clone())
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    let saved = success(&app, "PUT", PENDING, &admin, selected.clone()).await;
+    assert_eq!(saved["routes_published"], false);
+    assert_eq!(saved["version"]["pricing"], seeded["version"]["pricing"]);
+    assert_eq!(
+        request(app.clone(), "PUT", PENDING, &admin, selected)
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+
+    let refreshed = success(
+        &app,
+        "POST",
+        SYNC,
+        &admin,
+        json!({"expected_version":saved["version"]}),
+    )
+    .await;
+    assert_eq!(refreshed["models"], json!(["model-a"]));
+    assert_eq!(requests.load(Ordering::SeqCst), 2);
+    server.abort();
+    drop(app);
+    let restored_gateway = gateway(&pool).with_channel_secret_key(&[83; 32]).unwrap();
+    let restored = ManagedChannels::recover(pool.clone(), restored_gateway.clone())
+        .await
+        .unwrap();
+    let app = managed_router(pool.clone(), restored);
+    let reopened = success(&app, "GET", CONFIG, &admin, Value::Null).await;
+    assert_eq!(
+        reopened["bindings"]["discoveries"]["1"]["pending_models"],
+        json!(["model-b", "model-c"])
+    );
+    assert_eq!(reopened["routing"]["routes"], current["routing"]["routes"]);
+    assert_eq!(reopened["prices"], current["prices"]);
+    let mut request_b = route_request();
+    request_b.model = "public-b";
+    assert!(
+        restored_gateway
+            .dashboard_routing()
+            .route(request_b)
+            .is_err()
+    );
+    let mut missing_price = proposal(&reopened, true);
+    add_route(&mut missing_price);
+    assert_eq!(
+        request(app.clone(), "POST", PREVIEW, &admin, missing_price.clone())
+            .await
+            .0,
+        StatusCode::BAD_REQUEST
+    );
+    let mut placeholder = current["prices"]["rules"][0].clone();
+    placeholder["id"] = json!(2);
+    placeholder["model"] = json!("public-b");
+    placeholder["rates"] = json!({"input":0,"output":0,"cache_read":0,"cache_write":0,"request":0});
+    missing_price["prices"]["rules"]
+        .as_array_mut()
+        .unwrap()
+        .push(placeholder);
+    assert_eq!(
+        request(app.clone(), "POST", PREVIEW, &admin, missing_price)
+            .await
+            .0,
+        StatusCode::BAD_REQUEST
+    );
+
+    let mut tariff = proposal(&reopened, true);
+    // Older callers may send discovery rows without the server-owned pending selection.
+    tariff["bindings"]["discoveries"]["1"]
+        .as_object_mut()
+        .unwrap()
+        .remove("pending_models");
+    tariff["bindings"]["official_prices"] = json!({
+        "models":{"public-b":{
+            "rates":{"input":100,"output":200,"cache_read":10,"cache_write":120,"request":0},
+            "source":"manual","source_unit":"USD/1M tokens"
+        }},
+        "group_multipliers_ppm":{"default":1250000},
+        "speed_multipliers_ppm":{"fast":1600000,"ultrafast":2400000}
+    });
+    confirm(&app, &admin, tariff).await;
+    let priced = success(&app, "GET", CONFIG, &admin, Value::Null).await;
+    assert_eq!(
+        priced["bindings"]["discoveries"]["1"]["pending_models"],
+        json!(["model-b", "model-c"])
+    );
+    assert_eq!(priced["routing"]["routes"], current["routing"]["routes"]);
+    assert_eq!(priced["prices"]["rules"], current["prices"]["rules"]);
+
+    let mut publish = proposal(&priced, true);
+    add_route(&mut publish);
+    let preview = success(&app, "POST", PREVIEW, &admin, publish.clone()).await;
+    let rules = preview["prices"]["rules"].as_array().unwrap();
+    assert_eq!(rules.len(), 2);
+    assert_eq!(rules[0], current["prices"]["rules"][0]);
+    assert_eq!(rules[1]["model"], "public-b");
+    assert_eq!(
+        preview["bindings"]["official_prices"]["models"]["public-b"]["rates"]["input"],
+        100
+    );
+    assert_eq!(rules[1]["billing_mode"], "tiered_decimal");
+    assert_eq!(
+        rules[1]["tiered"]["tiers"][0]["rates"]["input"],
+        json!({"numerator":100,"denominator":1_000_000})
+    );
+    assert_eq!(rules[1]["group_multiplier_ppm"], 1_250_000);
+    assert_eq!(rules[1]["speed_multiplier_ppm"], 1_000_000);
+    publish["confirmation_digest"] = json!("wrong");
+    assert_eq!(
+        request(app.clone(), "PUT", CONFIG, &admin, publish.clone())
+            .await
+            .0,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        Version::of(&active(&pool).await),
+        serde_json::from_value::<Version>(priced["version"].clone()).unwrap()
+    );
+
+    publish["confirmation_digest"] = preview["confirmation_digest"].clone();
+    success(&app, "PUT", CONFIG, &admin, publish).await;
+    let published = success(&app, "GET", CONFIG, &admin, Value::Null).await;
+    assert_eq!(
+        published["bindings"]["discoveries"]["1"]["pending_models"],
+        json!(["model-c"])
+    );
+    assert_eq!(published["prices"], preview["prices"]);
+    let mut request_b = route_request();
+    request_b.model = "public-b";
+    let quote = restored_gateway
+        .dashboard_routing()
+        .route(request_b)
+        .unwrap()
+        .quote();
+    assert_eq!(quote.multipliers_ppm(), (1_250_000, 1_000_000));
 }

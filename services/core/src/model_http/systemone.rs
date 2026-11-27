@@ -270,7 +270,8 @@ async fn execute(
         }
     }
     let (group, mut plan) = selected.ok_or(RelayError::RouteUnavailable)?;
-    let quote = plan
+    let attempt = Arc::new(plan.start().map_err(|_| RelayError::RouteUnavailable)?);
+    let quote = attempt
         .quote()
         .with_credit_rate(CreditRate::new(1, 500_000).map_err(|_| RelayError::BillingUnavailable)?);
     if !quote.price().is_input_only_scalar() {
@@ -278,7 +279,7 @@ async fn execute(
             "System One requires a frozen scalar input-only token tariff",
         ));
     }
-    let price = routing::credit_price(quote.price(), plan.canonical_model(), &group)?;
+    let price = routing::credit_price(quote.price(), attempt.canonical_model(), &group)?;
     if price.upstream_cost_group_ppm.is_some()
         || price.image.is_some()
         || price.output_per_million != 0
@@ -288,7 +289,6 @@ async fn execute(
             "System One requires a frozen input-only token tariff",
         ));
     }
-    let attempt = Arc::new(plan.start().map_err(|_| RelayError::RouteUnavailable)?);
     if attempt.protocol() != Protocol::SystemOne
         || attempt.payload_policy() != PayloadPolicy::Adapt
         || !attempt.is_available()

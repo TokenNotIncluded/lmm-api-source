@@ -38,6 +38,7 @@ import { isTokenBasedModel } from '../lib/model-helpers'
 import { getModelPerfDisplay, type ModelPerfBadgeData } from '../lib/model-perf'
 import {
   formatPrice,
+  hasCacheReadPrice,
   formatRequestPrice,
   stripTrailingZeros,
 } from '../lib/price'
@@ -234,7 +235,7 @@ export function usePricingColumns(
 
           return (
             <div className='max-w-full min-w-0'>
-              <span className='font-mono text-sm tabular-nums'>
+              <span className='font-mono text-sm wrap-anywhere whitespace-normal tabular-nums'>
                 {inputPrice}
                 <span className='text-muted-foreground/40 mx-1'>/</span>
                 {outputPrice}
@@ -308,7 +309,7 @@ export function usePricingColumns(
 
         const isTokenBased = isTokenBasedModel(model)
 
-        if (!isTokenBased || model.cache_read_price == null) {
+        if (!isTokenBased || !hasCacheReadPrice(model, selectedGroup)) {
           return <span className='text-muted-foreground/30 text-xs'>—</span>
         }
 
@@ -318,7 +319,7 @@ export function usePricingColumns(
 
         return (
           <div className='max-w-full min-w-0'>
-            <span className='font-mono text-sm tabular-nums'>
+            <span className='font-mono text-sm wrap-anywhere whitespace-normal tabular-nums'>
               {cachedPrice}
             </span>
             <div className='text-muted-foreground/50 text-[10px]'>

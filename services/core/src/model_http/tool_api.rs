@@ -243,11 +243,11 @@ async fn execute(
         }
     }
     let (group, mut plan) = selected.ok_or(RelayError::RouteUnavailable)?;
-    let quote = plan
+    let attempt = Arc::new(plan.start().map_err(|_| RelayError::RouteUnavailable)?);
+    let quote = attempt
         .quote()
         .with_credit_rate(CreditRate::new(1, 500_000).map_err(|_| RelayError::BillingUnavailable)?);
-    let canonical_model = plan.canonical_model().to_owned();
-    let attempt = Arc::new(plan.start().map_err(|_| RelayError::RouteUnavailable)?);
+    let canonical_model = attempt.canonical_model().to_owned();
     if attempt.protocol() != protocol
         || attempt.payload_policy() != PayloadPolicy::Adapt
         || !attempt.is_available()

@@ -178,6 +178,10 @@ fn routes(state: ChannelState) -> Router {
             get(control::configuration::keys).post(control::configuration::change_key),
         )
         .route(
+            "/core/v1/admin/routing/channels/{id}/models/prices/preview",
+            axum::routing::post(control::observations::price_preview),
+        )
+        .route(
             "/core/v1/admin/routing/channels/{id}/models/synchronize",
             axum::routing::post(control::catalog::synchronize_models),
         )
@@ -198,6 +202,10 @@ fn routes(state: ChannelState) -> Router {
             "/core/v1/admin/routing/models/{id}",
             axum::routing::put(control::catalog::update_model)
                 .delete(control::catalog::remove_model),
+        )
+        .route(
+            "/core/v1/admin/routing/channels/{id}/models/pending",
+            axum::routing::put(control::catalog::save_pending),
         )
         .route(
             "/core/v1/admin/routing/models/preview",

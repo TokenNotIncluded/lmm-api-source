@@ -29,7 +29,7 @@ import {
 } from '../lib/model-compare'
 import { getDisplayPriceGroup } from '../lib/model-helpers'
 import type { ModelPerfBadgeData } from '../lib/model-perf'
-import { formatRequestPrice } from '../lib/price'
+import { formatFrozenTokenPriceUSD, formatRequestPrice } from '../lib/price'
 import { formatModelPrice } from '../lib/price-display'
 import { hasCurrentPricingContext } from '../lib/pricing-context'
 import type {
@@ -129,9 +129,18 @@ export function ModelCompareDialog(props: ModelCompareDialogProps) {
       key: type,
       label,
       best: pickBestIndexes(values, 'min'),
-      cells: values.map((value) =>
-        value === null ? muted('—') : formatModelPrice(value, currency)
-      ),
+      cells: values.map((value, index) => {
+        if (currency === 'USD') {
+          const frozen = formatFrozenTokenPriceUSD(
+            props.models[index],
+            type,
+            tokenUnit,
+            props.selectedGroup
+          )
+          if (frozen !== undefined) return frozen === '-' ? muted('—') : frozen
+        }
+        return value === null ? muted('—') : formatModelPrice(value, currency)
+      }),
     }
   }
 

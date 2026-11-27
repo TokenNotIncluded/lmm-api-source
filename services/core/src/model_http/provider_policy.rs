@@ -393,10 +393,15 @@ impl ProviderPolicy {
     }
 
     pub(crate) fn missing_cache_creation_is_zero(&self, attempt: &Attempt) -> bool {
-        self.context_for_attempt(attempt)
-            .ok()
-            .flatten()
-            .is_some_and(|context| context.missing_cache_creation_tokens_is_zero)
+        match self.context_for_attempt(attempt) {
+            Ok(Some(context)) => context.missing_cache_creation_tokens_is_zero,
+            // A newly selected mixed-route quote must agree with the already
+            // reviewed synthetic loopback contract used for its reservation.
+            Ok(None) if attempt.quote().is_bound_official_flat() => self
+                .reservation_metadata(attempt)
+                .is_ok_and(|(_, semantics)| semantics.missing_cache_creation_tokens_is_zero),
+            _ => false,
+        }
     }
 
     pub fn new(

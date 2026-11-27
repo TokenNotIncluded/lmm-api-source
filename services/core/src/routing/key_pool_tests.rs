@@ -157,6 +157,8 @@ fn key_pool_responses_continuations_keep_the_original_enabled_key() {
     );
     assert_eq!(
         router
+            .snapshot()
+            .unwrap()
             .route_responses_http_bound(req(), (1, secondary))
             .unwrap()
             .start()
@@ -174,6 +176,8 @@ fn key_pool_responses_continuations_keep_the_original_enabled_key() {
         .unwrap();
     assert!(
         router
+            .snapshot()
+            .unwrap()
             .route_responses_http_bound(req(), (1, secondary))
             .is_err()
     );

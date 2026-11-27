@@ -270,64 +270,98 @@ async fn prepare_request(
     let mut selected = None;
     #[cfg(test)]
     let mut selected_trace = None;
-    if parent.is_none() && request.kind().responses() {
-        let affinity = if let Some((headers, _)) = affinity_input {
-            session_affinity(
-                headers,
-                &caller.principal,
-                request.native().and_then(|r| r.prompt_cache_hint()),
-            )?
+    if let Some(native) = request.native() {
+        let snapshot = gateway
+            .bridge
+            .routing
+            .snapshot()
+            .map_err(super::model_route_error)?;
+        let body_speed = if snapshot.honor_request_service_tier() {
+            native.requested_service_speed()?
         } else {
             None
         };
-        let plans = gateway
-            .bridge
-            .routing
-            .route_adapted_groups(request.model(), &groups, protocol, affinity)
-            .map_err(super::model_route_error)?;
-        // Respect the original authorization/cross_group_retry cut before seeking capability.
-        let authorized = gateway
-            .authorize_model_plans(
-                &caller.principal,
-                &caller.secret,
-                caller.peer,
-                request.model(),
-                &groups,
-                plans,
-            )
-            .await?;
-        let require_continuity = request.kind() != Kind::ResponsesCompact
-            && !request
-                .native()
-                .is_some_and(|r| r.opaque() && r.store() != Some(true));
-        for plan in authorized {
-            #[cfg(test)]
-            let trace = gateway.bridge.observe_plan_before(&plan);
-            let eligible = gateway
-                .bridge
-                .provider_policy
-                .responses_capability_targets(
-                    &plan,
-                    if require_continuity {
-                        super::provider_policy::ResponsesCapability::Continuity
-                    } else {
-                        super::provider_policy::ResponsesCapability::Compaction
+        if let Some(parent) = &parent {
+            let plan = snapshot
+                .route_responses_http_bound(
+                    RouteRequest {
+                        model: request.model(),
+                        group: &parent.group_name,
+                        speed: body_speed,
+                        protocol,
+                        replay: ReplayPermission::Denied,
                     },
-                )?;
-            if let Ok(plan) = plan.responses_capability(&eligible) {
+                    (parent.binding.target_id, parent.binding.credential_ref),
+                )
+                .map_err(|error| match error {
+                    crate::routing::RoutingError::InvalidRequest
+                    | crate::routing::RoutingError::ConflictingSpeed => {
+                        super::model_route_error(error)
+                    }
+                    _ => RelayError::Invalid("continuation binding unavailable"),
+                })?;
+            gateway
+                .authorize_request(
+                    &caller.principal,
+                    &caller.secret,
+                    plan.canonical_model(),
+                    &parent.group_name,
+                    caller.peer,
+                )
+                .await
+                .map_err(identity_error)?;
+            selected = Some((parent.group_name.clone(), plan));
+        } else {
+            let affinity = if let Some((headers, _)) = affinity_input {
+                session_affinity(headers, &caller.principal, native.prompt_cache_hint())?
+            } else {
+                None
+            };
+            let plans = snapshot
+                .http_model_groups(request.model(), &groups, protocol, affinity, body_speed)
+                .map_err(super::model_route_error)?;
+            // Respect the original authorization/cross_group_retry cut before seeking capability.
+            let authorized = gateway
+                .authorize_model_plans(
+                    &caller.principal,
+                    &caller.secret,
+                    caller.peer,
+                    request.model(),
+                    &groups,
+                    plans,
+                )
+                .await?;
+            let require_continuity = request.kind() != Kind::ResponsesCompact
+                && !(native.opaque() && native.store() != Some(true));
+            for plan in authorized {
                 #[cfg(test)]
-                {
-                    gateway.bridge.observe_plan_after(trace, &plan);
-                    selected_trace = trace;
+                let trace = gateway.bridge.observe_plan_before(&plan);
+                let eligible = gateway
+                    .bridge
+                    .provider_policy
+                    .responses_capability_targets(
+                        &plan,
+                        if require_continuity {
+                            super::provider_policy::ResponsesCapability::Continuity
+                        } else {
+                            super::provider_policy::ResponsesCapability::Compaction
+                        },
+                    )?;
+                if let Ok(plan) = plan.responses_capability(&eligible) {
+                    #[cfg(test)]
+                    {
+                        gateway.bridge.observe_plan_after(trace, &plan);
+                        selected_trace = trace;
+                    }
+                    selected = Some((plan.group().to_owned(), plan));
+                    break;
                 }
-                selected = Some((plan.group().to_owned(), plan));
-                break;
             }
-        }
-        if selected.is_none() {
-            return Err(RelayError::Unsupported(
-                "required native Responses capability unavailable",
-            ));
+            if selected.is_none() {
+                return Err(RelayError::Unsupported(
+                    "required native Responses capability unavailable",
+                ));
+            }
         }
     } else {
         for group in &groups {
@@ -338,15 +372,7 @@ async fn prepare_request(
                 protocol,
                 replay: ReplayPermission::Denied,
             };
-            let routed = if let Some(parent) = &parent {
-                gateway.bridge.routing.route_responses_http_bound(
-                    routing_request,
-                    (parent.binding.target_id, parent.binding.credential_ref),
-                )
-            } else {
-                gateway.bridge.routing.route(routing_request)
-            };
-            if let Ok(plan) = routed {
+            if let Ok(plan) = gateway.bridge.routing.route(routing_request) {
                 match gateway
                     .authorize_request(
                         &caller.principal,
@@ -361,7 +387,7 @@ async fn prepare_request(
                         selected = Some((group.clone(), plan));
                         break;
                     }
-                    Err(IdentityError::Forbidden) if parent.is_none() => continue,
+                    Err(IdentityError::Forbidden) => continue,
                     Err(error) => return Err(identity_error(error)),
                 }
             }
@@ -369,9 +395,6 @@ async fn prepare_request(
     }
     let (group, mut plan) = match selected {
         Some(selected) => selected,
-        None if parent.is_some() => {
-            return Err(RelayError::Invalid("continuation binding unavailable"));
-        }
         None => {
             return Err(gateway
                 .unavailable_model_error(
@@ -405,7 +428,7 @@ async fn prepare_request(
             RelayError::RouteUnavailable
         }
     })?);
-    let routing::FrozenTokenPricing { quote, price } = routing::freeze_token_pricing(&attempt)?;
+    let routing::FrozenTokenPricing { quote, mut price } = routing::freeze_token_pricing(&attempt)?;
     if !request.kind().responses() && !quote.price().is_input_only_scalar() {
         return Err(RelayError::Unsupported(
             "input-only API requires an input-only token tariff",
@@ -505,14 +528,11 @@ async fn prepare_request(
     )
     .await
     .map_err(|_| RelayError::RouteUnavailable)??;
-    let mut wire = if continuity.is_some() {
-        request
-            .native()
-            .ok_or(RelayError::Invalid("native continuation request"))?
-            .continuity_wire(attempt.upstream_model())?
-    } else {
-        request.wire(attempt.upstream_model())?
+    let encode = |model: &str| match request.native() {
+        Some(native) => native.provider_wire(model, continuity.is_some(), attempt.speed()),
+        None => request.wire(model),
     };
+    let mut wire = encode(attempt.upstream_model())?;
     if let Some(parent) = &parent {
         let mut value: serde_json::Value = serde_json::from_slice(&wire)
             .map_err(|_| RelayError::Invalid("native parent encoding"))?;
@@ -558,14 +578,7 @@ async fn prepare_request(
     fingerprint.update([0]);
     fingerprint.update(group.as_bytes());
     fingerprint.update([0]);
-    fingerprint.update(if continuity.is_some() {
-        request
-            .native()
-            .ok_or(RelayError::Invalid("native continuation request"))?
-            .continuity_wire(request.model())?
-    } else {
-        request.wire(request.model())?
-    });
+    fingerprint.update(encode(request.model())?);
     let fingerprint: [u8; 32] = fingerprint.finalize().into();
     let mut worker = [0; 32];
     rand::rand_core::UnwrapErr(SysRng).fill_bytes(&mut worker);
@@ -574,6 +587,16 @@ async fn prepare_request(
         .bridge
         .provider_policy
         .reservation_metadata(&attempt)?;
+    // Freeze the same reviewed omission policy used by the streaming route.
+    // A missing write total can be zero only for this exact supplier binding.
+    if let Some(tariff) = &mut price.tiered
+        && tariff.tariff.revision == 4
+    {
+        tariff.missing_cache_creation_is_zero = gateway
+            .bridge
+            .provider_policy
+            .missing_cache_creation_is_zero(&attempt);
+    }
     let binding = charging::contract::ReservationBinding::for_attempt(
         &attempt,
         if request.kind().responses() {
@@ -677,6 +700,9 @@ impl TerminalFinalization<'_> {
             sequence,
         } = self;
         let (mut output, observed) = request.response(&raw)?;
+        if request.kind().responses() {
+            relay::validate_openai_reported_tier(attempt.speed(), output.get("service_tier"))?;
+        }
         let candidate = if request.kind() == Kind::ResponsesContext {
             if let Some(policy) = &continuity {
                 let stored = request
@@ -975,8 +1001,11 @@ async fn execute(
                     &connection,
                     response,
                     sender,
-                    &credential,
-                    client_handle.as_deref(),
+                    super::responses_native::StreamSource {
+                        credential: &credential,
+                        client_handle: client_handle.as_deref(),
+                        speed: attempt.speed(),
+                    },
                 )
                 .await?;
                 terminal_event = Some(terminal);

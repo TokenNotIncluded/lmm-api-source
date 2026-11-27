@@ -1,5 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
-import { isLosslessNumber, parse } from 'lossless-json'
+import { isLosslessNumber } from 'lossless-json'
 
 import { usdToMicros } from '@/features/channels/components/native-model-draft'
 
@@ -7,6 +7,7 @@ import {
   decimalPriceFraction,
   type NativePriceRule,
 } from './native-price-rules'
+import { fetchModelsDevCatalog } from './official-models-dev-quote'
 
 export type CatalogRates = Partial<NativePriceRule['rates']>
 export type ModelCatalogPrice = {
@@ -15,9 +16,7 @@ export type ModelCatalogPrice = {
   rates: CatalogRates
 }
 
-const catalogURL = 'https://models.dev/api.json'
 const catalogFields = ['input', 'output', 'cache_read', 'cache_write'] as const
-const catalogByteLimit = 12 * 1024 * 1024
 
 function record(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return
@@ -62,39 +61,7 @@ export function modelsDevPrices(
 }
 
 export async function fetchModelsDevPrices(model: string, signal: AbortSignal) {
-  const response = await fetch(catalogURL, {
-    credentials: 'omit',
-    referrerPolicy: 'no-referrer',
-    redirect: 'error',
-    signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
-  })
-  if (
-    !response.ok ||
-    !response.headers.get('content-type')?.startsWith('application/json') ||
-    !response.body
-  ) {
-    throw new Error('Invalid models.dev catalog response')
-  }
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  const chunks: string[] = []
-  let size = 0
-  try {
-    for (;;) {
-      const { value, done } = await reader.read()
-      if (done) break
-      size += value.byteLength
-      if (size > catalogByteLimit) {
-        await reader.cancel()
-        throw new Error('Models.dev catalog exceeds its size limit')
-      }
-      chunks.push(decoder.decode(value, { stream: true }))
-    }
-    chunks.push(decoder.decode())
-  } finally {
-    reader.releaseLock()
-  }
-  return modelsDevPrices(parse(chunks.join('')), model)
+  return modelsDevPrices(await fetchModelsDevCatalog(signal), model)
 }
 
 const coefficients = {

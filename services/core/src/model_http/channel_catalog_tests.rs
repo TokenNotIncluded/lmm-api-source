@@ -153,7 +153,9 @@ impl Fixture {
         }
     }
     async fn probe(&self) -> Result<ChannelProbe, crate::relay::RelayError> {
-        self.gateway.probe_channel_snapshot(&self.upstream).await
+        self.gateway
+            .probe_channel_snapshot(&self.upstream, None)
+            .await
     }
 }
 
@@ -209,6 +211,136 @@ async fn protocol_presets_fetch_the_vendor_catalogue_with_only_its_bearer_key() 
         assert_eq!(calls[0].key, None);
         assert_eq!(calls[0].version, None);
         assert!(calls[0].query.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn selected_channel_prices_use_only_an_explicit_unit_contract() {
+    let page = json!({"data":[
+        {"id":"chosen","pricing":{"prompt":"0.000000012345","completion":"0"}},
+        {"id":"other","pricing":{"prompt":"3"},"private":SECRET},
+        {"id":"unpriced"}
+    ]});
+    for (base, model, format, expected) in [
+        (
+            "https://openrouter.ai/api/v1",
+            "chosen",
+            None,
+            Some("0.012345"),
+        ),
+        ("https://catalogue.example/v1", "chosen", None, None),
+        (
+            "https://catalogue.example/v1",
+            "chosen",
+            Some("openrouter_usd_per_token"),
+            Some("0.012345"),
+        ),
+        (
+            "https://catalogue.example/v1",
+            "unpriced",
+            Some("openrouter_usd_per_token"),
+            None,
+        ),
+    ] {
+        let fixture = Fixture::with_base(
+            Protocol::OpenAiResponses,
+            vec![(StatusCode::OK, page.clone())],
+            base,
+        )
+        .await;
+        let selection =
+            serde_json::from_value(json!({"model":model,"upstream_model":model,"format":format}))
+                .unwrap();
+        let probe = fixture
+            .gateway
+            .probe_channel_snapshot(&fixture.upstream, Some((&selection, &[])))
+            .await
+            .unwrap();
+        assert!(serde_json::to_value(&probe).unwrap().get("price").is_none());
+        let quote = probe.price.as_ref();
+        assert_eq!(quote.map(|q| q.rates["input"].as_str()), expected);
+        if let Some(q) = quote {
+            assert_eq!(q.model, model);
+            assert_eq!(q.rates["output"], "0");
+            assert!(!q.rates.contains_key("cache_write"));
+            assert!(!serde_json::to_string(q).unwrap().contains(SECRET));
+        }
+        let calls = fixture.requests.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(
+            calls[0].authorization.as_deref(),
+            Some("Bearer synthetic-catalogue-only")
+        );
+    }
+}
+
+#[tokio::test]
+async fn channel_price_preview_matches_the_selected_channels_routed_model() {
+    let route = |model: &str, group: &str, channel: u64, upstream: &str| {
+        serde_json::from_value::<crate::routing::ModelRoute>(json!({
+            "id":1, "model":model, "enabled":true, "group":group, "speeds":["standard"],
+            "targets":[{"id":1,"upstream_id":channel,"upstream_model":upstream,
+                "enabled":true,"priority":1,"weight":1,"speeds":["standard"],"payload":"adapt","timeout_ms":1000}],
+            "failover":{"max_attempts":1,"retry_on":[],"allow_replay_after_send":false}
+        })).unwrap()
+    };
+    let routes = [
+        route("direct", "default", 1, "direct"),
+        route("unique", "default", 1, "vendor/id"),
+        route("both", "default", 1, "vendor/id"),
+        route("both", "other", 1, "vendor/id"),
+        route("both", "other", 2, "both"),
+        route("ambiguous", "default", 1, "direct"),
+        route("ambiguous", "other", 1, "vendor/id"),
+        route("missing", "default", 1, "not-listed"),
+        route("unbound", "default", 2, "direct"),
+    ];
+    let cases = [
+        ("direct", None, Some(("direct", "2"))),
+        ("unique", None, Some(("vendor/id", "3"))),
+        ("both", None, Some(("vendor/id", "3"))),
+        ("both", Some("both"), None),
+        ("ambiguous", None, None),
+        ("ambiguous", Some("direct"), None),
+        ("missing", None, None),
+        ("unbound", None, None),
+        ("new", None, None),
+        ("new", Some("vendor/id"), Some(("vendor/id", "3"))),
+        ("new", Some("not-listed"), None),
+    ];
+    let page = json!({"data":[
+        {"id":"direct","pricing":{"prompt":"2e-6"}}, {"id":"vendor/id","pricing":{"prompt":"3e-6"}},
+        {"id":"both","pricing":{"prompt":"8e-6"}}, {"id":"ambiguous","pricing":{"prompt":"9e-6"}},
+        {"id":"missing","pricing":{"prompt":"6e-6"}}, {"id":"unbound","pricing":{"prompt":"7e-6"}},
+        {"id":"new","pricing":{"prompt":"5e-6"}}
+    ]});
+    let fixture = Fixture::with_base(
+        Protocol::OpenAiResponses,
+        vec![(StatusCode::OK, page); cases.len()],
+        "https://openrouter.ai/api/v1",
+    )
+    .await;
+    for (public, explicit, expected) in cases {
+        let selection =
+            serde_json::from_value(json!({"model":public,"upstream_model":explicit})).unwrap();
+        let probe = fixture
+            .gateway
+            .probe_channel_snapshot(&fixture.upstream, Some((&selection, &routes)))
+            .await
+            .unwrap();
+        assert_eq!(
+            probe.price.as_ref().map(|q| {
+                assert_eq!(q.model, public);
+                assert_eq!(q.source.channel_id, fixture.upstream.id);
+                assert_eq!(
+                    (q.currency, q.source_token_unit, q.token_unit),
+                    ("USD", "per_token", "per_million_tokens")
+                );
+                (q.source.upstream_model.as_str(), q.rates["input"].as_str())
+            }),
+            expected,
+            "public={public}, explicit={explicit:?}"
+        );
     }
 }
 
@@ -334,27 +466,13 @@ fn catalogue_rejects_invalid_continuations_and_empty_normalized_model_names() {
         json!({"models":[{"name":"models/model-a"}],"nextPageToken":"bad\ncursor"}),
         json!({"models":[{"name":"models/"}]}),
     ] {
-        assert!(
-            parse_models(
-                &serde_json::to_vec(&value).unwrap(),
-                Protocol::Gemini,
-                SECRET
-            )
-            .is_err()
-        );
+        assert!(parse_models(&value, Protocol::Gemini, SECRET).is_err());
     }
     for value in [
         json!({"data":[{"id":"model-a"}],"has_more":true}),
         json!({"data":[{"id":"model-a"}],"has_more":true,"last_id":""}),
         json!({"data":[{"id":"model-a"}],"has_more":"true","last_id":"model-a"}),
     ] {
-        assert!(
-            parse_models(
-                &serde_json::to_vec(&value).unwrap(),
-                Protocol::AnthropicMessages,
-                SECRET
-            )
-            .is_err()
-        );
+        assert!(parse_models(&value, Protocol::AnthropicMessages, SECRET).is_err());
     }
 }

@@ -7,6 +7,12 @@ use serde::{Deserialize, Serialize};
 #[serde(deny_unknown_fields)]
 pub(super) struct Request {
     model: String,
+    #[serde(default, skip_serializing)]
+    service_tier: Option<serde_json::Value>,
+    #[serde(default, rename = "serviceTier", skip_serializing)]
+    camel_tier: Option<serde_json::Value>,
+    #[serde(default, skip_serializing, deserialize_with = "present_speed")]
+    speed: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
     input: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -43,6 +49,13 @@ pub(super) struct Request {
     include: Option<Vec<String>>,
     #[serde(skip)]
     compact: bool,
+}
+
+// Distinguish explicit null (invalid when honored) from an omitted speed.
+fn present_speed<'de, D: serde::Deserializer<'de>>(
+    de: D,
+) -> Result<Option<serde_json::Value>, D::Error> {
+    serde_json::Value::deserialize(de).map(Some)
 }
 
 pub(super) fn handles(value: &serde_json::Value) -> bool {
@@ -142,6 +155,16 @@ impl Request {
         )?;
         Ok(r)
     }
+    pub(super) fn requested_service_speed(
+        &self,
+    ) -> Result<Option<crate::routing::Speed>, RelayError> {
+        relay::Request::requested_service_speed_fields(
+            relay::ClientProtocol::Responses,
+            self.service_tier.as_ref(),
+            self.camel_tier.as_ref(),
+            self.speed.as_ref(),
+        )
+    }
     pub(super) fn opaque(&self) -> bool {
         self.input.as_array().is_some_and(|items| {
             items
@@ -166,15 +189,6 @@ impl Request {
             .as_ref()
             .is_some_and(|value| !value.is_null())
     }
-    pub(super) fn continuity_wire(&self, model: &str) -> Result<Vec<u8>, RelayError> {
-        let mut value =
-            serde_json::to_value(self).map_err(|_| RelayError::Invalid("native controls"))?;
-        value["model"] = model.into();
-        if !self.compact {
-            value["stream"] = self.streaming().into();
-        }
-        serde_json::to_vec(&value).map_err(|_| RelayError::Invalid("native controls"))
-    }
     pub(super) fn streaming(&self) -> bool {
         self.stream == Some(true)
     }
@@ -189,12 +203,28 @@ impl Request {
         Ok(limit)
     }
     pub(super) fn wire(&self, model: &str) -> Result<Vec<u8>, RelayError> {
+        self.provider_wire(model, false, crate::routing::Speed::Standard)
+    }
+    pub(super) fn provider_wire(
+        &self,
+        model: &str,
+        continuity: bool,
+        selected_speed: crate::routing::Speed,
+    ) -> Result<Vec<u8>, RelayError> {
+        use crate::routing::Speed;
         let mut v = serde_json::to_value(self)
             .map_err(|_| RelayError::Invalid("native Responses encoding"))?;
         v["model"] = model.into();
         if !self.compact {
-            v["store"] = false.into();
+            if !continuity {
+                v["store"] = false.into();
+            }
             v["stream"] = self.streaming().into();
+        }
+        match selected_speed {
+            Speed::Fast => v["service_tier"] = "priority".into(),
+            Speed::Ultrafast => v["service_tier"] = "ultrafast".into(),
+            Speed::Standard => {}
         }
         serde_json::to_vec(&v).map_err(|_| RelayError::Invalid("native Responses encoding"))
     }
@@ -309,15 +339,25 @@ pub(super) async fn send_packet(
         .map_err(|_| RelayError::Cancelled)
 }
 
+pub(super) struct StreamSource<'a> {
+    pub credential: &'a str,
+    pub client_handle: Option<&'a str>,
+    pub speed: crate::routing::Speed,
+}
+
 pub(super) async fn read_stream(
     gateway: &ModelGateway,
     id: &str,
     connection: &crate::relay::provider_network::ProviderConnection,
     mut response: reqwest::Response,
     sender: &Sender,
-    credential: &str,
-    client_handle: Option<&str>,
+    source: StreamSource<'_>,
 ) -> Result<(Vec<u8>, Bytes, u64), RelayError> {
+    let StreamSource {
+        credential,
+        client_handle,
+        speed,
+    } = source;
     if !connection.matches_peer(response.remote_addr())
         || response.headers().contains_key(header::CONTENT_ENCODING)
         || !response
@@ -383,6 +423,7 @@ pub(super) async fn read_stream(
                         "native SSE response identity mismatch",
                     ));
                 }
+                relay::validate_openai_reported_tier(speed, event["response"].get("service_tier"))?;
                 if matches!(name, "response.completed" | "response.incomplete") {
                     if event["response"]["status"]
                         != if name == "response.completed" {

@@ -101,6 +101,7 @@ function jsonField(schema: z.ZodType) {
 
 const schema = z.object({
   pass_through_request_enabled: z.boolean(),
+  honor_request_service_tier: z.boolean(),
   thinking_model_blacklist: jsonField(modelNames),
   chat_completions_to_responses_policy: jsonField(chatPolicy),
   ping_interval_enabled: z.boolean(),
@@ -110,8 +111,11 @@ type GlobalModelSettingsFormValues = z.output<typeof schema>
 type GlobalModelSettingsFormInput = z.input<typeof schema>
 type GlobalPolicy = Omit<
   GlobalModelSettingsFormValues,
-  'thinking_model_blacklist' | 'chat_completions_to_responses_policy'
+  | 'thinking_model_blacklist'
+  | 'chat_completions_to_responses_policy'
+  | 'honor_request_service_tier'
 > & {
+  honor_request_service_tier?: boolean
   thinking_model_blacklist: string[]
   chat_completions_to_responses_policy: z.infer<typeof chatPolicy>
 }
@@ -153,6 +157,7 @@ function GlobalPolicyForm({
     resolver: zodResolver(schema),
     defaultValues: {
       ...policy,
+      honor_request_service_tier: policy.honor_request_service_tier ?? false,
       thinking_model_blacklist: JSON.stringify(
         policy.thinking_model_blacklist,
         null,
@@ -174,6 +179,8 @@ function GlobalPolicyForm({
     preview({
       ...policy,
       ...values,
+      honor_request_service_tier:
+        values.honor_request_service_tier || undefined,
       thinking_model_blacklist: modelNames.parse(
         JSON.parse(values.thinking_model_blacklist)
       ),
@@ -201,6 +208,29 @@ function GlobalPolicyForm({
                   <FormDescription>
                     {t(
                       'Passthrough requires matching client and upstream protocols and model names.'
+                    )}
+                  </FormDescription>
+                </SettingsSwitchContent>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                </FormControl>
+              </SettingsSwitchItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='honor_request_service_tier'
+            render={({ field }) => (
+              <SettingsSwitchItem>
+                <SettingsSwitchContent>
+                  <FormLabel>{t('Use the requested service tier')}</FormLabel>
+                  <FormDescription>
+                    {t(
+                      'Off by default. Requests use the standard tier. When enabled, other tiers require a supported route and price.'
                     )}
                   </FormDescription>
                 </SettingsSwitchContent>

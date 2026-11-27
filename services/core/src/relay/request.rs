@@ -1,5 +1,6 @@
 //! Bounded text, image and function-call conversion. Unsupported inputs fail closed.
 use super::{ClientProtocol, ImageInput, Limits, RelayError, Route, UpstreamProtocol};
+use crate::routing::Speed;
 use serde::{
     Deserialize,
     de::{MapAccess, Visitor},
@@ -136,9 +137,32 @@ pub struct Request {
     pub(crate) continuation_token: Option<String>,
     /// Untrusted compatibility values awaiting the actual selected route policy.
     compatibility: Map<String, Value>,
+    body_tier: BodyTier,
     /// OpenAI Chat `response_format` and Responses `text.format`. Gemini receives `responseSchema` or
     /// `responseJsonSchema`; other protocols cannot represent it.
     response_format: Option<ResponseFormat>,
+}
+
+/// Keep the original presence separate from the fields authorized for a provider.
+#[derive(Clone, Debug, Default)]
+pub(super) struct BodyTier {
+    service_tier: Option<Value>,
+    camel_tier: Option<Value>,
+    speed: Option<Value>,
+    admitted: Option<Speed>,
+    honored: bool,
+    sanitized_http_body: Option<axum::body::Bytes>,
+}
+
+impl BodyTier {
+    pub(super) fn take(fields: &mut Map<String, Value>) -> Self {
+        Self {
+            service_tier: fields.remove("service_tier"),
+            camel_tier: fields.remove("serviceTier"),
+            speed: fields.remove("speed"),
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -635,6 +659,88 @@ pub(crate) enum PromptCacheHint<'a> {
 }
 
 impl Request {
+    pub(super) fn set_body_tier(&mut self, tier: BodyTier) {
+        self.body_tier = tier;
+    }
+
+    pub(crate) fn can_forward_original_tier(&self) -> bool {
+        self.body_tier.service_tier.is_none()
+            && self.body_tier.camel_tier.is_none()
+            && self.body_tier.speed.is_none()
+    }
+
+    pub(crate) fn set_http_passthrough_body(
+        &mut self,
+        body: axum::body::Bytes,
+    ) -> Result<(), RelayError> {
+        // HTTP dispatch supplies the bounded bytes accepted by the native parser.
+        // The precharge representation can instead be a translated Chat envelope.
+        if self.can_forward_original_tier() {
+            self.original_http_body = Some(body);
+        } else {
+            let sanitized = super::schema_order::project_request_tier(&body, None)
+                .map_err(|_| RelayError::RouteUnavailable)?;
+            self.body_tier.sanitized_http_body = Some(sanitized.into());
+        }
+        Ok(())
+    }
+
+    pub(crate) fn apply_service_tier_policy(
+        &mut self,
+        honor: bool,
+    ) -> Result<Option<Speed>, RelayError> {
+        self.body_tier.admitted = None;
+        self.body_tier.honored = false;
+        if !honor || self.can_forward_original_tier() {
+            return Ok(None);
+        }
+        let requested = Self::requested_service_speed_fields(
+            self.client,
+            self.body_tier.service_tier.as_ref(),
+            self.body_tier.camel_tier.as_ref(),
+            self.body_tier.speed.as_ref(),
+        )?;
+        self.body_tier.admitted = requested;
+        self.body_tier.honored = true;
+        Ok(requested)
+    }
+
+    pub(crate) fn requested_service_speed_fields(
+        client: ClientProtocol,
+        service_tier: Option<&Value>,
+        camel_tier: Option<&Value>,
+        speed: Option<&Value>,
+    ) -> Result<Option<Speed>, RelayError> {
+        let mut selected = None;
+        for (option, native_speed) in [(service_tier, false), (camel_tier, false), (speed, true)] {
+            let Some(value) = option else { continue };
+            if !native_speed && value.is_null() {
+                continue;
+            }
+            let text = value
+                .as_str()
+                .ok_or(RelayError::Invalid("invalid service tier field"))?;
+            let grade = match (native_speed, text) {
+                (true, "standard") | (false, "default" | "standard") => Speed::Standard,
+                (false, "standard_only") if client == ClientProtocol::Anthropic => Speed::Standard,
+                (true, "fast") | (false, "priority") => Speed::Fast,
+                (false, "fast")
+                    if matches!(client, ClientProtocol::Chat | ClientProtocol::Responses) =>
+                {
+                    Speed::Fast
+                }
+                (true, "ultrafast") => Speed::Ultrafast,
+                (false, "ultrafast") if client == ClientProtocol::Responses => Speed::Ultrafast,
+                _ => return Err(RelayError::Unsupported("unsupported service tier field")),
+            };
+            if selected.is_some_and(|previous| previous != grade) {
+                return Err(RelayError::Invalid("conflicting service tier fields"));
+            }
+            selected = Some(grade);
+        }
+        Ok(selected)
+    }
+
     pub(crate) fn prompt_cache_hint(&self) -> Option<PromptCacheHint<'_>> {
         if let Some(key) = self
             .prompt_cache_key
@@ -743,13 +849,9 @@ impl Request {
         let mut fields = serde_json::from_slice::<RequestObject>(body)
             .map_err(|_| RelayError::Invalid("invalid or ambiguous JSON body"))?
             .0;
+        let body_tier = BodyTier::take(&mut fields);
         let mut compatibility = Map::new();
-        for name in [
-            "service_tier",
-            "inference_geo",
-            "speed",
-            "safety_identifier",
-        ] {
+        for name in ["inference_geo", "safety_identifier"] {
             if let Some(value) = fields.remove(name) {
                 compatibility.insert(name.into(), value);
             }
@@ -782,6 +884,7 @@ impl Request {
             allow_previous_tool_result,
         )?;
         request.compatibility = compatibility;
+        request.body_tier = body_tier;
         Ok(request)
     }
 
@@ -1407,6 +1510,7 @@ impl Request {
             },
             continuation_token: None,
             compatibility: Map::new(),
+            body_tier: BodyTier::default(),
             response_format: if client == ClientProtocol::Responses {
                 responses_text_format(&v)?
             } else {
@@ -1463,7 +1567,10 @@ impl Request {
         }
     }
 
-    pub(crate) fn passthrough_body(&self, route: &Route) -> Result<&[u8], RelayError> {
+    pub(crate) fn passthrough_body(
+        &self,
+        route: &Route,
+    ) -> Result<std::borrow::Cow<'_, [u8]>, RelayError> {
         let same_protocol = matches!(
             (self.client, route.protocol),
             (ClientProtocol::Chat, UpstreamProtocol::Chat)
@@ -1485,15 +1592,24 @@ impl Request {
         {
             return Err(RelayError::RouteUnavailable);
         }
-        self.original_http_body
-            .as_deref()
-            .ok_or(RelayError::RouteUnavailable)
+        let source = if self.can_forward_original_tier() {
+            self.original_http_body.as_deref()
+        } else {
+            self.body_tier.sanitized_http_body.as_deref()
+        }
+        .ok_or(RelayError::RouteUnavailable)?;
+        if let Some(field) = self.selected_acceleration(route)? {
+            return super::schema_order::project_request_tier(source, Some(field))
+                .map(std::borrow::Cow::Owned)
+                .map_err(|_| RelayError::RouteUnavailable);
+        }
+        Ok(std::borrow::Cow::Borrowed(source))
     }
 
     /// Encode only after applying the immutable selected-route payload policy.
     pub(crate) fn upstream_body(&self, route: &Route) -> Result<Vec<u8>, RelayError> {
         if route.payload_policy == crate::routing::PayloadPolicy::Passthrough {
-            return Ok(self.passthrough_body(route)?.to_vec());
+            return Ok(self.passthrough_body(route)?.into_owned());
         }
         let mut payload = self.upstream(route)?;
         if let Some(overrides) = &route.overrides
@@ -1552,7 +1668,60 @@ impl Request {
         )
     }
 
+    fn selected_acceleration(
+        &self,
+        route: &Route,
+    ) -> Result<Option<(&'static str, &'static str)>, RelayError> {
+        use crate::routing::Protocol;
+        let admitted = self.body_tier.admitted;
+        let Some(attempt) = route.model_attempt.as_ref() else {
+            return if admitted.is_some_and(|s| s != Speed::Standard) {
+                Err(RelayError::RouteUnavailable)
+            } else {
+                Ok(None)
+            };
+        };
+        let speed = attempt.speed();
+        if admitted.is_some_and(|s| {
+            s != speed
+                || !attempt
+                    .model_policy
+                    .as_ref()
+                    .is_some_and(|p| p.config.honor_request_service_tier)
+        }) {
+            return Err(RelayError::RouteUnavailable);
+        }
+        if speed == Speed::Standard {
+            return Ok(None);
+        }
+        if attempt.payload_policy() != route.payload_policy {
+            return Err(RelayError::RouteUnavailable);
+        }
+        let protocol = match route.protocol {
+            UpstreamProtocol::Chat => Protocol::OpenAiChat,
+            UpstreamProtocol::Responses => Protocol::OpenAiResponses,
+            UpstreamProtocol::Anthropic => Protocol::AnthropicMessages,
+            UpstreamProtocol::Gemini => Protocol::Gemini,
+        };
+        route
+            .payload_policy
+            .accelerated_field(protocol, speed)
+            .map(Some)
+            .ok_or(RelayError::Unsupported(
+                "selected provider cannot encode its priced speed",
+            ))
+    }
+
     pub(crate) fn upstream(&self, route: &Route) -> Result<Value, RelayError> {
+        let field = self.selected_acceleration(route)?;
+        let mut payload = self.adapted_payload(route)?;
+        if let Some((key, value)) = field {
+            payload[key] = json!(value);
+        }
+        Ok(payload)
+    }
+
+    fn adapted_payload(&self, route: &Route) -> Result<Value, RelayError> {
         use crate::routing::PayloadPolicy;
         if route.payload_policy == PayloadPolicy::LegacyAnthropicHaikuSystemCacheV1 {
             if route.protocol != UpstreamProtocol::Anthropic {
@@ -1560,7 +1729,10 @@ impl Request {
                     "legacy system cache policy requires Anthropic",
                 ));
             }
-            let mut payload = self.upstream_to(route.protocol, &route.model)?;
+            if !self.compatibility.is_empty() || !self.openrouter.is_empty() {
+                return Err(RelayError::Unsupported("incompatible fields for Anthropic"));
+            }
+            let mut payload = self.encode_upstream(route.protocol, &route.model)?;
             if self.client == ClientProtocol::Chat
                 && route.model.starts_with("claude-haiku-4-5")
                 && let Some(last) = payload
@@ -1625,10 +1797,32 @@ impl Request {
             ));
         }
         let mut payload = self.encode_upstream(route.protocol, &route.model)?;
+        if self.body_tier.honored
+            && self.body_tier.admitted.unwrap_or_default() == Speed::Standard
+            && route
+                .model_attempt
+                .as_ref()
+                .is_none_or(|attempt| attempt.speed() == Speed::Standard)
+        {
+            if allow_service_tier
+                && let Some(tier) = self
+                    .body_tier
+                    .service_tier
+                    .as_ref()
+                    .or(self.body_tier.camel_tier.as_ref())
+            {
+                payload["service_tier"] = if tier.is_null() {
+                    Value::Null
+                } else {
+                    json!("default")
+                };
+            }
+            if allow_speed && self.body_tier.speed.is_some() {
+                payload["speed"] = json!("standard");
+            }
+        }
         for (name, allowed) in [
-            ("service_tier", allow_service_tier),
             ("inference_geo", allow_inference_geo),
-            ("speed", allow_speed),
             ("safety_identifier", allow_safety_identifier),
             ("include_obfuscation", allow_include_obfuscation),
         ] {
@@ -1648,11 +1842,11 @@ impl Request {
                 payload["stream_options"][name] = value.clone();
             } else {
                 // The pinned OpenAI contract permits explicit null for these fields.
-                if value.is_null() && matches!(name, "service_tier" | "safety_identifier") {
+                if value.is_null() && name == "safety_identifier" {
                     payload[name] = Value::Null;
                     continue;
                 }
-                // Regional/speed values are provider extensions: bound the string
+                // Regional values are provider extensions: bound the string
                 // without inventing or translating a provider's enum vocabulary.
                 let limit = if name == "safety_identifier" {
                     128
@@ -1667,16 +1861,7 @@ impl Request {
                             && !s.chars().any(char::is_control)
                     })
                     .ok_or(RelayError::Invalid("invalid legacy OpenAI string field"))?;
-                // This deployment has only standard prices. Selected provider
-                // compatibility never authorizes an unpriced acceleration tier.
-                if (name == "service_tier" && text != "default")
-                    || (name == "speed" && text != "standard")
-                {
-                    return Err(RelayError::Unsupported(
-                        "only standard service tier is enabled",
-                    ));
-                }
-                payload[name] = value.clone();
+                payload[name] = Value::String(text.to_owned());
             }
         }
         Ok(payload)
@@ -1689,7 +1874,13 @@ impl Request {
         protocol: UpstreamProtocol,
         model: &str,
     ) -> Result<Value, RelayError> {
-        if !self.compatibility.is_empty() || !self.openrouter.is_empty() {
+        if !self.compatibility.is_empty()
+            || !self.openrouter.is_empty()
+            || self
+                .body_tier
+                .admitted
+                .is_some_and(|speed| speed != Speed::Standard)
+        {
             return Err(RelayError::Unsupported(
                 "legacy fields require an explicit selected route policy",
             ));

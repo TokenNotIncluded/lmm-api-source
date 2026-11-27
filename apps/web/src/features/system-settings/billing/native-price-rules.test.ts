@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
+import { nativeConfiguredPrice } from '@/features/channels/lib/native-price-display'
 import { stringifyNativeDocument } from '@/features/channels/native-api'
 
 import {
@@ -109,4 +110,50 @@ test('publication summary accounts for additions, edits and deletions', () => {
     ),
     { added: 0, changed: 0, removed: 0 }
   )
+})
+
+test('published official flat rates survive document round trips and display exact source and effective prices', () => {
+  const base = rule()
+  const rate = (numerator: number) => ({ numerator, denominator: 1_000_000 })
+  const source = {
+    ...base,
+    billing_mode: 'official_flat' as const,
+    rates: { input: 0, output: 0, cache_read: 0, cache_write: 0, request: 0 },
+    group_multiplier_ppm: 750_000,
+    speed_multiplier_ppm: 1_200_000,
+    tiered: {
+      revision: 2,
+      source_digest: 'ab'.repeat(32),
+      uses_cache_read: true,
+      uses_cache_write: true,
+      uses_cache_write_1h: true,
+      tiers: [
+        {
+          up_to_input_tokens: null,
+          rates: {
+            input: rate(2_000_001),
+            output: rate(6_000_000),
+            cache_read: rate(0),
+            cache_write: rate(500_000),
+            cache_write_1h: rate(500_000),
+          },
+        },
+      ],
+    },
+  }
+  const published = { version: 2, rules: [source] }
+  const read = readPriceDocument(stringifyNativeDocument(published), 2)
+  const [decoded] = readPriceRules(read)
+  assert.deepEqual(decoded, source)
+  assert.deepEqual(
+    readPriceDocument(stringifyNativeDocument(read), 2),
+    published
+  )
+  assert.equal(priceRateText(decoded, 'input'), '2.000001')
+  assert.equal(priceRateText(decoded, 'cache_read'), '0')
+  assert.equal(priceRateText(decoded, 'cache_write'), '0.5')
+  assert.equal(priceRateText(decoded, 'request'), null)
+  assert.equal(nativeConfiguredPrice(decoded, 'input'), '1.8000009')
+  assert.equal(nativeConfiguredPrice(decoded, 'cache_write'), '0.45')
+  assert.equal(nativeConfiguredPrice(decoded, 'request'), null)
 })

@@ -11,6 +11,7 @@ import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import { adaptNativePricing } from '../catalog-adapter'
 import { nativePricingSchema } from '../catalog-contract'
+import { formatGroupPrice } from '../lib/price'
 import type { PriceDisplayCurrency, PricingModel, TokenUnit } from '../types'
 import { ModelCard } from './model-card'
 
@@ -225,9 +226,9 @@ test('flat token cards keep their existing cached quote', () => {
   )
 })
 
-test('a public catalog card displays a sub-micro standard-group rate, explicit cache zero and absent cache meters', () => {
+function publicTokenDocument() {
   const zero = { numerator: '0', denominator: '1' }
-  const doc = {
+  return {
     schema_version: 1,
     visibility: 'public',
     observed_at: 100,
@@ -267,6 +268,10 @@ test('a public catalog card displays a sub-micro standard-group rate, explicit c
       },
     ],
   }
+}
+
+test('a public catalog card displays a sub-micro standard-group rate, explicit cache zero and absent cache meters', () => {
+  const doc = publicTokenDocument()
   const cardModel = () =>
     adaptNativePricing(nativePricingSchema.parse(doc)).data[0]
   assert.deepEqual(quotes(cardModel()), [
@@ -295,4 +300,102 @@ test('a public catalog card displays a sub-micro standard-group rate, explicit c
   ])
   doc.models[0].billing_status = 'unavailable'
   assert.equal(cardModel().group_prices?.default.input_price, null)
+})
+
+test('frozen USD rates survive the public card and selected group details at both token units', () => {
+  const doc = publicTokenDocument()
+  const rates = doc.models[0].token_price.constant_token_rates
+  rates.input = { numerator: '1', denominator: '800000' }
+  rates.output = { numerator: '5', denominator: '2' }
+  const premium = structuredClone(doc.models[0])
+  premium.id = 'two'
+  premium.group = 'premium'
+  premium.token_price.constant_token_rates.input = {
+    numerator: '3',
+    denominator: '1600000',
+  }
+  premium.token_price.constant_token_rates.output = {
+    numerator: '15',
+    denominator: '4',
+  }
+  doc.groups.push(premium.group)
+  doc.models.push(premium)
+  const adapted = adaptNativePricing(nativePricingSchema.parse(doc)).data[0]
+  assert.deepEqual(quotes(adapted, 'USD', 'M', 'default'), [
+    'Input 0.00000125 USD',
+    'Output 2.5 USD',
+    'Cached 0 USD',
+  ])
+  assert.deepEqual(quotes(adapted, 'USD', 'M', 'premium'), [
+    'Input 0.000001875 USD',
+    'Output 3.75 USD',
+    'Cached 0 USD',
+  ])
+  assert.deepEqual(quotes(adapted, 'USD', 'K', 'premium'), [
+    'Input 0.000000001875 USD',
+    'Output 0.00375 USD',
+    'Cached 0 USD',
+  ])
+  assert.deepEqual(quotes(adapted), ['Input -', 'Output -', 'Cached 0 USD'])
+  assert.equal(
+    formatGroupPrice(adapted, 'premium', 'input', 'M', 'USD', { premium: 30 }),
+    '0.000001875 USD'
+  )
+  assert.equal(
+    formatGroupPrice(adapted, 'default', 'output', 'M', 'CNY', {}),
+    '17.5 CNY'
+  )
+  assert.equal(
+    formatGroupPrice(adapted, 'default', 'output', 'M', 'CREDIT', {}),
+    '1,250,000 Credits'
+  )
+})
+
+test('recurring and long prices expose the approximation and exact unit fraction as card text', () => {
+  const doc = publicTokenDocument()
+  const rates = doc.models[0].token_price.constant_token_rates
+  rates.input = { numerator: '1', denominator: '3' }
+  rates.output = { numerator: '1', denominator: (10n ** 27n).toString() }
+  const result = adaptNativePricing(nativePricingSchema.parse(doc)).data[0]
+  assert.deepEqual(quotes(result), [
+    'Input ≈ 0.333333 USD (1/3 USD)',
+    'Output ≈ 1E-27 USD (1/1000000000000000000000000000 USD)',
+    'Cached 0 USD',
+  ])
+  assert.equal(
+    formatGroupPrice(result, 'default', 'input', 'K', 'USD', {}),
+    '≈ 0.000333333 USD (1/3000 USD)'
+  )
+})
+
+test('the public card compares group rates as rationals even when their browser numbers coincide', () => {
+  const doc = nativePricingSchema.parse(publicTokenDocument())
+  const first = doc.models[0]
+  const second = structuredClone(first)
+  second.id = 'two'
+  second.group = 'another'
+  doc.groups.push(second.group)
+  doc.models.push(second)
+  const a = first.token_price?.constant_token_rates
+  const b = second.token_price?.constant_token_rates
+  assert.ok(a && b && second.token_price)
+  a.input = { numerator: '9007199254740992', denominator: '1' }
+  b.input = { numerator: '9007199254740993', denominator: '1' }
+  b.output = { numerator: '6', denominator: '4' }
+  b.cache_read = null
+  const result = () => adaptNativePricing(doc).data[0]
+  assert.deepEqual(quotes(result()), ['Input -', 'Output 1.5 USD'])
+  assert.deepEqual(quotes(result(), 'USD', 'M', 'default'), [
+    'Input 9,007,199,254,740,992 USD',
+    'Output 1.5 USD',
+    'Cached 0 USD',
+  ])
+  assert.deepEqual(quotes(result(), 'USD', 'M', 'another'), [
+    'Input 9,007,199,254,740,993 USD',
+    'Output 1.5 USD',
+  ])
+  delete second.token_price.constant_token_rates
+  second.token_price.input = 2
+  second.token_price.output = 1.5
+  assert.deepEqual(quotes(result()), ['Input -', 'Output 1.5 USD'])
 })

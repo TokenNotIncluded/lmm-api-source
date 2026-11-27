@@ -1,5 +1,5 @@
 //! Bounded Anthropic Messages client adapter. Cache breakpoints retain native boundaries; hosted tools fail closed.
-use super::request::{InputBlock, Message, Request, Role};
+use super::request::{BodyTier, InputBlock, Message, Request, Role};
 #[cfg(test)]
 use super::{BlockKind, Event, FinishReason, Usage};
 use super::{ClientProtocol, Limits, RelayError, UpstreamProtocol};
@@ -251,10 +251,10 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
     let mut v = serde_json::from_slice::<Unique>(body)
         .map_err(|_| RelayError::Invalid("invalid or ambiguous JSON"))?
         .0;
-    // Strip the unpriced provider speed before preserving any native cache payload.
-    if let Some(fields) = v.as_object_mut() {
-        fields.remove("speed");
-    }
+    let tier = BodyTier::take(
+        v.as_object_mut()
+            .ok_or(RelayError::Invalid("expected object"))?,
+    );
     let cached_prompt = cached_prompt(&mut v)?;
     keys(
         &v,
@@ -356,6 +356,7 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
     // The canonical parser above is only an internal representation bridge.
     // Keep the real source protocol for native controls and conversion routing.
     request.client = ClientProtocol::Anthropic;
+    request.set_body_tier(tier);
     if let Some(captured) = super::schema_order::anthropic_schemas(body) {
         request.assign_ordered_schemas(&captured);
     }

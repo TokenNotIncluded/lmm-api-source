@@ -1,6 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useRef, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -64,6 +64,7 @@ import {
   type NativePriceRule,
 } from './native-price-rules'
 import { NativeRouterPrices } from './native-router-prices'
+import { OfficialPriceEditor } from './official-price-editor'
 import {
   originalGroupDescriptions,
   readPricingSourceSnapshot,
@@ -163,8 +164,10 @@ function PricingWorkspace({
   const [editing, setEditing] = useState<{
     rule: NativePriceRule
     previousId?: number
-    openUpstreamSync?: boolean
   } | null>(null)
+  const officialChoices = useId()
+  const [officialModel, setOfficialModel] = useState<string | null>(null)
+  const [modelInput, setModelInput] = useState('')
   const [json, setJson] = useState<string | null>(null)
   const [batchMultiplier, setBatchMultiplier] = useState('1')
   const [preview, setPreview] = useState<Preview | null>(null)
@@ -214,7 +217,9 @@ function PricingWorkspace({
       const oldRule = previous.get(id)
       const newRule = changed.get(id)
       if (
-        (oldRule?.speed === 'fast' ||
+        (oldRule?.billing_mode === 'official_flat' ||
+          newRule?.billing_mode === 'official_flat' ||
+          oldRule?.speed === 'fast' ||
           oldRule?.speed === 'ultrafast' ||
           newRule?.speed === 'fast' ||
           newRule?.speed === 'ultrafast') &&
@@ -274,7 +279,7 @@ function PricingWorkspace({
       speed_multiplier_ppm: 1_000_000,
     }
   }
-  function addRule(selector?: PriceSelector, openUpstreamSync = false) {
+  function addRule(selector?: PriceSelector) {
     if (!configuration || !prices) return
     const rule = newRule(
       selector ?? {
@@ -284,10 +289,10 @@ function PricingWorkspace({
       },
       prices
     )
-    if (!selector && !openUpstreamSync && mode === 'upstream_cost') {
+    if (!selector && mode === 'upstream_cost') {
       rule.billing_mode = 'upstream_cost'
     }
-    setEditing({ rule, openUpstreamSync })
+    setEditing({ rule })
   }
   function saveToolFee(
     row: { selector: PriceSelector; rule?: NativePriceRule },
@@ -448,7 +453,10 @@ function PricingWorkspace({
   const matching = rules.filter(
     (rule) =>
       (!group || rule.group === group) &&
-      (!mode || (rule.billing_mode ?? 'tokens') === mode) &&
+      (!mode ||
+        (rule.billing_mode === 'official_flat'
+          ? 'tokens'
+          : (rule.billing_mode ?? 'tokens')) === mode) &&
       (!needle ||
         [rule.model, rule.group, rule.speed, String(rule.id)].some((value) =>
           value.toLowerCase().includes(needle)
@@ -478,11 +486,13 @@ function PricingWorkspace({
         !samePriceRule(saved.prices.rules, configuration.prices.rules))
   )
   const billingLabel = (value: string | undefined) =>
-    value === 'tiered_decimal'
-      ? t('Tiered pricing')
-      : value === 'upstream_cost'
-        ? t('Upstream cost')
-        : t('Token pricing')
+    value === 'official_flat'
+      ? t('Official base price')
+      : value === 'tiered_decimal'
+        ? t('Tiered pricing')
+        : value === 'upstream_cost'
+          ? t('Upstream cost')
+          : t('Token pricing')
   const download = () => {
     const url = URL.createObjectURL(
       new Blob([stringifyNativeDocument(prices, 2)], {
@@ -517,7 +527,9 @@ function PricingWorkspace({
     updatePrices({
       ...prices,
       rules: rules.map((rule) =>
-        rule.group === group && rule.speed === 'standard'
+        rule.group === group &&
+        rule.speed === 'standard' &&
+        rule.billing_mode !== 'official_flat'
           ? { ...rule, group_multiplier_ppm: multiplier }
           : rule
       ),
@@ -661,10 +673,13 @@ function PricingWorkspace({
           <Button
             type='button'
             variant='outline'
-            disabled={busy}
-            onClick={() => addRule(undefined, true)}
+            disabled={busy || !!draft || query.isError}
+            onClick={() => {
+              setModelInput(search.trim())
+              setOfficialModel('')
+            }}
           >
-            {t('Upstream price sync')}
+            {t('Official base price')}
           </Button>
           <Button type='button' disabled={busy} onClick={() => addRule()}>
             {t('Add price rule')}
@@ -787,7 +802,8 @@ function PricingWorkspace({
                 <TableCell>
                   <div>{rule.group}</div>
                   <div className='text-muted-foreground mt-1 text-xs'>
-                    {rule.speed === 'standard'
+                    {rule.speed === 'standard' &&
+                    rule.billing_mode !== 'official_flat'
                       ? rule.speed
                       : `${rule.speed} · ${t('Read only')}`}
                   </div>
@@ -817,7 +833,7 @@ function PricingWorkspace({
                 <TableCell className='bg-background sticky right-0 z-10 w-24 text-right'>
                   <DropdownMenu>
                     <DropdownMenuTrigger
-                      disabled={busy || rule.speed !== 'standard'}
+                      disabled={busy}
                       render={
                         <Button
                           type='button'
@@ -834,7 +850,22 @@ function PricingWorkspace({
                       className='bg-background min-w-40'
                     >
                       <DropdownMenuItem
-                        disabled={busy || rule.speed !== 'standard'}
+                        disabled={busy || !!draft || query.isError}
+                        onClick={() => setOfficialModel(rule.model)}
+                      >
+                        {t('Official base price')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={
+                          busy ||
+                          rule.speed !== 'standard' ||
+                          rule.billing_mode === 'official_flat' ||
+                          Object.hasOwn(
+                            configuration.bindings.official_prices?.models ??
+                              {},
+                            rule.model
+                          )
+                        }
                         onClick={() =>
                           setEditing({ rule, previousId: rule.id })
                         }
@@ -842,7 +873,11 @@ function PricingWorkspace({
                         {t('Edit')}
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        disabled={busy || rule.speed !== 'standard'}
+                        disabled={
+                          busy ||
+                          rule.speed !== 'standard' ||
+                          rule.billing_mode === 'official_flat'
+                        }
                         onClick={() =>
                           setEditing({
                             rule: {
@@ -856,7 +891,11 @@ function PricingWorkspace({
                         {t('Copy')}
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        disabled={busy || rule.speed !== 'standard'}
+                        disabled={
+                          busy ||
+                          rule.speed !== 'standard' ||
+                          rule.billing_mode === 'official_flat'
+                        }
                         variant='destructive'
                         onClick={() =>
                           updatePrices({
@@ -994,8 +1033,8 @@ function PricingWorkspace({
           <TabsContent value='missing'>
             <NativePriceCoveragePanel
               rows={coverage.missing.map((selector) => ({ selector }))}
-              disabled={busy || stale || query.isError}
-              addRule={addRule}
+              disabled={busy || !!draft || stale || query.isError}
+              addRule={({ model }) => setOfficialModel(model)}
               saveFee={saveToolFee}
             />
           </TabsContent>
@@ -1126,12 +1165,68 @@ function PricingWorkspace({
           </div>
         </section>
       )}
+      {!groupWorkspace && !routerWorkspace && officialModel !== null && (
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setOfficialModel(null)
+          }}
+          title={t('Official base price')}
+        >
+          {officialModel ? (
+            <OfficialPriceEditor
+              scope={scope}
+              configuration={configuration}
+              model={officialModel}
+              onPublished={refresh}
+            />
+          ) : (
+            <form
+              className='space-y-3'
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (modelInput.trim()) setOfficialModel(modelInput.trim())
+              }}
+            >
+              <label className='block space-y-1 text-sm'>
+                <span>{t('Model ID')}</span>
+                <Input
+                  value={modelInput}
+                  list={officialChoices}
+                  autoFocus
+                  maxLength={256}
+                  onChange={(event) => setModelInput(event.target.value)}
+                />
+              </label>
+              <datalist id={officialChoices}>
+                {[
+                  ...new Set([
+                    ...Object.keys(
+                      configuration.bindings.official_prices?.models ?? {}
+                    ),
+                    ...rules.map((rule) => rule.model),
+                    ...Object.values(
+                      configuration.bindings.discoveries
+                    ).flatMap((discovery) => discovery.models),
+                  ]),
+                ]
+                  .sort()
+                  .map((id) => (
+                    <option key={id} value={id} />
+                  ))}
+              </datalist>
+              <Button type='submit' disabled={!modelInput.trim()}>
+                {t('Open')}
+              </Button>
+            </form>
+          )}
+        </Dialog>
+      )}
       {editing && (
         <NativePriceRuleDialog
           initial={editing.rule}
           groups={groups}
           routing={configuration.routing}
-          openUpstreamSync={editing.openUpstreamSync}
           models={[
             ...new Set(
               configuration.routing.routes.map((route) => route.model)

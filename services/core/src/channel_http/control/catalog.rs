@@ -27,6 +27,89 @@ pub(in crate::channel_http) struct ModelMetadata {
 pub(in crate::channel_http) struct Discovery {
     pub models: Vec<String>,
     pub observed_at: i64,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub pending_models: BTreeSet<String>,
+}
+
+fn enabled_targets(document: &ReleaseDocument) -> impl Iterator<Item = (u64, &str, &str)> {
+    let groups: BTreeSet<_> = document
+        .routing
+        .groups
+        .iter()
+        .filter(|group| group.enabled)
+        .map(|group| group.name.as_str())
+        .collect();
+    let upstreams: BTreeSet<_> = document
+        .routing
+        .upstreams
+        .iter()
+        .filter(|upstream| upstream.enabled)
+        .map(|upstream| upstream.id)
+        .collect();
+    document
+        .routing
+        .routes
+        .iter()
+        .filter(move |route| route.enabled && groups.contains(route.group.as_str()))
+        .flat_map(|route| {
+            route
+                .targets
+                .iter()
+                .filter(move |target| {
+                    target.enabled
+                        && target.weight > 0
+                        && target
+                            .speeds
+                            .iter()
+                            .any(|speed| route.speeds.contains(speed))
+                })
+                .map(move |target| {
+                    (
+                        target.upstream_id,
+                        target.upstream_model.as_str(),
+                        route.model.as_str(),
+                    )
+                })
+        })
+        .filter(move |(id, _, _)| upstreams.contains(id))
+}
+
+// A provider model can back multiple public routes. Check every public base
+// rate before removing the shared pending selection from its channel.
+pub(super) fn promote_pending(
+    document: &ReleaseDocument,
+    bindings: &mut Bindings,
+) -> Result<(), ManagementError> {
+    if !bindings
+        .discoveries
+        .values()
+        .any(|row| !row.pending_models.is_empty())
+    {
+        return Ok(());
+    }
+    let mut promoted = Vec::new();
+    for (id, raw_model, public_model) in enabled_targets(document) {
+        if bindings
+            .discoveries
+            .get(&id)
+            .is_some_and(|row| row.pending_models.contains(raw_model))
+        {
+            if !bindings
+                .official_prices
+                .as_ref()
+                .is_some_and(|official| official.models.contains_key(public_model))
+            {
+                return Err(ManagementError::Invalid);
+            }
+            promoted.push((id, raw_model));
+        }
+    }
+    for (id, model) in promoted {
+        if let Some(row) = bindings.discoveries.get_mut(&id) {
+            row.pending_models.remove(model);
+        }
+    }
+    Ok(())
 }
 fn label(value: &str) -> bool {
     !value.trim().is_empty() && value.len() <= 128 && !value.chars().any(char::is_control)
@@ -81,12 +164,30 @@ pub(in crate::channel_http) fn validate_metadata(
             .any(|upstream| upstream.id == *id)
             || !(1..=253_402_300_799).contains(&discovery.observed_at)
             || discovery.models.len() > 10_000
-            || discovery.models.iter().any(|model| {
-                model.is_empty() || model.len() > 256 || model.chars().any(char::is_control)
-            })
+            || discovery.pending_models.len() > 10_000
+            || discovery
+                .models
+                .iter()
+                .chain(&discovery.pending_models)
+                .any(|model| {
+                    model.is_empty() || model.len() > 256 || model.chars().any(char::is_control)
+                })
         {
             return Err(ManagementError::Invalid);
         }
+    }
+    if bindings
+        .discoveries
+        .values()
+        .any(|row| !row.pending_models.is_empty())
+        && enabled_targets(document).any(|(id, model, _)| {
+            bindings
+                .discoveries
+                .get(&id)
+                .is_some_and(|row| row.pending_models.contains(model))
+        })
+    {
+        return Err(ManagementError::Invalid);
     }
     Ok(())
 }
@@ -287,8 +388,13 @@ impl ModelInput {
             .iter()
             .find(|r| r.id == self.route.id)
             .cloned();
+        let mut bindings = management.current_bindings()?;
+        let official = bindings
+            .official_prices
+            .as_ref()
+            .filter(|prices| prices.models.contains_key(&self.route.model));
         if previous.is_some() != editing
-            || self.prices.is_empty()
+            || (official.is_none() && self.prices.is_empty())
             || self
                 .prices
                 .iter()
@@ -299,10 +405,12 @@ impl ModelInput {
         }
         if let Some(old) = previous {
             document.routing.routes.retain(|r| r.id != old.id);
-            document
-                .pricing
-                .rules
-                .retain(|p| p.model != old.model || p.group != old.group);
+            if old.model != self.route.model || old.group != self.route.group {
+                document
+                    .pricing
+                    .rules
+                    .retain(|p| p.model != old.model || p.group != old.group);
+            }
             // Preserve aliases while changing the canonical model identifier.
             for alias in &mut document.routing.aliases {
                 if alias.model == old.model && alias.group == old.group {
@@ -318,8 +426,15 @@ impl ModelInput {
             .checked_add(1)
             .filter(|v| *v <= i64::MAX as u64)
             .ok_or(ManagementError::Invalid)?;
-        document.pricing.rules.extend(self.prices.clone());
-        let mut bindings = management.current_bindings()?;
+        if let Some(official) = official {
+            document.pricing = official.compile(&document.routing, &document.pricing)?;
+        } else if !self.prices.is_empty() {
+            document
+                .pricing
+                .rules
+                .retain(|p| p.model != self.route.model || p.group != self.route.group);
+            document.pricing.rules.extend(self.prices.clone());
+        }
         bindings.models.insert(self.route.id, self.metadata.clone());
         for context in &self.contexts {
             if !self.route.targets.iter().any(|t| {
@@ -333,6 +448,7 @@ impl ModelInput {
             });
             bindings.contexts.push(context.clone());
         }
+        promote_pending(&document, &mut bindings)?;
         management.validate_bindings(&document, &bindings, &BTreeSet::new())?;
         Ok((document, bindings))
     }
@@ -483,6 +599,67 @@ pub(in crate::channel_http) async fn remove_model(
         .await?;
     Ok(Json(json!({"success":true,"data":{"version":version}})))
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(in crate::channel_http) struct PendingInput {
+    expected_version: Version,
+    models: Vec<String>,
+}
+
+pub(in crate::channel_http) async fn save_pending(
+    State(state): State<ChannelState>,
+    headers: HeaderMap,
+    Path(id): Path<u64>,
+    Json(input): Json<PendingInput>,
+) -> Result<Json<Value>, Failure> {
+    super::super::admit(&state, &headers).await?;
+    let management = state.management.as_ref().ok_or(Failure::Disabled)?;
+    let _guard = management.publication.lock().await;
+    let (tx, principal) = management
+        .begin(
+            bearer(&headers)?,
+            Action::ChannelSensitiveWrite,
+            super::ReadView::Current,
+        )
+        .await?;
+    let document = next_document(management, input.expected_version)?;
+    let mut bindings = management.current_bindings()?;
+    let discovery = bindings.discoveries.get_mut(&id).ok_or(Failure::NotFound)?;
+    if input.models.len() > 10_000 {
+        return Err(ManagementError::Invalid.into());
+    }
+    let observed: BTreeSet<_> = discovery.models.iter().map(String::as_str).collect();
+    let count = input.models.len();
+    let selected: BTreeSet<_> = input.models.into_iter().collect();
+    if selected.len() != count
+        || selected.iter().any(|model| {
+            !(observed.contains(model.as_str()) || discovery.pending_models.contains(model))
+        })
+        || enabled_targets(&document)
+            .any(|(channel, model, _)| channel == id && selected.contains(model))
+    {
+        return Err(ManagementError::Invalid.into());
+    }
+    discovery.pending_models = selected.clone();
+    let version = management
+        .publish_bindings(
+            tx,
+            &principal,
+            input.expected_version,
+            document,
+            bindings,
+            Vec::new(),
+            super::PublicationChange::Normal {
+                action: "channel.models.pending",
+                target: json!({"id":id, "model_count":count}),
+            },
+        )
+        .await?;
+    Ok(Json(
+        json!({"success":true,"data":{"version":version,"models":selected,"routes_published":false}}),
+    ))
+}
+
 pub(in crate::channel_http) async fn synchronize_models(
     State(state): State<ChannelState>,
     headers: HeaderMap,
@@ -508,12 +685,18 @@ pub(in crate::channel_http) async fn synchronize_models(
             .await
             .map_err(ManagementError::from)?;
     let mut bindings = management.current_bindings()?;
+    let pending_models = bindings
+        .discoveries
+        .remove(&id)
+        .map(|d| d.pending_models)
+        .unwrap_or_default();
     let count = discovery.models.len();
     bindings.discoveries.insert(
         id,
         Discovery {
             models: discovery.models.clone(),
             observed_at: observed,
+            pending_models,
         },
     );
     let version = management

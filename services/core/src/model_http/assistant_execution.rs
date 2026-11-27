@@ -80,8 +80,8 @@ impl ModelGateway {
                 replay: crate::routing::ReplayPermission::Denied,
             })
             .map_err(|_| RelayError::RouteUnavailable)?;
-        let mut price = routing::credit_price(plan.quote(), plan.canonical_model(), group)?;
         let attempt = plan.start().map_err(|_| RelayError::RouteUnavailable)?;
+        let mut price = routing::credit_price(attempt.quote(), attempt.canonical_model(), group)?;
         assistant_upstream_protocol(attempt.protocol())?;
         freeze_assistant_tariff(&mut price, &self.bridge.provider_policy, &attempt)?;
         Ok(price)
@@ -103,11 +103,11 @@ impl ModelGateway {
                 replay: ReplayPermission::Denied,
             })
             .map_err(|_| RelayError::RouteUnavailable)?;
-        let price = routing::credit_price(plan.quote(), plan.canonical_model(), group)?;
+        let attempt = plan.start().map_err(|_| RelayError::RouteUnavailable)?;
+        let price = routing::credit_price(attempt.quote(), attempt.canonical_model(), group)?;
         if price.upstream_cost_group_ppm.is_some() {
             return Err(RelayError::Unsupported("assistant requires token quote"));
         }
-        let attempt = plan.start().map_err(|_| RelayError::RouteUnavailable)?;
         assistant_upstream_protocol(attempt.protocol())?;
         if attempt.payload_policy() != crate::routing::PayloadPolicy::Adapt
             || u128::from(attempt.timeout_ms()) < self.limits.total_timeout.as_millis()
@@ -157,14 +157,14 @@ impl ModelGateway {
                 replay: ReplayPermission::Denied,
             })
             .map_err(|_| RelayError::RouteUnavailable)?;
-        let quote = plan.quote().with_credit_rate(
+        let attempt = Arc::new(plan.start().map_err(|_| RelayError::RouteUnavailable)?);
+        let quote = attempt.quote().with_credit_rate(
             CreditRate::new(1, 500_000).map_err(|_| RelayError::BillingUnavailable)?,
         );
-        let mut price = routing::credit_price(quote.price(), plan.canonical_model(), group)?;
+        let mut price = routing::credit_price(quote.price(), attempt.canonical_model(), group)?;
         if price.upstream_cost_group_ppm.is_some() {
             return Err(RelayError::Unsupported("assistant requires token quote"));
         }
-        let attempt = Arc::new(plan.start().map_err(|_| RelayError::RouteUnavailable)?);
         let upstream = assistant_upstream_protocol(attempt.protocol())?;
         if attempt.payload_policy() != crate::routing::PayloadPolicy::Adapt
             || !attempt.is_available()

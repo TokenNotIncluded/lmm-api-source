@@ -147,8 +147,9 @@ fn legacy_openai_all_flags_preserve_or_remove_exact_payloads() {
                 body["stream_options"] = json!({"include_obfuscation":false});
                 let bytes = serde_json::to_vec(&body).unwrap();
                 assert!(Request::parse(client, &bytes, &Limits::default()).is_err());
-                let request =
+                let mut request =
                     Request::parse_deferred_openai(client, &bytes, &Limits::default()).unwrap();
+                request.apply_service_tier_policy(true).unwrap();
                 assert!(request.upstream_to(upstream, "real").is_err());
                 let ordinary = Route::new(
                     "strict".into(),
@@ -249,7 +250,7 @@ fn legacy_openai_disabled_values_are_removed_but_enabled_values_are_validated() 
                 } else {
                     body[name] = value;
                 }
-                let request = Request::parse_deferred_openai(
+                let mut request = Request::parse_deferred_openai(
                     client,
                     &serde_json::to_vec(&body).unwrap(),
                     &Limits::default(),
@@ -261,6 +262,10 @@ fn legacy_openai_disabled_values_are_removed_but_enabled_values_are_validated() 
                         .unwrap(),
                     input(client, true).upstream_to(upstream, "real").unwrap()
                 );
+                if matches!(name, "speed" | "service_tier") {
+                    assert!(request.apply_service_tier_policy(true).is_err(), "{name}");
+                    continue;
+                }
                 let mut flags = [false; 5];
                 flags[index] = true;
                 assert!(
@@ -271,17 +276,13 @@ fn legacy_openai_disabled_values_are_removed_but_enabled_values_are_validated() 
         }
         let mut body = base.clone();
         body["service_tier"] = json!("unreviewed-tier");
-        let request = Request::parse_deferred_openai(
+        let mut request = Request::parse_deferred_openai(
             client,
             &serde_json::to_vec(&body).unwrap(),
             &Limits::default(),
         )
         .unwrap();
-        assert!(
-            request
-                .upstream(&legacy_route(upstream, [true; 5]))
-                .is_err()
-        );
+        assert!(request.apply_service_tier_policy(true).is_err());
         body.as_object_mut().unwrap().remove("service_tier");
         body["safety_identifier"] = json!("界".repeat(128));
         body["stream_options"] = json!({"include_obfuscation":true});
@@ -313,12 +314,13 @@ fn legacy_openai_preserves_nullable_fields_and_protocol_specific_tiers() {
         };
         body["service_tier"] = Value::Null;
         body["safety_identifier"] = Value::Null;
-        let request = Request::parse_deferred_openai(
+        let mut request = Request::parse_deferred_openai(
             client,
             &serde_json::to_vec(&body).unwrap(),
             &Limits::default(),
         )
         .unwrap();
+        request.apply_service_tier_policy(true).unwrap();
         let mut expected = input(client, false).upstream_to(upstream, "real").unwrap();
         expected["service_tier"] = Value::Null;
         expected["safety_identifier"] = Value::Null;
@@ -335,14 +337,25 @@ fn legacy_openai_preserves_nullable_fields_and_protocol_specific_tiers() {
             input(client, false).upstream_to(upstream, "real").unwrap()
         );
         body["service_tier"] = json!("ultrafast");
-        let request = Request::parse_deferred_openai(
+        let mut request = Request::parse_deferred_openai(
             client,
             &serde_json::to_vec(&body).unwrap(),
             &Limits::default(),
         )
         .unwrap();
-        let result = request.upstream(&legacy_route(upstream, [true; 5]));
-        assert!(result.is_err());
+        if client == ClientProtocol::Responses {
+            assert_eq!(
+                request.apply_service_tier_policy(true).unwrap(),
+                Some(crate::routing::Speed::Ultrafast)
+            );
+            assert!(
+                request
+                    .upstream(&legacy_route(upstream, [true; 5]))
+                    .is_err()
+            );
+        } else {
+            assert!(request.apply_service_tier_policy(true).is_err());
+        }
     }
 }
 
@@ -499,7 +512,7 @@ fn legacy_openai_never_authorizes_cross_protocol_or_passthrough_encoding() {
     }
     let passthrough = legacy_route(UpstreamProtocol::Chat, [false; 5])
         .with_payload_policy(crate::routing::PayloadPolicy::Passthrough);
-    assert!(request.upstream(&passthrough).is_err());
+    assert!(request.upstream_body(&passthrough).is_err());
 }
 
 fn frame(decoder: &mut Decoder, v: Value) -> Result<Vec<Event>, RelayError> {
@@ -1470,6 +1483,27 @@ fn anthropic_merging_preserves_signed_thinking_and_empty_same_role_messages() {
 }
 
 #[test]
+fn raw_route_strips_only_ignored_top_level_tiers_from_validated_bytes() {
+    let raw: &'static [u8] = br#"{ "model":"real", "speed":"fast", "input":"hi","max_output_tokens":16,"text":{"format":{"type":"json_schema","name":"schema","schema":{"type":"object","properties":{"z":{"type":"string"},"speed":{"type":"string"},"a":{"type":"number"}}}}}, "service_tier":"auto" }"#;
+    let mut request =
+        Request::parse_deferred_openai(ClientProtocol::Responses, raw, &Limits::default()).unwrap();
+    assert_eq!(request.apply_service_tier_policy(false).unwrap(), None);
+    let route = legacy_route(UpstreamProtocol::Responses, [false; 5])
+        .with_payload_policy(crate::routing::PayloadPolicy::Passthrough);
+    // Assigning original bytes alone can never bypass the tier projection.
+    request.original_http_body = Some(raw.into());
+    assert!(request.upstream_body(&route).is_err());
+    request.set_http_passthrough_body(raw.into()).unwrap();
+    let wire = request.upstream_body(&route).unwrap();
+    let value: Value = serde_json::from_slice(&wire).unwrap();
+    assert!(value.get("speed").is_none() && value.get("service_tier").is_none());
+    assert!(std::str::from_utf8(&wire).unwrap().contains(
+        r#""properties":{"z":{"type":"string"},"speed":{"type":"string"},"a":{"type":"number"}}"#
+    ));
+    assert_eq!(request.legacy_precharge_body.as_deref(), Some(raw));
+}
+
+#[test]
 fn native_passthrough_preserves_bytes_with_a_billable_output_limit() {
     let bytes =
         br#"{ "model":"real", "messages":[{"role":"user","content":"hi"}], "max_tokens":4 }"#;
@@ -1491,4 +1525,211 @@ fn native_passthrough_preserves_bytes_with_a_billable_output_limit() {
     let payload: Value = serde_json::from_slice(&request.upstream_body(&route).unwrap()).unwrap();
     assert_eq!(payload["temperature"], json!(0.25));
     assert_eq!(payload["model"], "real");
+}
+
+#[test]
+fn native_tier_controls_are_removed_before_passthrough_in_both_stream_modes() {
+    use crate::routing::{PayloadPolicy, Speed};
+    use axum::body::Bytes;
+
+    for (client, upstream) in [
+        (ClientProtocol::Anthropic, UpstreamProtocol::Anthropic),
+        (ClientProtocol::Gemini, UpstreamProtocol::Gemini),
+    ] {
+        let route =
+            legacy_route(upstream, [false; 5]).with_payload_policy(PayloadPolicy::Passthrough);
+        for stream in [false, true] {
+            let schema = json!({"type":"object","properties":{
+                "speed":{"type":"string"},"service_tier":{"type":"string"},"serviceTier":{"type":"string"}
+            }});
+            let base = if client == ClientProtocol::Anthropic {
+                json!({
+                    "model":"real","stream":stream,"max_tokens":32,
+                    "messages":[{"role":"user","content":"hello"}],
+                    "tools":[{"name":"inspect","input_schema":schema}]
+                })
+            } else {
+                json!({
+                    "contents":[{"role":"user","parts":[{"text":"hello"}]}],
+                    "generationConfig":{"maxOutputTokens":32},
+                    "tools":[{"functionDeclarations":[{"name":"inspect","parametersJsonSchema":schema}]}]
+                })
+            };
+            let parse = |payload: &Value| {
+                let bytes = Bytes::from(serde_json::to_vec_pretty(payload).unwrap());
+                let request = if client == ClientProtocol::Anthropic {
+                    Request::parse(client, &bytes, &Limits::default())
+                } else {
+                    super::native_gemini::parse("real", stream, &bytes, &Limits::default())
+                }
+                .unwrap();
+                assert_eq!(request.stream, stream);
+                (request, bytes)
+            };
+            let (mut plain, original) = parse(&base);
+            assert_eq!(plain.apply_service_tier_policy(false).unwrap(), None);
+            plain.set_http_passthrough_body(original.clone()).unwrap();
+            assert_eq!(
+                plain.upstream_body(&route).unwrap().as_slice(),
+                original.as_ref()
+            );
+
+            let mut payload = base.clone();
+            let service_key = if client == ClientProtocol::Gemini {
+                "serviceTier"
+            } else {
+                "service_tier"
+            };
+            payload[service_key] = json!("not-a-tier");
+            payload["speed"] = json!("fast");
+            let (mut ignored, original) = parse(&payload);
+            assert_eq!(ignored.apply_service_tier_policy(false).unwrap(), None);
+            ignored.set_http_passthrough_body(original).unwrap();
+            let forwarded: Value =
+                serde_json::from_slice(&ignored.upstream_body(&route).unwrap()).unwrap();
+            assert_eq!(forwarded, base, "{client:?}, stream={stream}");
+            let (mut invalid, _) = parse(&payload);
+            assert!(invalid.apply_service_tier_policy(true).is_err());
+
+            if client == ClientProtocol::Gemini {
+                let mut snake_case = base.clone();
+                snake_case["service_tier"] = json!("unsupported-fixture-tier");
+                let (mut request, bytes) = parse(&snake_case);
+                assert_eq!(request.apply_service_tier_policy(false).unwrap(), None);
+                request.set_http_passthrough_body(bytes).unwrap();
+                let wire: Value =
+                    serde_json::from_slice(&request.upstream_body(&route).unwrap()).unwrap();
+                assert_eq!(wire, base);
+            }
+            payload[service_key] = json!("default");
+            let (mut conflict, _) = parse(&payload);
+            assert!(conflict.apply_service_tier_policy(true).is_err());
+
+            payload.as_object_mut().unwrap().remove(service_key);
+            let (mut accepted, _) = parse(&payload);
+            assert_eq!(
+                accepted.apply_service_tier_policy(true).unwrap(),
+                Some(Speed::Fast)
+            );
+            // A client hint cannot qualify an unpriced passthrough route.
+            assert!(accepted.upstream_body(&route).is_err());
+        }
+    }
+}
+
+#[test]
+fn responses_ws_frames_follow_the_priced_attempt_for_aliases_and_fallbacks() {
+    use super::responses_ws::Create;
+    use crate::routing::{DeliveryState, Failure, FailureKind, Speed, store::ReleaseDocument};
+
+    let speeds = ["standard", "fast", "ultrafast"];
+    let targets: Vec<_> = ["primary", "legacy"]
+        .into_iter()
+        .enumerate()
+        .map(|(i, name)| {
+            let payload = if i == 0 {
+                json!("adapt")
+            } else {
+                json!({"legacy_openai":{"allow_speed":true}})
+            };
+            json!({"id":i+1,"upstream_id":i+1,"upstream_model":name,"enabled":true,
+            "priority":i,"weight":1,"timeout_ms":30000,"speeds":speeds,"payload":payload})
+        })
+        .collect();
+    let upstreams: Vec<_> = (1..=2)
+        .map(|id| {
+            json!({
+                "id":id,"enabled":true,"protocol":"openai_responses",
+                "endpoint":format!("https://provider-{id}.invalid/v1"),
+                "credential":{"id":id,"revision":1}
+            })
+        })
+        .collect();
+    let rules: Vec<_> = speeds
+        .iter()
+        .enumerate()
+        .map(|(i, speed)| {
+            json!({
+                "id":i+1,"model":"public","group":"default","speed":speed,
+                "rates":{"input":1,"output":1,"cache_read":0,"cache_write":0,"request":0},
+                "group_multiplier_ppm":1000000,"speed_multiplier_ppm":(i+1)*1000000
+            })
+        })
+        .collect();
+    let doc: ReleaseDocument = serde_json::from_value(json!({
+        "contract_version":1,
+        "routing":{"version":1,"groups":[{"name":"default","enabled":true}],
+            "global_model_policy":{"honor_request_service_tier":true,"pass_through_request_enabled":true,
+                "thinking_model_blacklist":[],"chat_completions_to_responses_policy":{},
+                "ping_interval_enabled":false,"ping_interval_seconds":30},
+            "upstreams":upstreams,"aliases":[{"alias":"alias","model":"public","group":"default"}],
+            "routes":[{"id":1,"model":"public","group":"default","enabled":true,"speeds":speeds,
+                "targets":targets,"failover":{"max_attempts":2,"retry_on":["connect"],"allow_replay_after_send":false}}]},
+        "pricing":{"version":1,"rules":rules}
+    })).unwrap();
+    let router = doc.into_router().unwrap();
+    let limits = Limits::default();
+    for (model, body_tier, honor, effective) in [
+        ("alias", Some("priority"), false, Speed::Standard),
+        ("alias", Some("priority"), true, Speed::Fast),
+        ("alias/ultrafast", None, true, Speed::Ultrafast),
+    ] {
+        let mut body = json!({
+            "type":"response.create","event_id":"client-id","stream_id":"stream-1",
+            "previous_response_id":"resp-previous","model":model,"input":"hello",
+            "client_metadata":{"turn_id":"keep-this-id"},"max_output_tokens":16
+        });
+        if let Some(tier) = body_tier {
+            body["service_tier"] = json!(tier);
+        }
+        let create =
+            Create::parse(&serde_json::to_vec(&body).unwrap(), limits.request_bytes).unwrap();
+        let mut request =
+            Request::parse_responses_ws(&create.request_json, &limits, true, None).unwrap();
+        let speed = request.apply_service_tier_policy(honor).unwrap();
+        let mut plans = router
+            .snapshot()
+            .unwrap()
+            .ws_model_groups(model, &["default".into()], None, None, speed)
+            .unwrap();
+        let plan = &mut plans[0];
+        assert_eq!(plan.speed(), effective);
+        let first = plan.start().unwrap();
+        let fallback = plan
+            .retry(Failure {
+                kind: FailureKind::Connect,
+                delivery: DeliveryState::NotSent,
+            })
+            .unwrap();
+        for (is_legacy, attempt) in [(false, first), (true, fallback)] {
+            let mut route = Route::new(
+                attempt.route_key(),
+                UpstreamProtocol::Responses,
+                attempt.endpoint(),
+                attempt.upstream_model().to_owned(),
+                "synthetic",
+                attempt.quote().version(),
+            )
+            .unwrap()
+            .with_payload_policy(attempt.payload_policy());
+            route.model_attempt = Some(std::sync::Arc::new(attempt));
+            let prepared = create.prepare_selected(&request, &route, &limits).unwrap();
+            let frame: Value = serde_json::from_slice(&prepared.wire_bytes).unwrap();
+            assert_eq!(frame["model"], if is_legacy { "legacy" } else { "primary" });
+            assert_eq!(frame["type"], "response.create");
+            assert_eq!(frame["previous_response_id"], "resp-previous");
+            assert_eq!(frame["stream_id"], "stream-1");
+            assert!(frame.get("event_id").is_none());
+            assert_eq!(frame["client_metadata"]["turn_id"], "keep-this-id");
+            match (effective, is_legacy) {
+                (Speed::Standard, _) => {
+                    assert!(frame.get("service_tier").is_none());
+                    assert!(frame.get("speed").is_none());
+                }
+                (speed, true) => assert_eq!(frame["speed"], json!(speed)),
+                (Speed::Fast, false) => assert_eq!(frame["service_tier"], "priority"),
+                (Speed::Ultrafast, false) => assert_eq!(frame["service_tier"], "ultrafast"),
+            }
+        }
+    }
 }

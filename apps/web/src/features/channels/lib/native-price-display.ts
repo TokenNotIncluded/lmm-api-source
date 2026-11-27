@@ -36,6 +36,10 @@ function fraction(numerator: bigint, denominator: bigint): string {
     : `${numerator}/${denominator}`
 }
 
+export function hasDecimalPriceRates(mode: unknown) {
+  return mode === 'tiered_decimal' || mode === 'official_flat'
+}
+
 /** Configured USD / 1M token rates, or USD / request, including both ppm multipliers.
  * This is a catalog display, not a settlement calculation or a user quote.
  */
@@ -44,20 +48,21 @@ export function nativeConfiguredPrice(
   dimension: 'input' | 'output' | 'cache_read' | 'cache_write' | 'request',
   tierIndex = 0
 ): string | null {
+  const decimal = hasDecimalPriceRates(rule.billing_mode)
   if (
     rule.billing_mode !== undefined &&
     rule.billing_mode !== 'tokens' &&
-    rule.billing_mode !== 'tiered_decimal'
+    !decimal
   ) {
     return null
   }
-  if (rule.billing_mode !== 'tiered_decimal' && rule.tiered != null) return null
+  if (!decimal && rule.tiered != null) return null
   const group = integer(rule.group_multiplier_ppm)
   const speed = integer(rule.speed_multiplier_ppm)
   if (group === null || speed === null) return null
   let numerator: bigint | null
   let denominator: bigint | null
-  if (rule.billing_mode === 'tiered_decimal') {
+  if (decimal) {
     const tariff = record(rule.tiered)
     // A time-dependent tariff cannot be presented as one unconditional price.
     if (!tariff || tariff.calendar || !Array.isArray(tariff.tiers)) return null

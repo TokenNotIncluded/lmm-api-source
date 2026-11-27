@@ -2090,3 +2090,202 @@ fn prompt_cache_affinity_experiment_counts_second_turn_same_supplier_opportuniti
             .all(|count| (900..=1150).contains(&count))
     );
 }
+
+fn mixed_official_release(version: u64, write: u64) -> (RoutingConfig, PriceConfig) {
+    let (mut config, mut pricing) = fixture(version);
+    config.upstreams[0].protocol = Protocol::AnthropicMessages;
+    config.upstreams[1].protocol = Protocol::OpenAiResponses;
+    let mut gemini = config.upstreams[0].clone();
+    gemini.id = 3;
+    gemini.credential.id = 300;
+    gemini.protocol = Protocol::Gemini;
+    config.upstreams.push(gemini);
+    let route = &mut config.routes[0];
+    let mut target = route.targets[0].clone();
+    target.id = 3;
+    target.upstream_id = 3;
+    route.targets.push(target);
+    for target in &mut route.targets {
+        target.priority = target.id as u16;
+    }
+    route.failover.max_attempts = 3;
+    let digest = format!("{version:064x}");
+    let rate = |n| DecimalRate {
+        numerator: n,
+        denominator: 1_000_000,
+    };
+    for rule in &mut pricing.rules {
+        rule.billing_mode = BillingMode::OfficialFlat;
+        rule.rates = TokenRates {
+            input: 0,
+            output: 0,
+            cache_read: 0,
+            cache_write: 0,
+            request: 0,
+        };
+        rule.tiered = Some(TieredTariff {
+            revision: 2,
+            source_digest: digest.clone(),
+            uses_cache_read: true,
+            uses_cache_write: true,
+            uses_cache_write_1h: true,
+            uses_cache_write_12h: false,
+            calendar: None,
+            tiers: vec![TokenTier {
+                up_to_input_tokens: None,
+                rates: TieredRates {
+                    input: rate(20),
+                    output: rate(30),
+                    cache_read: rate(4),
+                    cache_write: rate(write),
+                    cache_write_1h: Some(rate(write)),
+                    cache_write_12h: None,
+                },
+            }],
+        });
+    }
+    (config, pricing)
+}
+
+#[test]
+fn mixed_official_attempts_preserve_the_target_meter_through_reorder_retry_and_repricing() {
+    let (routing, prices) = mixed_official_release(1, 8);
+    let router = build(routing, prices);
+    let mut plan = router.route(request()).unwrap();
+    let template = plan.quote();
+    assert_eq!(template.billing_mode(), BillingMode::OfficialFlat);
+    assert!(template.tiered().is_none());
+    assert!(!template.is_bound_official_flat());
+    assert!(template.charge(Usage::default()).is_err());
+    let unbound = template.with_credit_rate(CreditRate::new(1, 500_000).unwrap());
+    assert!(unbound.charge(Usage::default()).is_err());
+    assert!(unbound.reservation_ceiling(1, 0).is_err());
+    assert!(
+        unbound
+            .charge_tiered_usage(TieredUsage::default(), InputSemantics::Inclusive)
+            .is_err()
+    );
+    let versions = |a: &Attempt| (a.upstream_id(), a.quote().tiered().unwrap().revision());
+    assert_eq!(
+        plan.planned_attempts()
+            .iter()
+            .map(versions)
+            .collect::<Vec<_>>(),
+        [(1, 2), (2, 4), (3, 1)]
+    );
+    plan.prefer_channel(2);
+    assert_eq!(
+        plan.candidate_attempts()
+            .iter()
+            .map(versions)
+            .collect::<Vec<_>>(),
+        [(2, 4), (1, 2), (3, 1)]
+    );
+    let openai = plan.start().unwrap();
+    let saved = openai
+        .quote()
+        .freeze_for_price_test(openai.canonical_model(), openai.group())
+        .unwrap();
+    let original = serde_json::to_vec(&saved).unwrap();
+    let (routing, prices) = mixed_official_release(2, 40);
+    router
+        .publish(
+            plan.version(),
+            routing,
+            Arc::new(PriceSnapshot::compile(prices).unwrap()),
+        )
+        .unwrap();
+    let anthropic = plan.retry(failure()).unwrap();
+    let gemini = plan.retry(failure()).unwrap();
+    assert_eq!(
+        [versions(&openai), versions(&anthropic), versions(&gemini)],
+        [(2, 4), (1, 2), (3, 1)]
+    );
+    assert!(plan.retry(failure()).is_err());
+    for candidate in [&openai, &anthropic, &gemini] {
+        let quote = candidate.quote();
+        assert_eq!(quote.version(), 1);
+        assert!(quote.is_bound_official_flat());
+        let stored = quote.tiered().unwrap().tariff();
+        assert_eq!(stored.source_digest, format!("{:064x}", 1));
+        assert_eq!(
+            stored.tiers[0].rates.cache_write.numerator,
+            if candidate.protocol() == Protocol::Gemini {
+                0
+            } else {
+                8
+            }
+        );
+    }
+    let paid = crate::billing::charging::Usage {
+        input: 1_000_000,
+        cache_creation: Some(crate::billing::charging::CacheCreationUsage {
+            total: 1_000_000,
+            twelve_hour: Some(250_000),
+            five_minute: None,
+            one_hour: None,
+            cache_creation_mode: None,
+            reported_total: None,
+        }),
+        ..Default::default()
+    };
+    let restored: crate::billing::charging::Price = serde_json::from_slice(&original).unwrap();
+    assert_eq!(restored.cost(paid).unwrap(), 4);
+    let mut next = router.route(request()).unwrap();
+    next.prefer_channel(2);
+    let fresh = next.start().unwrap();
+    assert_eq!(fresh.quote().version(), 2);
+    assert_eq!(
+        fresh
+            .quote()
+            .freeze_for_price_test(fresh.canonical_model(), fresh.group())
+            .unwrap()
+            .cost(paid)
+            .unwrap(),
+        20
+    );
+    assert_eq!(restored.cost(paid).unwrap(), 4);
+}
+
+#[test]
+fn mixed_official_template_rejects_nonflat_sources_and_incompatible_payloads() {
+    let (mut config, prices) = mixed_official_release(1, 0);
+    let flat = PriceSnapshot::compile(prices.clone())
+        .unwrap()
+        .template("model-a", "default", Speed::Standard)
+        .unwrap();
+    for (protocol, revision) in [
+        (Protocol::OpenAiChat, 4),
+        (Protocol::OpenAiResponses, 4),
+        (Protocol::AnthropicMessages, 2),
+        (Protocol::Gemini, 1),
+    ] {
+        let quote = flat.for_target(protocol, PayloadPolicy::Adapt).unwrap();
+        let t = quote.tiered().unwrap().tariff();
+        assert_eq!(t.revision, revision);
+        assert_eq!(t.tiers[0].rates.cache_write.numerator, 0);
+        assert_eq!(t.uses_cache_write, revision != 1);
+        assert_eq!(quote.billing_mode(), BillingMode::TieredDecimal);
+    }
+    config.upstreams[0].protocol = Protocol::OpenAiChat;
+    config.routes[0].targets[0].payload = PayloadPolicy::LegacyOpenRouterChatUsageV1;
+    assert!(
+        Router::new(
+            config,
+            Arc::new(PriceSnapshot::compile(prices.clone()).unwrap())
+        )
+        .is_err()
+    );
+    for variant in 0..5 {
+        let mut malformed = prices.clone();
+        let t = malformed.rules[0].tiered.as_mut().unwrap();
+        match variant {
+            0 => t.revision = 1,
+            1 => t.tiers[0].rates.cache_write_1h.as_mut().unwrap().numerator = 3,
+            2 => t.tiers[0].rates.input.denominator = 3,
+            3 => t.tiers[0].up_to_input_tokens = Some(10),
+            _ => malformed.rules[0].rates.request = 1,
+        }
+        assert!(PriceSnapshot::compile(malformed).is_err());
+    }
+}

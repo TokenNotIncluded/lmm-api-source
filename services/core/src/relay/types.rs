@@ -314,7 +314,19 @@ impl Route {
         } else {
             request.header("x-api-key", self.credential.clone())
         };
-        Ok(request.header("anthropic-version", "2023-06-01"))
+        let request = request.header("anthropic-version", "2023-06-01");
+        // Claude's preview models require the beta opt-in even with an explicit
+        // speed field. GA models use the ordinary Messages endpoint.
+        let needs_beta = matches!(self.model.as_str(), "claude-opus-5" | "claude-opus-4-8");
+        if needs_beta
+            && self
+                .model_attempt
+                .as_ref()
+                .is_some_and(|attempt| attempt.speed() == crate::routing::Speed::Fast)
+        {
+            return Ok(request.header("anthropic-beta", "fast-mode-2026-02-01"));
+        }
+        Ok(request)
     }
 
     pub fn new(

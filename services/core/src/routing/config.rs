@@ -191,6 +191,60 @@ pub enum PayloadPolicy {
 }
 
 impl PayloadPolicy {
+    pub(crate) fn wire_protocol(
+        self,
+        client: Protocol,
+        upstream: Protocol,
+        policy: Option<&super::model_policy::Compiled>,
+        channel: u64,
+        model: &str,
+    ) -> Protocol {
+        if self == Self::Adapt
+            && client == Protocol::OpenAiChat
+            && upstream == Protocol::OpenAiChat
+            && policy.is_some_and(|policy| policy.upgrade_chat(channel, model))
+        {
+            Protocol::OpenAiResponses
+        } else {
+            upstream
+        }
+    }
+
+    /// The wire field for a priced accelerated attempt. Standard has no override.
+    pub(crate) fn accelerated_field(
+        self,
+        protocol: Protocol,
+        speed: Speed,
+    ) -> Option<(&'static str, &'static str)> {
+        use Protocol::*;
+        use Speed::*;
+        if speed == Standard {
+            return None;
+        }
+        if let Self::LegacyOpenai {
+            allow_speed,
+            allow_service_tier,
+            ..
+        } = self
+        {
+            if !matches!(protocol, OpenAiChat | OpenAiResponses) {
+                return None;
+            }
+            if allow_speed {
+                return Some(("speed", if speed == Fast { "fast" } else { "ultrafast" }));
+            }
+            if !allow_service_tier {
+                return None;
+            }
+        }
+        match (protocol, speed) {
+            (OpenAiChat | OpenAiResponses | Gemini, Fast) => Some(("service_tier", "priority")),
+            (OpenAiResponses, Ultrafast) => Some(("service_tier", "ultrafast")),
+            (AnthropicMessages, Fast) => Some(("speed", "fast")),
+            _ => None,
+        }
+    }
+
     pub(crate) fn openrouter_chat(self) -> bool {
         matches!(self, Self::OpenRouter | Self::LegacyOpenRouterChatUsageV1)
     }

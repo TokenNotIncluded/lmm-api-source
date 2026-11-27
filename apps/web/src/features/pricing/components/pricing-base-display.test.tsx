@@ -377,6 +377,44 @@ for (const {
   })
 }
 
+test('public cards, tables, details and comparison cells display frozen USD fractions', async () => {
+  const rates = {
+    input: { numerator: '1', denominator: '800000' },
+    output: { numerator: '3', denominator: '1600000' },
+    cache_read: { numerator: '0', denominator: '1' },
+    cache_write: null,
+  }
+  const prices = {
+    input_price: 1 / 800_000,
+    output_price: 3 / 1_600_000,
+    cache_read_price: 0,
+    cache_write_price: null,
+    image_price: null,
+    audio_input_price: null,
+    audio_output_price: null,
+    model_price: null,
+  }
+  const quotedModel: PricingModel = {
+    ...model,
+    input_price: prices.input_price,
+    output_price: prices.output_price,
+    cache_read_price: prices.cache_read_price,
+    group_prices: { cheap: prices, premium: prices },
+    group_constant_token_rates: { cheap: rates, premium: rates },
+  }
+  const container = await renderFaces('USD', 'M', quotedModel)
+  for (const face of [
+    section(container, 'Catalog card'),
+    section(container, 'Catalog table'),
+    section(container, 'Public model details'),
+    compareDialog(),
+  ]) {
+    assertQuote(face, '0.00000125 USD')
+    assertQuote(face, '0.000001875 USD')
+    assertQuote(face, '0 USD')
+  }
+})
+
 test('public tier prices retain cache TTL, audio and per-minute units at base rates', async () => {
   const tieredModel: PricingModel = {
     ...model,

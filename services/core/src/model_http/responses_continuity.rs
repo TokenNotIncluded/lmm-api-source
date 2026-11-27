@@ -33,10 +33,30 @@ pub(super) async fn uses_native(gateway: &ModelGateway, headers: &HeaderMap, raw
     let Ok(affinity) = session_affinity(headers, &principal, cache) else {
         return false;
     };
-    gateway
-        .bridge
-        .routing
-        .route_adapted_groups(model, &groups, Protocol::OpenAiResponses, affinity)
+    let Ok(snapshot) = gateway.bridge.routing.snapshot() else {
+        return false;
+    };
+    let body_speed = if snapshot.honor_request_service_tier() {
+        let Ok(speed) = relay::Request::requested_service_speed_fields(
+            relay::ClientProtocol::Responses,
+            value.get("service_tier"),
+            value.get("serviceTier"),
+            value.get("speed"),
+        ) else {
+            return false;
+        };
+        speed
+    } else {
+        None
+    };
+    snapshot
+        .http_model_groups(
+            model,
+            &groups,
+            Protocol::OpenAiResponses,
+            affinity,
+            body_speed,
+        )
         .ok()
         .and_then(|plans| plans.into_iter().next())
         .is_some_and(|plan| {

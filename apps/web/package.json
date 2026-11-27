@@ -74,6 +74,7 @@
     "react-top-loading-bar": "^3.0.2",
     "shaders": "4.0.7",
     "shiki": "^4.6.0",
+    "smol-toml": "1.9.1",
     "sonner": "^2.0.8",
     "stream-markdown-parser": "^1.2.25",
     "tailwind-merge": "^3.7.0",
