@@ -622,4 +622,5 @@ async fn assistant_model_settings_publish_recover_and_preserve_other_routing_con
     )
     .await;
     assert_eq!(reset["model"], reset["default_model"]);
+    crate::assistant_model::check_replaced_model_grant(&pool, gateway, &ordinary, &policy).await;
 }
