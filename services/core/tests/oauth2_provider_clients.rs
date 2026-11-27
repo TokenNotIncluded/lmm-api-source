@@ -24,6 +24,9 @@ mod pi;
 #[path = "common/runtime.rs"]
 mod runtime;
 
+#[path = "oauth2_provider_clients/opencode_v2.rs"]
+mod opencode_v2;
+
 const ISSUER: &str = "https://pi-issuer.example.test";
 
 async fn refresh_http(f: &pi::Fixture, client: &str, refresh: &str) -> reqwest::Response {

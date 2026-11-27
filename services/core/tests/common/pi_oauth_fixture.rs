@@ -208,6 +208,7 @@ enum FixtureApplications<'a> {
     PiAndProviders(&'a str),
     PiHost,
     MagpieHost,
+    OpenCodeHost,
 }
 
 pub(super) enum ManagedKeyring {
@@ -244,18 +245,25 @@ impl Fixture {
     async fn new(owner: &PgPool, developer: bool, applications: FixtureApplications<'_>) -> Self {
         let (native, ledger, _native_session, native_key, native_id, _native_account) =
             model_fixture::fixture(owner, 1000).await;
-        let host_input_tokens = if matches!(applications, FixtureApplications::PiHost) {
-            PI_HOST_INPUT_TOKENS
-        } else {
-            DEFAULT_INPUT_TOKENS
+        // V2 sends its own system prompt. The isolated wallet covers the declared
+        // maximum input plus twenty output tokens at the fixture's frozen price.
+        let (host_input_tokens, wallet_credits) = match applications {
+            FixtureApplications::OpenCodeHost => {
+                (32_768, 32_768 + 2 * i64::from(HOST_OUTPUT_TOKENS))
+            }
+            FixtureApplications::PiHost => (PI_HOST_INPUT_TOKENS, WALLET_CREDITS),
+            _ => (DEFAULT_INPUT_TOKENS, WALLET_CREDITS),
         };
         let cli_host = matches!(
             applications,
-            FixtureApplications::PiHost | FixtureApplications::MagpieHost
+            FixtureApplications::PiHost
+                | FixtureApplications::MagpieHost
+                | FixtureApplications::OpenCodeHost
         );
         let applications = match applications {
             FixtureApplications::PiHost => FixtureApplications::PiOnly,
             FixtureApplications::MagpieHost => FixtureApplications::PiAndAllManaged,
+            FixtureApplications::OpenCodeHost => FixtureApplications::PiAndProviders(ISSUER),
             value => value,
         };
         let (model, group) = if cli_host {
@@ -320,7 +328,7 @@ impl Fixture {
                 reason: "Synthetic disposable test funds".into(),
                 action: Action::Credit {
                     account_id: account,
-                    amount_units: Credits::try_from(WALLET_CREDITS).unwrap(),
+                    amount_units: Credits::try_from(wallet_credits).unwrap(),
                     payment_reference: "synthetic:pi-oauth".into(),
                 },
             })
@@ -332,7 +340,7 @@ impl Fixture {
         ));
         assert_eq!(
             ledger.balance(account).await.unwrap().available_units,
-            WALLET_CREDITS
+            wallet_credits
         );
         let session = browser
             .login(
@@ -406,7 +414,9 @@ impl Fixture {
         }
         if matches!(applications, FixtureApplications::PiAndProviders(_)) {
             for (client, _) in lmm_core::identity::grants::PROVIDER_CLIENTS {
-                profile = profile.with_provider_budget_limit(client, 1000).unwrap();
+                profile = profile
+                    .with_provider_budget_limit(client, wallet_credits)
+                    .unwrap();
             }
         }
         let mut issuer = LmmIssuer::open(store.clone(), profile, 900, 86400)
@@ -769,6 +779,7 @@ impl Fixture {
 pub(super) enum CliHost {
     Pi,
     Magpie,
+    OpenCode,
 }
 
 pub(super) async fn with_cli_host_fixture<F, Fut>(pool: PgPool, host: CliHost, case: F)
@@ -779,6 +790,7 @@ where
     let applications = match host {
         CliHost::Pi => FixtureApplications::PiHost,
         CliHost::Magpie => FixtureApplications::MagpieHost,
+        CliHost::OpenCode => FixtureApplications::OpenCodeHost,
     };
     with_fixture_applications(pool, false, applications, case).await;
 }

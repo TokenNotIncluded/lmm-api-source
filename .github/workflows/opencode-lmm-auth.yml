@@ -3,6 +3,10 @@ name: OpenCode LMM OAuth plugin
 on:
   workflow_dispatch:
     inputs:
+      core_wallet_only:
+        description: Run only the OpenCode V2 host through Core OAuth and PostgreSQL
+        type: boolean
+        default: false
       v2_only:
         description: Run only the native V2 OAuth and transport acceptance
         type: boolean
@@ -13,6 +17,7 @@ permissions:
 
 jobs:
   plugin:
+    if: ${{ !inputs.core_wallet_only }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
@@ -74,3 +79,71 @@ jobs:
           name: opencode-v2-native-receipt
           path: ${{ runner.temp }}/opencode-v2-receipt.json
           if-no-files-found: error
+
+  core-wallet:
+    if: ${{ inputs.core_wallet_only }}
+    name: Official OpenCode V2 through Core OAuth and wallet
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.19.0'
+      - name: Install reviewed OpenCode host, packed plugin and Core prerequisites
+        run: |
+          set -euo pipefail
+          git submodule update --init --depth 1 -- packages/opencode-lmm-auth
+          plugin=packages/opencode-lmm-auth
+          npm --prefix "$plugin" ci --ignore-scripts --no-audit --no-fund
+          npm --prefix "$plugin" run build
+          (cd "$plugin" && npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP")
+          npm install --prefix "$RUNNER_TEMP/lmm-plugin" --omit=dev --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP"/tokennotincluded-opencode-lmm-auth-*.tgz
+          host="$RUNNER_TEMP/official-v2"
+          npm install --prefix "$host" --ignore-scripts --no-package-lock --no-audit --no-fund @opencode/cli@2.1.4
+          node "$host/node_modules/@opencode/cli/postinstall.mjs"
+          rustup toolchain install 1.100.0 --profile minimal
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends protobuf-compiler
+          printf '127.0.0.1 pi-issuer.example.test\n' | sudo tee -a /etc/hosts >/dev/null
+          sudo sysctl -w net.ipv4.ip_unprivileged_port_start=443
+          umask 077
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=pi-issuer.example.test \
+            -addext 'subjectAltName=DNS:pi-issuer.example.test' -keyout "$RUNNER_TEMP/issuer.key" -out "$RUNNER_TEMP/issuer.pem"
+      - name: Require a native terminal response and same-request OAuth settlement
+        working-directory: services/core
+        env:
+          OPENCODE_V2_BIN: ${{ runner.temp }}/official-v2/node_modules/@opencode/cli/bin/opencode.exe
+          OPENCODE_V2_PLUGIN: ${{ runner.temp }}/lmm-plugin/node_modules/@tokennotincluded/opencode-lmm-auth
+          FIXTURE_TLS_KEY: ${{ runner.temp }}/issuer.key
+          FIXTURE_TLS_CERT: ${{ runner.temp }}/issuer.pem
+          NODE_EXTRA_CA_CERTS: ${{ runner.temp }}/issuer.pem
+          OPENCODE_V2_RECEIPT: ${{ runner.temp }}/opencode-core-wallet.json
+        run: |
+          set -euo pipefail
+          gate=opencode_v2::real_v2_oauth_session_settles_one_request
+          cargo test --locked --test oauth2_provider_clients "$gate" -- --ignored --exact --nocapture | tee "$RUNNER_TEMP/opencode-core.log"
+          grep -Fqx "test $gate ... ok" "$RUNNER_TEMP/opencode-core.log"
+          test -s "$OPENCODE_V2_RECEIPT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: opencode-v2-core-wallet-${{ github.sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/opencode-core-wallet.json
+          if-no-files-found: error
+          retention-days: 7
