@@ -26,10 +26,11 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Check directory entry and sculpture regressions
         working-directory: apps/web
-        run: |
-          bun src/features/forge/home-directory-link.test.ts
-          bun src/features/forge/home-directory-gesture.test.ts
-          bun src/features/home/home-sculptures.test.ts
+        run: >
+          bun test
+          src/features/forge/home-directory-link.test.ts
+          src/features/forge/home-directory-gesture.test.ts
+          src/features/home/home-sculptures.test.ts
       - name: Build production frontend
         run: bun run --filter @lmm/web build
       - name: Install isolated browser tools

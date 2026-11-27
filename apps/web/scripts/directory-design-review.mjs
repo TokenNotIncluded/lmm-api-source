@@ -47,6 +47,7 @@ try {
     })
     await context.addCookies([
       { name: 'vite-ui-theme', value: theme, url: origin },
+      { name: 'lmm_ui_locale', value: 'zh-CN', url: origin },
     ])
     await context.addInitScript(() => {
       localStorage.setItem('i18nextLng', 'zh-CN')
@@ -68,6 +69,9 @@ try {
           assistant: { enabled: false },
           backend_capabilities: { bounty_public_read: false },
         }
+      }
+      if (url.pathname === '/api/site/navigation') {
+        data = { value: '{}', revision: 1 }
       }
       if (url.pathname === '/api/notice') data = ''
       if (url.pathname === '/api/ai-directory') data = { links }

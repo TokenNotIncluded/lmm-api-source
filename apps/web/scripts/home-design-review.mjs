@@ -52,6 +52,7 @@ try {
     })
     await context.addCookies([
       { name: 'vite-ui-theme', value: theme, url: origin },
+      { name: 'lmm_ui_locale', value: language, url: origin },
     ])
     await context.addInitScript((lang) => {
       localStorage.setItem('i18nextLng', lang)
@@ -74,6 +75,12 @@ try {
           backend_capabilities: { bounty_public_read: false },
         }
       }
+      if (url.pathname === '/api/site/navigation') {
+        data = { value: '{}', revision: 1 }
+      }
+      if (url.pathname === '/api/assistant/pre-conversation-presets') {
+        data = { presets: [] }
+      }
       if (url.pathname === '/api/notice') data = ''
       return route.fulfill({ json: { success: true, data } })
     })
@@ -86,10 +93,24 @@ try {
       await page.waitForFunction(
         () => document.querySelector('.lmm-home')?.dataset.motion !== 'loading'
       )
+      const film = page.locator('[data-film]')
+      const initiallyOffscreen = await film.evaluate((canvas) => {
+        const rect = canvas.getBoundingClientRect()
+        return rect.bottom <= 0 || rect.top >= window.innerHeight
+      })
+      // Short landscapes place the first canvas below the fold. Enter its
+      // viewport to trigger the real lazy paint, then review the initial view.
+      if (initiallyOffscreen) await film.scrollIntoViewIfNeeded()
       await page.waitForFunction(
         () => document.querySelector('[data-film]')?.dataset.ready === 'true'
       )
+      if (initiallyOffscreen) {
+        await page.evaluate(() =>
+          window.scrollTo({ top: 0, behavior: 'instant' })
+        )
+      }
       await page.evaluate(() => document.fonts.ready)
+      assert.equal(await page.locator('html').getAttribute('lang'), language)
       await page.waitForTimeout(1200)
       if (language === 'en') {
         assert.match(
@@ -468,7 +489,58 @@ try {
           .locator('.lmm-assistant-section')
           .screenshot({ path: `${output}/${name}-assistant.png` })
       }
-      if (['desktop', 'mobile'].includes(name)) {
+      if (['desktop', 'mobile', 'compact'].includes(name)) {
+        const diagram = page.locator('.lmm-mesh-stage')
+        await diagram.scrollIntoViewIfNeeded()
+        const bounds = await diagram.evaluate((stage) => {
+          const rect = stage.getBoundingClientRect()
+          const nodes = Array.from(
+            stage.querySelectorAll('.lmm-mesh-node, .lmm-mesh-core'),
+            (node) => node.getBoundingClientRect()
+          )
+          return {
+            count: nodes.length,
+            fit: nodes.every(
+              (node) =>
+                node.width >= 44 &&
+                node.height >= 44 &&
+                node.left >= rect.left - 1 &&
+                node.right <= rect.right + 1 &&
+                node.top >= rect.top - 1 &&
+                node.bottom <= rect.bottom + 1
+            ),
+            overlap: nodes.some((a, index) =>
+              nodes
+                .slice(index + 1)
+                .some(
+                  (b) =>
+                    a.left < b.right &&
+                    b.left < a.right &&
+                    a.top < b.bottom &&
+                    b.top < a.bottom
+                )
+            ),
+          }
+        })
+        assert.deepEqual(bounds, { count: 7, fit: true, overlap: false })
+        await diagram.screenshot({ path: `${output}/${name}-routing.png` })
+        const cards = page.locator('.lmm-provider-item')
+        const cardBounds = await cards.evaluateAll((items) =>
+          items.map((item) => item.getBoundingClientRect().toJSON())
+        )
+        assert.equal(cardBounds.length, 3)
+        for (const [index, card] of cardBounds.entries()) {
+          if (!index) continue
+          const previous = cardBounds[index - 1]
+          if (name === 'desktop') {
+            assert.equal(card.top, previous.top)
+            assert.ok(card.left >= previous.right)
+          } else {
+            assert.equal(card.left, previous.left)
+            assert.ok(card.top >= previous.bottom)
+          }
+        }
+        assert.equal(await page.locator('.lmm-story-steps li').count(), 3)
         await page
           .locator('.lmm-connect')
           .screenshot({ path: `${output}/${name}-connect.png` })
