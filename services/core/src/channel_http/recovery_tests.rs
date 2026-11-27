@@ -985,3 +985,6 @@ async fn pending_models_survive_recovery_and_require_confirmed_priced_routes(poo
         .quote();
     assert_eq!(quote.multipliers_ppm(), (1_250_000, 1_000_000));
 }
+
+#[path = "browser_settlement_test.rs"]
+mod browser_settlement_test;

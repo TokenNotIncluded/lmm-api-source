@@ -27,6 +27,9 @@ use tower::ServiceExt;
 mod model_fixture;
 use model_fixture::{Provider, fixture};
 
+#[path = "tiered_token_billing/official_wallet.rs"]
+mod official_wallet;
+
 fn tariff() -> TieredTariff {
     let rate = |numerator, denominator| DecimalRate {
         numerator,
