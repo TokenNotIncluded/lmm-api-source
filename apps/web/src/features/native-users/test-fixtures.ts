@@ -8,9 +8,11 @@ import {
 export function nativeUserFixture(
   overrides: Partial<NativeUser> = {}
 ): NativeUser {
+  const userId = overrides.id ?? '9007199254740993'
+  const personalAccountId = overrides.personal_account_id ?? '9007199254740995'
   return {
-    id: '9007199254740993',
-    personal_account_id: '9007199254740995',
+    id: userId,
+    personal_account_id: personalAccountId,
     auth_version: '9007199254740997',
     teams: [
       {
@@ -52,8 +54,8 @@ export function nativeUserFixture(
       currency: null,
       provenance: {
         reader: 'financial_profile.read_wallet.v1',
-        user_id: '9007199254740993',
-        personal_account_id: '9007199254740995',
+        user_id: userId,
+        personal_account_id: personalAccountId,
       },
     },
     ...overrides,
