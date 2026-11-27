@@ -22,6 +22,9 @@ jobs:
             BEFORE="$(git hash-object -t tree /dev/null)"
           fi
           git diff --check "$BEFORE" "$GITHUB_SHA"
+          if ! git diff --quiet "$BEFORE" "$GITHUB_SHA" -- '.github/workflows'; then
+            echo 'workflow_lint=true' >> "$GITHUB_OUTPUT"
+          fi
           if ! git diff --quiet "$BEFORE" "$GITHUB_SHA" -- \
             ':(glob)services/core/**/*.rs' services/core/Cargo.toml services/core/rust-toolchain.toml \
             ':(glob)**/rustfmt.toml' ':(glob)**/.rustfmt.toml' .github/workflows/main-checks.yml; then
@@ -37,3 +40,6 @@ jobs:
         run: |
           cargo fmt --all
           git diff --no-ext-diff --no-color --exit-code -- .
+      - name: Check Actions workflow definitions
+        if: ${{ !cancelled() && steps.changed.outputs.workflow_lint == 'true' }}
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
