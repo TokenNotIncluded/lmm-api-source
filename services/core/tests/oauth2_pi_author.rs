@@ -22,6 +22,8 @@ mod pi;
 mod runtime;
 use pi::with_fixture;
 
+type PiChargeRow = (String, String, i64, i64, Option<i64>, String, i64, i64, serde_json::Value);
+
 // The host credential is the bounded result of the real fixture browser's consent and code exchange.
 // The child gets no operator environment credentials. It writes private native Pi auth only under its temporary home.
 #[sqlx::test(migrations = false)]
@@ -58,7 +60,7 @@ async fn real_pi_host_discovers_prompts_and_settles_one_oauth_request(pool: PgPo
         let id = proof["requestId"].as_str().expect("Core response request ID");
         assert_eq!(proof["stopReason"], "stop");
         assert_eq!(f.provider.hits.load(Ordering::SeqCst), 1);
-        let rows: Vec<(String, String, i64, i64, Option<i64>, String, i64, i64, serde_json::Value)> = sqlx::query_as(
+        let rows: Vec<PiChargeRow> = sqlx::query_as(
             "SELECT id,state,actor_user_id,payer_account_id,key_id,oauth_client_id,settled,output_tokens,price
              FROM core_charging.requests"
         ).fetch_all(&f.owner).await.unwrap();
