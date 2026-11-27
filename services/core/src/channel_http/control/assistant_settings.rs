@@ -14,6 +14,8 @@ struct Settings {
 pub fn router(gateway: ModelGateway, policy: &PersonalTextPolicy) -> Router {
     Router::new()
         .route("/api/option/assistant-model", get(read).put(save))
+        .layer(axum::extract::DefaultBodyLimit::max(2048))
+        .layer(axum::middleware::from_fn(super::super::no_store))
         .with_state(Settings {
             gateway,
             default_model: policy.model.clone(),
