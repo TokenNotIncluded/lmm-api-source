@@ -113,10 +113,17 @@ fn group_price_multiplier_requires_agreement_and_preserves_zero() {
         rule.group_multiplier_ppm = 0;
     }
     let router = build(config.clone(), prices.clone());
-    assert_eq!(router.group_price_multiplier("default").unwrap(), Some(0));
+    let groups = || vec!["default".into(), "unknown".into()];
+    assert_eq!(
+        router.group_price_multipliers(groups()).unwrap(),
+        vec![("default".into(), Some(0))]
+    );
     prices.rules[0].group_multiplier_ppm = 250_000;
     let router = build(config, prices);
-    assert_eq!(router.group_price_multiplier("default").unwrap(), None);
+    assert_eq!(
+        router.group_price_multipliers(groups()).unwrap(),
+        vec![("default".into(), None)]
+    );
 }
 
 #[test]

@@ -20,6 +20,7 @@ use lmm_core::{
     },
     funding::FundingPolicy,
     identity::{DashboardKeyInput, IdentityStore},
+    legacy_auth::{self, LegacyAuthConfig},
     model_http::{ChargePolicy, ModelGateway, UpstreamCredential},
     relay::{ClientProtocol, Limits, Request as RelayRequest},
     routing::*,
@@ -901,6 +902,35 @@ async fn dashboard_key_without_host_mapping_obeys_real_peer_policy_and_ledger(po
     let provider = Provider::start(true).await;
     let router = routes(&provider.endpoint, 0, 0, PayloadPolicy::Adapt);
     let identity = identity.with_dashboard_routing(router.clone());
+    let group_browser = legacy_auth::router(
+        identity.clone(),
+        LegacyAuthConfig::new("http://api.lmm.local", &[43; 32])
+            .unwrap()
+            .with_insecure_local_http()
+            .unwrap(),
+    );
+    let group_response = group_browser
+        .oneshot(
+            Request::get("/api/user/self/groups")
+                .header("authorization", format!("Bearer {session}"))
+                .header("origin", "http://api.lmm.local")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(group_response.status(), StatusCode::OK);
+    assert_eq!(group_response.headers()["cache-control"], "no-store");
+    let group_body =
+        serde_json::from_slice::<Value>(&to_bytes(group_response.into_body(), 4096).await.unwrap())
+            .unwrap();
+    assert_eq!(
+        group_body["data"],
+        json!({
+            "allowed": {"desc": "allowed", "ratio": 1.0},
+            "auto": {"desc": "auto", "ratio": "model-specific"}
+        })
+    );
     let input:DashboardKeyInput=serde_json::from_value(json!({"name":"synthetic dashboard model key","expired_time":-1,"remain_quota":1000,"unlimited_quota":false,"group":"allowed","one_time_reveal":true,"model_limits_enabled":true,"model_limits":"local-model","allow_ips":"127.0.0.1/32"})).unwrap();
     let issued = identity
         .dashboard_create_key(&session, &input)

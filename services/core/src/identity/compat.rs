@@ -758,31 +758,31 @@ impl IdentityStore {
         let mut tx = self.pool.begin().await?;
         let actor = session(&mut tx, secret).await?;
         let marked = key_management(&mut tx, &actor).await?;
-        let allowed = if marked {
-            vec!["auto".to_owned()]
+        let mut allowed = if marked {
+            vec![("auto".to_owned(), None)]
+        } else if let Some(routing) = self.dashboard_routing.as_deref() {
+            let candidates = routing_group_names_in_transaction(&mut tx, actor.user_id).await?;
+            routing
+                .group_price_multipliers(candidates)
+                .map_err(|_| IdentityError::Storage)?
         } else {
-            let mut allowed =
-                groups(&mut tx, actor.user_id, self.dashboard_routing.as_deref()).await?;
-            if !allowed.is_empty() && !allowed.iter().any(|name| name == "auto") {
-                allowed.insert(0, "auto".to_owned());
-            }
-            allowed
+            groups(&mut tx, actor.user_id, None)
+                .await?
+                .into_iter()
+                .map(|name| (name, None))
+                .collect()
         };
+        if !allowed.is_empty() && !allowed.iter().any(|(name, _)| name == "auto") {
+            allowed.insert(0, ("auto".to_owned(), None));
+        }
         tx.commit().await?;
         let data = allowed
             .into_iter()
-            .map(|name| {
-                let multiplier = if name == "auto" {
-                    None
-                } else {
-                    self.dashboard_routing
-                        .as_deref()
-                        .and_then(|routing| routing.group_price_multiplier(&name).ok().flatten())
+            .map(|(name, multiplier)| {
+                let ratio = match (name.as_str(), multiplier) {
+                    ("auto", _) | (_, None) => json!("model-specific"),
+                    (_, Some(ppm)) => json!(f64::from(ppm) / 1_000_000.0),
                 };
-                let ratio = multiplier.map_or_else(
-                    || json!("model-specific"),
-                    |ppm| json!(f64::from(ppm) / 1_000_000.0),
-                );
                 (name.clone(), json!({"desc": name, "ratio": ratio}))
             })
             .collect::<serde_json::Map<_, _>>();

@@ -120,6 +120,22 @@ struct Group {
     aliases: HashMap<String, String>,
 }
 
+fn uniform_group_multiplier(prices: &PriceSnapshot, name: &str, group: &Group) -> Option<u32> {
+    let mut multiplier = None;
+    for route in group.routes.values().filter(|route| route.config.enabled) {
+        for speed in &route.config.speeds {
+            let (current, _) = prices
+                .template(&route.config.model, name, *speed)?
+                .multipliers_ppm();
+            if multiplier.is_some_and(|previous| previous != current) {
+                return None;
+            }
+            multiplier = Some(current);
+        }
+    }
+    multiplier
+}
+
 impl Group {
     fn canonical_name<'a>(
         &'a self,
@@ -1075,27 +1091,20 @@ impl Router {
             .collect())
     }
 
-    /// Return a group multiplier only when every enabled model and speed agrees.
-    pub(crate) fn group_price_multiplier(&self, name: &str) -> Result<Option<u32>, RoutingError> {
+    /// Project enabled groups and their uniform tariffs from one serving release.
+    pub(crate) fn group_price_multipliers(
+        &self,
+        names: Vec<String>,
+    ) -> Result<Vec<(String, Option<u32>)>, RoutingError> {
         let active = self.snapshot()?;
-        let group = active.groups.get(name).ok_or(RoutingError::UnknownGroup)?;
-        if !group.enabled {
-            return Err(RoutingError::GroupDisabled);
-        }
-        let mut multiplier = None;
-        for route in group.routes.values().filter(|route| route.config.enabled) {
-            for speed in &route.config.speeds {
-                let Some(price) = active.prices.template(&route.config.model, name, *speed) else {
-                    return Ok(None);
-                };
-                let (current, _) = price.multipliers_ppm();
-                if multiplier.is_some_and(|previous| previous != current) {
-                    return Ok(None);
-                }
-                multiplier = Some(current);
-            }
-        }
-        Ok(multiplier)
+        Ok(names
+            .into_iter()
+            .filter_map(|name| {
+                let group = active.groups.get(&name).filter(|group| group.enabled)?;
+                let multiplier = uniform_group_multiplier(&active.prices, &name, group);
+                Some((name, multiplier))
+            })
+            .collect())
     }
 
     /// The only public configuration projection. Contains no endpoints or credentials.
