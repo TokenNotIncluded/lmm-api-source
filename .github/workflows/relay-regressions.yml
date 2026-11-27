@@ -53,6 +53,7 @@ jobs:
             route_failover_pg_safe_failures_keep_one_frozen_bill
             route_failover_pg_unknown_and_partial_tool_results_never_replay
             gemini_complete_response_preserves_signed_parts_on_both_sides_of_a_tool
+            gemini_stream_separates_signed_parts_and_resumes_the_last_text_across_frames
             compact_pg_sse_tools_stream_live_and_terminal_waits_for_real_settlement
             audio_stream_pg_checkpoints_before_delivery_then_settles_once
             key_pool_affinity_honors_health_and_preserves_the_round_robin_cursor
