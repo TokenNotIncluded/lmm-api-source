@@ -2246,7 +2246,11 @@ class CoreBoundaryTests(unittest.TestCase):
         self.assert_core_command_boundary(main)
         for old, new in (("Command::Serve => None,", "Command::Serve => Some(admin::Operation::InitDb),"),
                          ('("init-db", Command::InitDb)', '("init-db", Command::Serve)'),
-                         ('Some(operation) => runtime.block_on(admin::run(operation))', 'Some(operation) => runtime.block_on(run_core())')):
+                         ('Some(operation) => runtime.block_on(admin::run(operation))',
+                          'Some(operation) => runtime.block_on(run_core(inherited_listener))'),
+                         ('if operation.is_none() {', 'if operation.is_some() {'),
+                         ('None => runtime.block_on(run_core(inherited_listener))',
+                          'None => runtime.block_on(run_core(None))')):
             changed = main.replace(old, new, 1)
             self.assertNotEqual(changed, main)
             with self.subTest(dispatch=old), self.assertRaises(AssertionError):
@@ -2969,11 +2973,20 @@ class CoreBoundaryTests(unittest.TestCase):
         self.token_index(tokens, "Command::Serve => None,")
         self.token_index(tokens, "Command::InitDb => Some(admin::Operation::InitDb),")
         self.token_index(tokens, "Command::BootstrapUser => Some(admin::Operation::bootstrap(io::stdin().lock())?),")
-        self.token_index(tokens, """match operation {
+        listener = self.token_index(tokens, """let inherited_listener = if operation.is_none() {
+            public_listener_activation::take()?
+        } else {
+            None
+        };""")
+        runtime = self.token_index(tokens, "let runtime = tokio::runtime::Builder::new_multi_thread()")
+        dispatch = self.token_index(tokens, """match operation {
             Some(operation) => runtime.block_on(admin::run(operation)),
-            None => runtime.block_on(run_core()),
+            None => runtime.block_on(run_core(inherited_listener)),
         }""")
-        serve = main.split("async fn run_core()", 1)[1]
+        self.assertLess(listener, runtime)
+        self.assertLess(runtime, dispatch)
+        self.token_index(tokens, "async fn run_core(inherited_listener: Option<std::net::TcpListener>)")
+        serve = main.split("async fn run_core(", 1)[1]
         for forbidden in ("core_schema::init", "admin::run", "Operation::InitDb", "init_database"):
             self.assertNotIn(forbidden, serve)
 
@@ -2992,7 +3005,6 @@ class CoreBoundaryTests(unittest.TestCase):
         self.assertNotIn('"migrate"', admin)
         main = (ROOT / "services/core/src/main.rs").read_text()
         self.assert_core_command_boundary(main)
-        self.assertNotIn("init_database", main.split("async fn run_core()", 1)[1])
 
     def test_core_management_shares_the_single_core_executable(self):
         cargo = tomllib.loads((ROOT / "services/core/Cargo.toml").read_text())
