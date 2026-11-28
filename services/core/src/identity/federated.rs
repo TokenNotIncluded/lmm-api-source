@@ -1,4 +1,7 @@
 //! Native external login clients, separate from the site's OAuth/OIDC server.
+#[cfg(test)]
+pub(crate) mod browser_fixture;
+
 #[cfg(all(test, target_os = "linux"))]
 mod independent_auth_http;
 
