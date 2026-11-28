@@ -776,6 +776,11 @@ export function NativeChannelFields({
       </div>
       <section className='min-w-0 space-y-2' aria-label={t('Models')}>
         <h4 className='text-sm font-semibold'>{t('Models')}</h4>
+        {!catalogMatchesDraft && (
+          <p className='text-muted-foreground text-sm'>
+            {t('Save the channel before fetching its upstream models.')}
+          </p>
+        )}
         {savedChannel && (
           <ChannelModelCatalog
             key={JSON.stringify([draft.id, draft.protocol, draft.endpoint])}

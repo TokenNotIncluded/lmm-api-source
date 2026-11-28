@@ -585,6 +585,11 @@ function PricingWorkspace({
     values.add(rule.group_multiplier_ppm)
     groupedMultipliers.set(rule.group, values)
   }
+  const officialGroupMultipliers =
+    configuration.bindings.official_prices?.group_multipliers_ppm
+  const editingOfficialGroup =
+    !!officialGroupMultipliers &&
+    Object.hasOwn(officialGroupMultipliers, groupFilter)
   const groupPrices = (
     <div className='space-y-5 rounded-lg border p-4'>
       <Table>
@@ -600,10 +605,11 @@ function PricingWorkspace({
         <TableBody>
           {groups.map((name) => {
             const values = groupedMultipliers.get(name)
-            const published = configuration.bindings.official_prices?.group_multipliers_ppm
-            const official = published && Object.hasOwn(published, name)
+            const official =
+              !!officialGroupMultipliers &&
+              Object.hasOwn(officialGroupMultipliers, name)
             const uniform = official
-              ? published?.[name]
+              ? officialGroupMultipliers[name]
               : values?.size === 1
                 ? values.values().next().value
                 : undefined
@@ -672,16 +678,20 @@ function PricingWorkspace({
               }
               onClick={applyGroupMultiplier}
             >
-              {t('Apply to group')}
+              {editingOfficialGroup ? t('Preview changes') : t('Apply to group')}
             </Button>
             <Button type='button' variant='ghost' onClick={() => setGroup('')}>
               {t('Cancel')}
             </Button>
           </div>
           <p className='text-muted-foreground text-sm'>
-            {t(
-              'Changes stay in your draft until you preview and publish them.'
-            )}
+            {editingOfficialGroup
+              ? t(
+                  'The configured unit rate is the official base price multiplied by the group multiplier.'
+                )
+              : t(
+                  'Changes stay in your draft until you preview and publish them.'
+                )}
           </p>
         </div>
       )}
