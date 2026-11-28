@@ -17,6 +17,7 @@ for (const [key, value] of Object.entries({
   navigator: dom.navigator,
   HTMLElement: dom.HTMLElement,
   Event: dom.Event,
+  FormData: dom.FormData,
   IS_REACT_ACT_ENVIRONMENT: true,
 })) {
   Object.defineProperty(globalThis, key, { value, configurable: true })
@@ -179,8 +180,19 @@ test('channel quotes remain editable through separate diff and publish steps; st
     assert.equal(host.textContent?.includes('Missing price fields'), false)
     assert.equal(host.querySelector('textarea')?.value, fetched)
     assert.equal(button('Publish prices'), undefined)
+    const input = host.querySelector<HTMLInputElement>('input[name="input"]')
+    assert.ok(input)
+    assert.equal(input.value, '0.0001')
+    input.value = '0.123456'
+    await click('Apply')
+    const edited = writeOfficialToml(name, {
+      source: 'channel/31',
+      source_unit: 'USD/1M tokens',
+      rates: { input: 123456, output: 200, cache_read: 0, cache_write: 0, request: 0 },
+    })
+    assert.equal(host.querySelector('textarea')?.value, edited)
     await click('Preview changes')
-    assert.deepEqual(proposals, [[name, fetched]])
+    assert.deepEqual(proposals, [[name, edited]])
     assert.deepEqual(published, [])
     assert.ok(host.querySelector('dl')?.textContent?.includes(`Updated${name}`))
     await click('Publish prices')
