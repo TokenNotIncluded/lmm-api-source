@@ -197,7 +197,19 @@ jobs:
       - name: Build the preserved migration executors
         if: ${{ !cancelled() && (startsWith(matrix.targets, 'integration') || matrix.targets == 'all') }}
         run: |
-          git fetch --no-tags --depth=1 origin 0510c2455dabcb63e33c719ba52ac189d62612bc 2a0c7bd380f58a553dc903d399255821c1a65d0f 8f1b6b837ace7027f2a62f15168843790ce6de28
+          fetch_preserved_sources() {
+            git fetch --no-tags --depth=1 origin \
+              0510c2455dabcb63e33c719ba52ac189d62612bc \
+              2a0c7bd380f58a553dc903d399255821c1a65d0f \
+              8f1b6b837ace7027f2a62f15168843790ce6de28
+          }
+          fetch_preserved_sources || {
+            sleep 5
+            fetch_preserved_sources
+          } || {
+            sleep 15
+            fetch_preserved_sources
+          }
           rustup toolchain install 1.99.0 --profile minimal
           rustup run 1.99.0 python3 scripts/build-preserved-core.py --family pancake67 --output "$RUNNER_TEMP/preserved-pancake67"
           rustup run 1.99.0 python3 scripts/build-preserved-core.py --family early58 --output "$RUNNER_TEMP/preserved-early58"
