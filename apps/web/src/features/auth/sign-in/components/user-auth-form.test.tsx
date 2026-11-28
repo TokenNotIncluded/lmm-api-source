@@ -479,6 +479,24 @@ for (const supported of [true, false]) {
   })
 }
 
+test('password sign-in rejects a blank identifier and trims only the identifier', async () => {
+  const host = await render({})
+  const identifier = inputByName(host, 'username')
+  const password = '  correct horse  '
+  await setInputValue(identifier, '   ')
+  await setInputValue(inputByName(host, 'password'), password)
+  await submitPassword(host)
+
+  assert.equal(loginCalls.length, 0)
+  assert.equal(identifier.getAttribute('aria-invalid'), 'true')
+
+  await setInputValue(identifier, '  Alice@Example.test  ')
+  await submitPassword(host)
+  assert.deepEqual(loginCalls, [
+    { username: 'Alice@Example.test', password, turnstile: 'turnstile-token' },
+  ])
+})
+
 test('missing legal consent leaves password submit clickable and uses existing toast gate', async () => {
   const host = await render({
     user_agreement_enabled: true,
