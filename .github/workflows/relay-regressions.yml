@@ -69,6 +69,8 @@ jobs:
             ws_reported_tier_difference_settles_once_at_the_frozen_price
             gemini_complete_response_preserves_signed_parts_on_both_sides_of_a_tool
             gemini_stream_separates_signed_parts_and_resumes_the_last_text_across_frames
+            responses_metadata_keeps_terminal_usage
+            anthropic_stream_accepts_inactive_stop_details_and_reports_usage
             compact_pg_sse_tools_stream_live_and_terminal_waits_for_real_settlement
             audio_stream_pg_checkpoints_before_delivery_then_settles_once
             key_pool_affinity_honors_health_and_preserves_the_round_robin_cursor

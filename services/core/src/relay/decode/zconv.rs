@@ -394,7 +394,20 @@ impl Decoder {
         let gemini_grade = self.protocol == UpstreamProtocol::Gemini
             && self.expected_speed.is_some()
             && value.pointer("/usageMetadata/serviceTier").is_some();
-        let project_native_usage = anthropic_usage || gemini_grade;
+        let stop_details_parent = match value.get("type").and_then(Value::as_str) {
+            Some("message_start") if self.protocol == UpstreamProtocol::Anthropic => "message",
+            Some("message_delta") if self.protocol == UpstreamProtocol::Anthropic => "delta",
+            _ => "",
+        };
+        let inactive_stop_details = value[stop_details_parent]
+            .get("stop_details")
+            .is_some_and(Value::is_null);
+        let responses_usage_metadata = self.protocol == UpstreamProtocol::Responses
+            && value.pointer(usage_path).is_some_and(|usage| {
+                ["attribution", "linapi_cache_billing"]
+                    .iter()
+                    .any(|key| usage.get(key).is_some_and(Value::is_object))
+            });
         let legacy_receipt = self.legacy_openrouter_usage && value.get("usage").is_some();
         let cost_details = matches!(
             self.protocol,
@@ -403,51 +416,73 @@ impl Decoder {
             .pointer(usage_path)
             .is_some_and(|usage| usage.get("cost_details").is_some());
         let project_openrouter = self.openrouter_stream && value.is_object();
-        let payload =
-            if legacy_receipt || cost_details || project_openrouter || project_native_usage {
-                let mut content = value.clone();
-                // admit() checked these provider fields. receipt() still reads the original.
-                if anthropic_usage {
-                    let usage = content
-                        .pointer_mut(usage_path)
-                        .and_then(Value::as_object_mut)
-                        .unwrap();
-                    if self.expected_speed.is_some() {
-                        usage.remove("speed");
-                        usage.remove("service_tier");
-                    }
-                    usage.remove("inference_geo");
-                    usage.remove("iterations");
-                    usage.remove("server_tool_use");
+        let payload = if legacy_receipt
+            || cost_details
+            || project_openrouter
+            || anthropic_usage
+            || gemini_grade
+            || inactive_stop_details
+            || responses_usage_metadata
+        {
+            let mut content = value.clone();
+            // admit() checked these provider fields. receipt() still reads the original.
+            if anthropic_usage {
+                let usage = content
+                    .pointer_mut(usage_path)
+                    .and_then(Value::as_object_mut)
+                    .unwrap();
+                if self.expected_speed.is_some() {
+                    usage.remove("speed");
                 }
-                if gemini_grade {
-                    content["usageMetadata"]
-                        .as_object_mut()
-                        .unwrap()
-                        .remove("serviceTier");
-                }
-                if project_openrouter {
-                    self.project_openrouter_stream(&mut content)?;
-                }
-                if legacy_receipt {
-                    // This owner-selected billing DTO is Core business evidence, not a
-                    // second content parser or a fallback after library conversion.
-                    content.as_object_mut().unwrap().remove("usage");
-                } else if cost_details {
-                    // Only usage.cost is the account charge. Supplemental cost_details
-                    // must not block content conversion or become a billing fallback.
-                    // receipt() below still reads the untouched authoritative value.
-                    content
-                        .pointer_mut(usage_path)
-                        .and_then(Value::as_object_mut)
-                        .unwrap()
-                        .remove("cost_details");
-                }
-                serde_json::to_vec(&content)
-                    .map_err(|_| RelayError::Protocol("invalid upstream receipt"))?
-            } else {
-                frame.data.as_bytes().to_vec()
-            };
+                usage.remove("service_tier");
+                usage.remove("inference_geo");
+                usage.remove("iterations");
+                usage.remove("server_tool_use");
+            }
+            if inactive_stop_details {
+                content[stop_details_parent]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("stop_details");
+            }
+            if responses_usage_metadata {
+                content
+                    .pointer_mut(usage_path)
+                    .and_then(Value::as_object_mut)
+                    .unwrap()
+                    .retain(|key, value| {
+                        !matches!(key.as_str(), "attribution" | "linapi_cache_billing")
+                            || !value.is_object()
+                    });
+            }
+            if gemini_grade {
+                content["usageMetadata"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("serviceTier");
+            }
+            if project_openrouter {
+                self.project_openrouter_stream(&mut content)?;
+            }
+            if legacy_receipt {
+                // This owner-selected billing DTO is Core business evidence, not a
+                // second content parser or a fallback after library conversion.
+                content.as_object_mut().unwrap().remove("usage");
+            } else if cost_details {
+                // Only usage.cost is the account charge. Supplemental cost_details
+                // must not block content conversion or become a billing fallback.
+                // receipt() below still reads the untouched authoritative value.
+                content
+                    .pointer_mut(usage_path)
+                    .and_then(Value::as_object_mut)
+                    .unwrap()
+                    .remove("cost_details");
+            }
+            serde_json::to_vec(&content)
+                .map_err(|_| RelayError::Protocol("invalid upstream receipt"))?
+        } else {
+            frame.data.as_bytes().to_vec()
+        };
         let capacity = count(value).saturating_add(1);
         let mut tokens = vec![zconv::json::Token::EMPTY; capacity];
         let mut events =

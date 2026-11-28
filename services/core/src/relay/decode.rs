@@ -731,9 +731,7 @@ impl Decoder {
                 }
                 if usage
                     .and_then(|usage| usage.get("service_tier"))
-                    .is_some_and(|tier| {
-                        self.expected_speed.is_none() || (!tier.is_null() && tier != "standard")
-                    })
+                    .is_some_and(|tier| !tier.is_null() && tier != "standard")
                 {
                     return Err(RelayError::Unsupported("provider-owned usage details"));
                 }
@@ -798,6 +796,25 @@ impl Decoder {
             return Err(RelayError::Protocol("invalid upstream event"));
         }
         match value["type"].as_str() {
+            // Responses providers can send a separate metadata event before
+            // completion. The terminal response remains the source of usage.
+            Some("response.metadata")
+                if self.protocol == UpstreamProtocol::Responses
+                    && self.started
+                    && matches!(
+                        frame.event.as_deref(),
+                        None | Some("message" | "response.metadata")
+                    )
+                    && value.get("metadata").is_some_and(Value::is_object)
+                    && value.as_object().unwrap().keys().all(|key| {
+                        matches!(
+                            key.as_str(),
+                            "type" | "metadata" | "response_id" | "sequence_number"
+                        )
+                    }) =>
+            {
+                return Ok(out);
+            }
             Some("message_start") if self.started => {
                 return Err(RelayError::Protocol("duplicate message start"));
             }
@@ -1008,6 +1025,92 @@ mod tests {
         decoder.frame(frame(start("fast"))).unwrap();
         assert!(decoder.frame(frame(delta("standard"))).is_err());
         assert!(!decoder.is_done());
+    }
+
+    #[test]
+    fn responses_metadata_keeps_terminal_usage() {
+        let mut decoder = Decoder::new(UpstreamProtocol::Responses, &Limits::default());
+        let frame = |body: Value| Frame {
+            event: Some(body["type"].as_str().unwrap().to_owned()),
+            data: body.to_string(),
+        };
+        decoder
+            .frame(frame(serde_json::json!({
+                "type": "response.created", "response": {"id": "resp_test"}
+            })))
+            .unwrap();
+        assert!(
+            decoder
+                .frame(frame(serde_json::json!({
+                    "type": "response.metadata", "response_id": "resp_test",
+                    "sequence_number": 1, "metadata": {"moderation": {"generation": {}}}
+                })))
+                .unwrap()
+                .is_empty()
+        );
+        let events = decoder
+            .frame(frame(serde_json::json!({
+                "type": "response.completed", "response": {
+                    "id": "resp_test", "status": "completed", "output": [],
+                    "usage": {
+                        "input_tokens": 30, "output_tokens": 5, "total_tokens": 35,
+                        "input_tokens_details": {"cached_tokens": 20, "cache_write_tokens": 0},
+                        "attribution": {"items": {}},
+                        "linapi_cache_billing": {"billed_cached_tokens": 20}
+                    }
+                }
+            })))
+            .unwrap();
+        assert!(decoder.is_done());
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, Event::Usage(usage)
+            if usage.input_tokens == Some(30)
+                && usage.cached_input_tokens == Some(20)
+                && usage.cache_creation_input_tokens == Some(0)
+                && usage.output_tokens == Some(5)))
+        );
+    }
+
+    #[test]
+    fn anthropic_stream_accepts_inactive_stop_details_and_reports_usage() {
+        let mut decoder = Decoder::new(UpstreamProtocol::Anthropic, &Limits::default());
+        let frame = |body: Value| Frame {
+            event: Some(body["type"].as_str().unwrap().to_owned()),
+            data: body.to_string(),
+        };
+        let start = serde_json::json!({
+            "type": "message_start", "message": {
+                "id": "msg_test", "type": "message", "role": "assistant", "content": [],
+                "stop_details": null, "usage": {
+                    "input_tokens": 13, "output_tokens": 0, "cache_read_input_tokens": 0,
+                    "cache_creation_input_tokens": 0,
+                    "service_tier": "standard", "inference_geo": "not_available"
+                }
+            }
+        });
+        decoder.frame(frame(start)).unwrap();
+        let delta = serde_json::json!({
+            "type": "message_delta",
+            "delta": {"stop_reason": "end_turn", "stop_details": null},
+            "usage": {"input_tokens": 13, "output_tokens": 6,
+                "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}
+        });
+        let mut active_stop = delta.clone();
+        active_stop["delta"]["stop_details"] = serde_json::json!({"type": "refusal"});
+        assert!(decoder.frame(frame(active_stop)).is_err());
+        let events = decoder.frame(frame(delta)).unwrap();
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, Event::Usage(usage)
+            if usage.input_tokens == Some(13) && usage.output_tokens == Some(6)))
+        );
+        decoder
+            .frame(frame(serde_json::json!({"type": "message_stop"})))
+            .unwrap();
+        assert!(decoder.is_done());
     }
 
     fn deepseek_receipt() -> Value {
