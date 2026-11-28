@@ -1481,6 +1481,7 @@ async fn responses_continuity_independent_fresh69_runtime_capability_and_immutab
         assert_runtime_boundary(&lab.fixture.pool,&lab.runtime.name).await;
         let core=Core::start(WorkerConfig::new(lab),None).await;
         let (id,_,_)=json_reply(call(&core,&lab.fixture.key,"independent-acl-root",&stored(json!("must-not-be-stored-in-PG"))).await).await;
+        wait_for_performance(&lab.fixture.pool, std::slice::from_ref(&id)).await;
         let before=snapshot(&lab.fixture.pool).await;
         for statement in ["SELECT * FROM core_model.responses_continuations LIMIT 0",
             "INSERT INTO core_model.responses_continuations DEFAULT VALUES",
