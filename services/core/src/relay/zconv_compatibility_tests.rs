@@ -460,3 +460,42 @@ fn gemini_signed_request_history_retains_summary_kind_and_provider_boundaries() 
         ));
     }
 }
+
+#[test]
+fn native_anthropic_stream_preserves_direct_tool_and_final_usage() {
+    let mut decoder = Decoder::new(UpstreamProtocol::Anthropic, &Limits::default());
+    let mut events = Vec::new();
+    for value in [
+        json!({"type":"message_start","message":{
+            "id":"msg_probe","type":"message","role":"assistant","content":[],
+            "usage":{"input_tokens":23,"output_tokens":0,"cache_read_input_tokens":0,
+                "cache_creation_input_tokens":0}
+        }}),
+        json!({"type":"content_block_start","index":0,"content_block":{
+            "type":"tool_use","id":"toolu_direct","name":"confirm_ready","input":{},
+            "caller":{"type":"direct"}
+        }}),
+        json!({"type":"content_block_delta","index":0,"delta":{
+            "type":"input_json_delta","partial_json":"{\"ready\":true}"
+        }}),
+        json!({"type":"content_block_stop","index":0}),
+        json!({"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},
+            "usage":{"input_tokens":23,"output_tokens":10,"cache_read_input_tokens":0,
+                "cache_creation_input_tokens":0}}),
+        json!({"type":"message_stop"}),
+    ] {
+        events.extend(frame(&mut decoder, value).unwrap());
+    }
+    assert!(decoder.is_done());
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::Usage(usage) if usage.input_tokens == Some(23) && usage.output_tokens == Some(10)
+    )));
+    let data = packets(&encode(ClientProtocol::Anthropic, true, events));
+    assert!(data.iter().any(|event| {
+        event["type"] == "content_block_start"
+            && event["content_block"]["id"] == "toolu_direct"
+            && event["content_block"]["name"] == "confirm_ready"
+    }));
+    assert_eq!(data.last().unwrap()["type"], "message_stop");
+}

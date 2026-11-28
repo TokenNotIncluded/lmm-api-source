@@ -17,7 +17,7 @@ resource-acceptance = []
 
 [dependencies]
 # MIT OR Apache-2.0, dependency-free bounded request conversion.
-zconv = "=0.4.2"
+zconv = "=0.4.3"
 zclap = { git = "https://github.com/LIghtJUNction/zclap.git" }
 sysinfo = { version = "=0.40.4", default-features = false, features = ["system"] }
 tokio-util = { version = "=0.7.20", features = ["rt"] }
