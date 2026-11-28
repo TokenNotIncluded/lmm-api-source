@@ -1284,6 +1284,25 @@ function NativeRoutingWorkspace({
                 className='text-muted-foreground size-4 shrink-0 group-open/advanced:rotate-180'
               />
             </summary>
+            <div className='mb-4'>
+              <Button
+                type='button'
+                variant='outline'
+                disabled={
+                  writeDisabled ||
+                  editorStale ||
+                  editor.document !== editorBaseline.current
+                }
+                onClick={() => {
+                  const id = editor.channelId
+                  if (id === undefined) return
+                  changeEditor({ close: true })
+                  setOverrideId(id)
+                }}
+              >
+                {t('Override Rules')}
+              </Button>
+            </div>
             <div className='mb-4 max-w-md'>
               <NativeChannelTagField
                 document={editor.document}

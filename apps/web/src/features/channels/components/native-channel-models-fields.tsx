@@ -9,6 +9,8 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 
 import {
+  nativeProtocolLabel,
+  nativeProtocols,
   newNativeContext,
   readChannelDraft,
   toggleChannelAttachment,
@@ -192,6 +194,7 @@ export function NativeChannelModelsFields({
         const route = configuration.routing.routes.find(
           (item) => item.id === attachment.route_id
         )
+        const enabledProtocols = attachment.client_protocols ?? []
         const policy = attachment.payload
         const flags =
           typeof policy === 'object' &&
@@ -465,6 +468,50 @@ export function NativeChannelModelsFields({
                     )}
                   </select>
                 </label>
+                <fieldset className='mt-3 space-y-2' disabled={disabled}>
+                  <legend className='text-muted-foreground text-sm'>
+                    {t('Inbound protocol')}
+                  </legend>
+                  <Button
+                    type='button'
+                    size='sm'
+                    variant={attachment.client_protocols == null ? 'secondary' : 'outline'}
+                    aria-pressed={attachment.client_protocols == null}
+                    disabled={disabled}
+                    onClick={() =>
+                      put(
+                        updateChannelAttachment(draft, attachment.route_id, {
+                          client_protocols: null,
+                        })
+                      )
+                    }
+                  >
+                    {t('Automatic')}
+                  </Button>
+                  <div className='grid gap-2 sm:grid-cols-2'>
+                    {nativeProtocols.map((protocol) => {
+                      const enabled = enabledProtocols.includes(protocol)
+                      return (
+                        <label key={protocol} className='flex items-center gap-2 text-sm'>
+                          <Checkbox
+                            checked={enabled}
+                            disabled={disabled || (enabled && enabledProtocols.length === 1)}
+                            onCheckedChange={(checked) =>
+                              put(
+                                updateChannelAttachment(draft, attachment.route_id, {
+                                  client_protocols: checked
+                                    ? [...enabledProtocols, protocol]
+                                    : enabledProtocols.filter((value) => value !== protocol),
+                                })
+                              )
+                            }
+                          />
+                          {nativeProtocolLabel(protocol, t)}
+                        </label>
+                      )
+                    })}
+                  </div>
+                </fieldset>
                 {flags && (
                   <fieldset className='mt-3 space-y-2'>
                     <legend className='text-muted-foreground text-sm'>
