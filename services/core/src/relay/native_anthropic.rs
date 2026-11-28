@@ -346,7 +346,23 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
             .as_array()
             .ok_or(RelayError::Invalid("invalid tools"))?
         {
-            keys(t, "tools[]", &["name", "description", "input_schema"])?;
+            keys(
+                t,
+                "tools[]",
+                &[
+                    "name",
+                    "description",
+                    "input_schema",
+                    "eager_input_streaming",
+                ],
+            )?;
+            if t.get("eager_input_streaming")
+                .is_some_and(|value| !value.is_boolean())
+            {
+                return Err(RelayError::Invalid(
+                    "invalid Anthropic tool streaming control",
+                ));
+            }
             if !t["input_schema"].is_object() {
                 return Err(RelayError::Invalid("tool schema must be object"));
             }
@@ -460,6 +476,13 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
     }
     request.anthropic_metadata = v.get_mut("metadata").map(Value::take);
     request.anthropic_output_effort = output_effort;
+    if v["tools"].as_array().is_some_and(|tools| {
+        tools
+            .iter()
+            .any(|tool| tool.get("eager_input_streaming").is_some())
+    }) {
+        request.anthropic_streaming_tools = v.get_mut("tools").map(Value::take);
+    }
     for name in ["thinking", "context_management"] {
         if let Some(value) = v.get_mut(name) {
             request.anthropic_controls.insert(name.into(), value.take());
@@ -1128,6 +1151,26 @@ mod tests {
             parse(&body, &Limits::default()),
             Err(RelayError::UnsupportedField(field)) if field == "output_config.format"
         ));
+    }
+
+    #[test]
+    fn native_anthropic_preserves_eager_tool_streaming() {
+        let tools = json!([{
+            "name":"lookup", "input_schema":{"type":"object"},
+            "eager_input_streaming":true
+        }]);
+        let body = request(json!({"tools":tools}));
+        let parsed = parse(&body, &Limits::default()).unwrap();
+        let wire = parsed
+            .upstream_body_to(UpstreamProtocol::Anthropic, "selected")
+            .unwrap();
+        let wire: Value = serde_json::from_slice(&wire).unwrap();
+        assert_eq!(wire["tools"], tools);
+        assert!(
+            parsed
+                .upstream_body_to(UpstreamProtocol::Responses, "selected")
+                .is_err()
+        );
     }
 
     #[test]
