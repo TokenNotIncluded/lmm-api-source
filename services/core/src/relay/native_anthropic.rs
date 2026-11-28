@@ -82,6 +82,8 @@ fn keys(v: &Value, scope: &'static str, allowed: &[&str]) -> Result<(), RelayErr
     }
     Ok(())
 }
+const PER_TURN_CONTROL_BETA: &str = "per-turn-control-2026-07-01";
+
 fn output_effort(config: &Value) -> Result<&'static str, RelayError> {
     keys(config, "output_config", &["effort"])?;
     let invalid = || RelayError::Invalid("invalid Anthropic output effort");
@@ -421,13 +423,20 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
         });
     }
     let mut has_inline_system = false;
+    let mut has_per_turn_effort = false;
     let mut previous_role = None;
     for m in v["messages"]
         .as_array()
         .ok_or(RelayError::Invalid("messages required"))?
     {
-        keys(m, "messages[]", &["role", "content"])?;
-        let role = match m["role"].as_str() {
+        let role_name = m["role"].as_str();
+        let message_fields: &[&str] = if role_name == Some("system") {
+            &["role", "content", "output_config"]
+        } else {
+            &["role", "content"]
+        };
+        keys(m, "messages[]", message_fields)?;
+        let role = match role_name {
             Some("user") => Role::User,
             Some("assistant") => Role::Assistant,
             Some("system") if matches!(previous_role, Some(Role::User | Role::System)) => {
@@ -436,11 +445,18 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
             }
             _ => return Err(RelayError::Invalid("invalid message role")),
         };
+        let effort = m.get("output_config").map(output_effort).transpose()?;
+        has_per_turn_effort |= effort.is_some();
+        let content = if effort.is_some() && m["content"].as_array().is_some_and(Vec::is_empty) {
+            Vec::new()
+        } else {
+            blocks(&m["content"], role, limits)?
+        };
         previous_role = Some(role);
         messages.push(Message {
             responses_input_id: None,
             role,
-            content: blocks(&m["content"], role, limits)?,
+            content,
         });
     }
     if messages.is_empty()
@@ -488,17 +504,29 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
             request.anthropic_controls.insert(name.into(), value.take());
         }
     }
-    if !request.anthropic_controls.is_empty() {
+    let control_betas = if request.anthropic_controls.is_empty() {
+        None
+    } else {
         let payload = serde_json::to_vec(&request.anthropic_controls)
             .map_err(|_| RelayError::Invalid("invalid Anthropic controls"))?;
         let mut tokens = [zconv::json::Token::EMPTY; 64];
         let controls = zconv::json::parse(&payload, &mut tokens, zconv::json::Limits::default())
             .map_err(|_| RelayError::Invalid("invalid Anthropic controls"))?;
-        request.anthropic_control_betas = zconv::protocol::anthropic::messages_control_betas(
+        zconv::protocol::anthropic::messages_control_betas(
             controls.root(),
             u64::from(request.max_output_tokens),
         )
-        .map_err(|_| RelayError::Invalid("invalid Anthropic thinking or context management"))?;
+        .map_err(|_| RelayError::Invalid("invalid Anthropic thinking or context management"))?
+    };
+    let betas = [
+        control_betas,
+        has_per_turn_effort.then_some(PER_TURN_CONTROL_BETA),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    if !betas.is_empty() {
+        request.anthropic_control_betas = Some(betas.join(","));
     }
     Ok(request)
 }
@@ -1177,7 +1205,8 @@ mod tests {
     fn native_anthropic_keeps_inline_system_messages_at_their_original_position() {
         let messages = json!([
             {"role":"user","content":"hello"},
-            {"role":"system","content":[{"type":"text","text":"new instruction"}]},
+            {"role":"system","content":[{"type":"text","text":"new instruction"}],
+                "output_config":{"effort":"low"}},
             {"role":"assistant","content":"answer"},
             {"role":"user","content":"follow up"}
         ]);
@@ -1188,6 +1217,10 @@ mod tests {
             .unwrap();
         let wire: Value = serde_json::from_slice(&wire).unwrap();
         assert_eq!(wire["messages"], messages);
+        assert_eq!(
+            parsed.anthropic_control_betas.as_deref(),
+            Some(PER_TURN_CONTROL_BETA)
+        );
         assert!(
             parsed
                 .upstream_body_to(UpstreamProtocol::Chat, "selected")

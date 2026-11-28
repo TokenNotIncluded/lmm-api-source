@@ -130,7 +130,7 @@ pub struct Request {
     pub(super) anthropic_controls: Map<String, Value>,
     pub(super) anthropic_ordered_messages: Option<Value>,
     pub(super) anthropic_streaming_tools: Option<Value>,
-    pub(super) anthropic_control_betas: Option<&'static str>,
+    pub(super) anthropic_control_betas: Option<String>,
     /// Validated native prompt sections with cache breakpoints. Keep original
     /// block/message boundaries: normalization can change the cached prefix.
     pub(super) anthropic_cached_prompt: Option<Map<String, Value>>,

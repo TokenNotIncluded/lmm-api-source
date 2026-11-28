@@ -773,8 +773,10 @@ impl Worker {
                 UpstreamProtocol::Chat | UpstreamProtocol::Responses => {
                     request.header(header::AUTHORIZATION, route.credential.clone())
                 }
-                UpstreamProtocol::Anthropic => route
-                    .anthropic_auth_with_betas(request, self.request.anthropic_control_betas)?,
+                UpstreamProtocol::Anthropic => route.anthropic_auth_with_betas(
+                    request,
+                    self.request.anthropic_control_betas.as_deref(),
+                )?,
                 UpstreamProtocol::Gemini => {
                     request.header("x-goog-api-key", route.credential.clone())
                 }
