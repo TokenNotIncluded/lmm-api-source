@@ -51,3 +51,44 @@ test('catalog compares upstream IDs and checks price coverage for mapped public 
     missing_price: ['new'],
   })
 })
+
+test('catalog reports only routes missing a price for their own group and speed', () => {
+  const shared = { upstream_id: 1, upstream_model: 'raw' }
+  const config = {
+    routing: {
+      routes: [
+        {
+          id: 10,
+          model: 'public',
+          group: 'a',
+          speeds: ['standard', 'fast'],
+          targets: [shared],
+        },
+        {
+          id: 20,
+          model: 'public',
+          group: 'b',
+          speeds: ['standard', 'fast'],
+          targets: [
+            shared,
+            { upstream_id: 2, upstream_model: 'raw' },
+            { upstream_id: 1, upstream_model: 'retired' },
+          ],
+        },
+      ],
+    },
+    prices: {
+      rules: [
+        { model: 'public', group: 'a', speed: 'standard' },
+        { model: 'public', group: 'a', speed: 'fast' },
+        { model: 'public', group: 'b', speed: 'standard' },
+      ],
+    },
+    bindings: { discoveries: {}, official_prices: { models: { raw: {} } } },
+  } as unknown as NativeConfiguration
+  const coverage = catalogCoverage(config, 1, ['raw'])
+  assert.deepEqual(coverage.missing_price, ['raw'])
+  assert.deepEqual(coverage.missing_price_routes, [
+    { model: 'public', upstream_model: 'raw', channel: 1, group: 'b', route: 20 },
+  ])
+})

@@ -48,35 +48,40 @@ export function catalogCoverage(
   const observed = new Set(models)
   const activePrices = config.prices.rules
   const official = config.bindings.official_prices?.models ?? {}
-  const missing = models.filter((m) => {
-    const hasBase = Object.hasOwn(official, m)
-    const mapped = routes.filter((r) =>
-      r.targets.some((t) => t.upstream_id === channel && t.upstream_model === m)
-    )
-    if (!mapped.length)
-      return !hasBase && !activePrices.some((p) => p.model === m)
-    return mapped.some((r) =>
-      r.speeds.some(
+  const missing_price_routes = routes
+    .filter((route) =>
+      route.speeds.some(
         (speed) =>
           !activePrices.some(
-            (p) =>
-              p.model === r.model && p.group === r.group && p.speed === speed
+            (price) =>
+              price.model === route.model &&
+              price.group === route.group &&
+              price.speed === speed
           )
       )
     )
-  })
-  const missing_price_routes = routes.flatMap((r) =>
-    r.targets
-      .filter(
-        (t) => t.upstream_id === channel && missing.includes(t.upstream_model)
-      )
-      .map((t) => ({
-        model: r.model,
-        upstream_model: t.upstream_model,
-        channel,
-        group: r.group,
-        route: r.id,
-      }))
+    .flatMap((route) =>
+      route.targets
+        .filter(
+          (target) =>
+            target.upstream_id === channel && observed.has(target.upstream_model)
+        )
+        .map((target) => ({
+          model: route.model,
+          upstream_model: target.upstream_model,
+          channel,
+          group: route.group,
+          route: route.id,
+        }))
+    )
+  const missingMapped = new Set(
+    missing_price_routes.map((row) => row.upstream_model)
+  )
+  const pricedModels = new Set(activePrices.map((price) => price.model))
+  const missing = [...observed].filter((model) =>
+    attached.has(model)
+      ? missingMapped.has(model)
+      : !Object.hasOwn(official, model) && !pricedModels.has(model)
   )
   return {
     missing_price_routes,
