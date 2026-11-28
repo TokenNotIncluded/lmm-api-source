@@ -95,7 +95,6 @@ import {
 import {
   defaultModelDisplayName,
   newModelTarget,
-  publishedGroupMultiplier,
   readNativeModelDraft,
   replaceModelTargets,
 } from './native-model-draft'
@@ -700,31 +699,7 @@ function NativeRoutingWorkspace({
           description: '',
           vendor_id: null,
         },
-        prices: route
-          ? source.prices.rules.filter(
-              (price) =>
-                price.model === route.model && price.group === route.group
-            )
-          : [
-              {
-                id: nextId(
-                  source.prices.rules.map((price) => Number(price.id))
-                ),
-                model,
-                group,
-                speed: 'standard',
-                rates: {
-                  input: 0,
-                  output: 0,
-                  cache_read: 0,
-                  cache_write: 0,
-                  request: 0,
-                },
-                group_multiplier_ppm:
-                  publishedGroupMultiplier(source.prices.rules, group) ?? '',
-                speed_multiplier_ppm: 1_000_000,
-              },
-            ],
+        prices: [],
         contexts: source.bindings.contexts.filter((context) =>
           route?.targets.some(
             (target) =>
@@ -813,6 +788,30 @@ function NativeRoutingWorkspace({
       t('This item was removed. Close the editor and select another item.')
     )
   }
+  function editorPayload(editor: Editor) {
+    const body = parseNativeDocument(editor.document)
+    if (!configuration) return body
+    assertNativeDraftTimeouts(body, configuration)
+    if (editor.modelEditing === undefined) return body
+
+    const model = readNativeModelDraft(editor.document)
+    if (!model) throw new Error(t('Invalid JSON'))
+    const { id, group } = model.route
+    const name = model.route.model
+    const official = configuration.bindings.official_prices?.models ?? {}
+    if (Object.hasOwn(official, name)) return { ...body, prices: [] }
+
+    const previous = configuration.routing.routes.find((route) => route.id === id)
+    if (!previous || previous.model !== name || previous.group !== group) {
+      throw new Error(t('Publish the official base price first.'))
+    }
+    return {
+      ...body,
+      prices: configuration.prices.rules.filter(
+        (rule) => rule.model === name && rule.group === group
+      ),
+    }
+  }
   async function previewEditor() {
     if (!configurationWritable || !editor?.previewPath || busy || editorStale) {
       return
@@ -820,8 +819,7 @@ function NativeRoutingWorkspace({
     setBusy(true)
     setError(null)
     try {
-      const body = parseNativeDocument(editor.document)
-      if (configuration) assertNativeDraftTimeouts(body, configuration)
+      const body = editorPayload(editor)
       const request =
         editor.modelEditing === undefined
           ? body
@@ -847,8 +845,7 @@ function NativeRoutingWorkspace({
   function saveEditor() {
     if (!editor || editorStale || (editor.previewPath && !preview)) return
     void run(async () => {
-      const body = parseNativeDocument(editor.document)
-      if (configuration) assertNativeDraftTimeouts(body, configuration)
+      const body = editorPayload(editor)
       if (editor.secret) body.secret = secret
       if (preview) body.confirmation_digest = preview.confirmation_digest
       return nativeRequest(editor.method, editor.path, body)

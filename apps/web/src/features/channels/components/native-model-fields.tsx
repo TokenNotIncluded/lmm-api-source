@@ -1,5 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -14,13 +14,10 @@ import {
 import { NativeFailoverFields } from './native-failover-fields'
 import {
   defaultModelDisplayName,
-  maxGroupMultiplierPpm,
-  microsToUsd,
   modelIdentity,
   newModelTarget,
   readNativeModelDraft,
   replaceModelTargets,
-  usdToMicros,
   type NativeModelDraft,
   type NativeTargetDraft,
 } from './native-model-draft'
@@ -61,61 +58,6 @@ function IntegerField({
           const raw = event.target.value
           const number = Number(raw)
           onChange(raw !== '' && Number.isSafeInteger(number) ? number : raw)
-        }}
-      />
-    </label>
-  )
-}
-
-export function NativePriceField({
-  label,
-  value,
-  disabled,
-  onChange,
-  multiplier = false,
-}: {
-  label: string
-  value: number | string
-  disabled: boolean
-  onChange: (value: number | string) => void
-  multiplier?: boolean
-}) {
-  const { t } = useTranslation()
-  const [text, setText] = useState(() => microsToUsd(value))
-  const emitted = useRef(value)
-  const input = useRef<HTMLInputElement>(null)
-  const max = multiplier ? maxGroupMultiplierPpm : Number.MAX_SAFE_INTEGER
-  const invalid = multiplier
-    ? t('Invalid cost multiplier')
-    : t('Enter a non-negative price with at most six decimal places.')
-  useEffect(() => {
-    if (value !== emitted.current) setText(microsToUsd(value))
-    emitted.current = value
-    const amount = usdToMicros(microsToUsd(value))
-    input.current?.setCustomValidity(
-      amount === null || amount > max ? invalid : ''
-    )
-  }, [value, max, invalid])
-  return (
-    <label className={fieldClass}>
-      <span>{label}</span>
-      <Input
-        type='text'
-        ref={input}
-        inputMode='decimal'
-        required
-        pattern='[0-9]+(\.[0-9]{0,6})?'
-        className='min-h-11 tabular-nums'
-        value={text}
-        disabled={disabled}
-        onChange={(event) => {
-          const raw = event.target.value
-          const amount = usdToMicros(raw)
-          const valid = amount !== null && amount <= max
-          event.target.setCustomValidity(valid ? '' : invalid)
-          setText(raw)
-          emitted.current = valid ? amount : raw
-          onChange(emitted.current)
         }}
       />
     </label>
@@ -182,13 +124,6 @@ export function NativeModelFields({
     )
     put(next)
   }
-  const rates = [
-    ['input', t('Input price (USD / 1M tokens)')],
-    ['output', t('Output price (USD / 1M tokens)')],
-    ['cache_read', t('Cache read (USD / 1M tokens)')],
-    ['cache_write', t('Cache write (USD / 1M tokens)')],
-    ['request', t('Request fee (USD / request)')],
-  ] as const
   return (
     <div className='min-w-0 space-y-7' data-slot='native-model-fields'>
       <div className='grid min-w-0 gap-4 @min-[40rem]/routing:grid-cols-2'>
@@ -213,14 +148,7 @@ export function NativeModelFields({
             required
             disabled={disabled}
             onChange={(event) =>
-              put(
-                modelIdentity(
-                  draft,
-                  'group',
-                  event.target.value,
-                  configuration.prices.rules
-                )
-              )
+              put(modelIdentity(draft, 'group', event.target.value))
             }
           >
             {configuration.routing.groups.map((group) => (
@@ -585,61 +513,6 @@ export function NativeModelFields({
           put({ ...draft, route: { ...draft.route, failover } })
         }
       />
-      <section className='space-y-5' aria-label={t('Pricing')}>
-        <h4 className='font-medium'>{t('Pricing')}</h4>
-        {draft.prices.map((price, index) => (
-          <fieldset key={price.id} className='min-w-0 space-y-4'>
-            <legend className='text-muted-foreground mb-3 text-sm'>
-              {price.speed}
-            </legend>
-            <NativePriceField
-              label={t('Group multiplier')}
-              value={price.group_multiplier_ppm}
-              multiplier
-              disabled={disabled}
-              onChange={(value) =>
-                put({
-                  ...draft,
-                  prices: draft.prices.map((item, position) =>
-                    position === index
-                      ? { ...item, group_multiplier_ppm: value }
-                      : item
-                  ),
-                })
-              }
-            />
-            {price.billing_mode && price.billing_mode !== 'tokens' ? (
-              <p className='text-muted-foreground text-sm'>
-                {t('Edit advanced pricing in Advanced Settings.')}
-              </p>
-            ) : (
-              <div className='grid min-w-0 gap-4 @min-[40rem]/routing:grid-cols-2'>
-                {rates.map(([key, label]) => (
-                  <NativePriceField
-                    key={key}
-                    label={label}
-                    value={price.rates[key]}
-                    disabled={disabled}
-                    onChange={(value) =>
-                      put({
-                        ...draft,
-                        prices: draft.prices.map((item, position) =>
-                          position === index
-                            ? {
-                                ...item,
-                                rates: { ...item.rates, [key]: value },
-                              }
-                            : item
-                        ),
-                      })
-                    }
-                  />
-                ))}
-              </div>
-            )}
-          </fieldset>
-        ))}
-      </section>
     </div>
   )
 }
