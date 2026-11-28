@@ -281,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn standard_metadata_is_scoped_without_relaxing_the_generic_decoder() {
+    fn standard_metadata_preserves_usage_and_keeps_assistant_geography_scoped() {
         let response = json!({"id":"msg_standard","type":"message","role":"assistant",
             "model":"claude-selected","content":[{"type":"text","text":"Hello"}],
             "stop_reason":"end_turn","stop_sequence":null,
@@ -289,12 +289,15 @@ mod tests {
                 "cache_creation_input_tokens":0,"service_tier":"standard","inference_geo":"global",
                 "server_tool_use":{"web_search_requests":0,"web_fetch_requests":0}}});
         let limits = Limits::default();
-        let mut generic = AssistantDecoder::new_with_cache_creation_mode(
-            UpstreamProtocol::Anthropic,
-            &limits,
-            None,
-        );
-        assert!(generic.json(&response).is_err());
+        let mut generic = AssistantDecoder::new(UpstreamProtocol::Anthropic, &limits);
+        let events = generic.json(&response).unwrap();
+        let generic_usage = events
+            .iter()
+            .find_map(|event| match event {
+                relay::Event::Usage(receipt) => Some(receipt),
+                _ => None,
+            })
+            .unwrap();
         let raw = serde_json::to_vec(&response).unwrap();
         let normalized = assistant_response(
             &payload(),
@@ -312,15 +315,26 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(
-            (
-                usage.input_tokens,
-                usage.cached_input_tokens,
-                usage.output_tokens
-            ),
-            (Some(18), Some(7), Some(5))
-        );
+        for receipt in [generic_usage, &usage] {
+            assert_eq!(
+                (
+                    receipt.input_tokens,
+                    receipt.cached_input_tokens,
+                    receipt.output_tokens
+                ),
+                (Some(18), Some(7), Some(5))
+            );
+        }
         assert_eq!(serde_json::from_slice::<Value>(&raw).unwrap(), response);
+
+        let mut unavailable_geo = response;
+        unavailable_geo["usage"]["inference_geo"] = json!("not_available");
+        let mut generic = AssistantDecoder::new(UpstreamProtocol::Anthropic, &limits);
+        assert!(generic.json(&unavailable_geo).is_ok());
+        assert_eq!(
+            assistant_anthropic_decoder_input(&unavailable_geo.to_string()).unwrap_err(),
+            RelayError::Unsupported("assistant provider billing dimensions")
+        );
     }
 
     #[test]
