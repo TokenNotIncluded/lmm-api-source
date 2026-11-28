@@ -706,6 +706,9 @@ function PricingWorkspace({
   )
   const officialCatalog = (
     <div className='space-y-4'>
+      <p className='text-muted-foreground text-xs tabular-nums'>
+        {t('Published version')}: {configuration.version.pricing}
+      </p>
       <div className='flex flex-wrap items-center gap-3'>
         <Input
           className='min-w-0 sm:max-w-sm'
