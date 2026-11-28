@@ -22,8 +22,8 @@ const openssl = (...args) => execFileSync('openssl', args, { cwd: dir, stdio: 'i
 openssl('req','-x509','-newkey','rsa:2048','-nodes','-days','1','-subj','/CN=Isolated account-link test CA',
   '-addext','basicConstraints=critical,CA:TRUE','-addext','keyUsage=critical,keyCertSign,cRLSign',
   '-keyout','ca.key','-out','ca.pem')
-openssl('req','-new','-newkey','rsa:2048','-nodes','-subj','/CN=127.0.0.1','-keyout','server.key','-out','request.csr')
-writeFileSync(join(dir,'server.ext'), 'subjectAltName=IP:127.0.0.1\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n')
+openssl('req','-new','-newkey','rsa:2048','-nodes','-subj','/CN=127.0.0.2','-keyout','server.key','-out','request.csr')
+writeFileSync(join(dir,'server.ext'), 'subjectAltName=IP:127.0.0.2\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n')
 openssl('x509','-req','-in','request.csr','-CA','ca.pem','-CAkey','ca.key','-set_serial','1',
   '-days','1','-sha256','-extfile','server.ext','-out','server.pem')
 const cert = readFileSync(join(dir,'server.pem'))
@@ -45,6 +45,8 @@ async function form(req) {
 }
 let authorizationOrigin
 async function authorize(req, res) {
+  // A true provider is on a different host and cannot receive the Console cookie.
+  if (req.headers.cookie) return deny(res)
   const url = new URL(req.url, authorizationOrigin)
   const v = url.searchParams
   if (req.method === 'GET' && url.pathname === '/authorize') {
@@ -85,9 +87,9 @@ async function protocol(req, res) {
 }
 const page = httpsServer({cert,key:readFileSync(join(dir,'server.key'))}, (req,res)=>authorize(req,res).catch(()=>deny(res)))
 const api = httpServer((req,res)=>protocol(req,res).catch(()=>deny(res)))
-const listen = server => new Promise(resolve => server.listen(0,'127.0.0.1',()=>resolve(server.address().port)))
-authorizationOrigin = 'https://127.0.0.1:' + await listen(page)
-const apiOrigin = 'http://127.0.0.1:' + await listen(api)
+const listen = (server, host) => new Promise(resolve => server.listen(0, host, () => resolve(server.address().port)))
+authorizationOrigin = 'https://127.0.0.2:' + await listen(page, '127.0.0.2')
+const apiOrigin = 'http://127.0.0.1:' + await listen(api, '127.0.0.1')
 process.stdout.write(JSON.stringify({authorizationOrigin,apiOrigin,slug,clientId,secret,subject,spki,certificateFile:join(dir,'ca.pem')})+'\n')
 process.stdin.on('end',()=>{page.closeAllConnections();api.closeAllConnections();page.close();api.close()})
 process.stdin.resume()
