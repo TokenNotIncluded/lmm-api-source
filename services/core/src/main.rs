@@ -20,7 +20,7 @@ mod admin;
 mod hex_codec;
 mod public_listener_activation;
 
-const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml] [serve | init-db | upgrade-db | upgrade-history | upgrade-offline | create-first-owner | bootstrap-user | complete-setup | install-tool-market-builtins | install-usage-receipt-index | rebuild-channel-usage | reconcile-model-usage | writeoff-model-usage | plan-admin-activation | apply-admin-activation | plan-admin-key-continuity | apply-admin-key-continuity | publish-subscription-pancake-price | schema-manifest | check-db]\n\n\
+const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml] [serve | init-db | upgrade-db | upgrade-history | upgrade-offline | create-first-owner | bootstrap-user | complete-setup | install-tool-market-builtins | install-usage-receipt-index | rebuild-channel-usage | reconcile-model-usage | plan-admin-activation | apply-admin-activation | plan-admin-key-continuity | apply-admin-key-continuity | publish-subscription-pancake-price | schema-manifest | check-db]\n\n\
 Commands:\n\
   serve           Start the core service (the default without arguments).\n\
   schema-manifest Print the compiled schema contract as JSON; accepts no config options and performs no I/O except stdout.\n\
@@ -41,7 +41,6 @@ Commands:\n\
                   core-trust-policy-edit-v1 upgrades the fixed 44-component PostgreSQL 18 predecessor to 45 components.\n\
                   core-channel-observations-v1 upgrades the fixed 45-component PostgreSQL 18 predecessor to 46 components.\n\
   rebuild-channel-usage  Rebuild derived channel statistics offline as owner; requires explicit --config and preserves money receipts.\n\
-  writeoff-model-usage  Preview or waive unresolved wallet holds as database owner; apply requires the returned confirmation digest.\n\
   create-first-owner  Create the first production owner offline from private stdin JSON; requires explicit --config and a fresh store.\n\
   bootstrap-user  Read a user_id and platform_level JSON object from stdin.\n\n\
   install-tool-market-builtins  Install the compiled tool catalog offline as installation owner.\n\n\
@@ -76,7 +75,6 @@ enum Command {
     InstallUsageReceiptIndex,
     RebuildChannelUsage,
     ReconcileModelUsage,
-    WriteoffModelUsage,
     PlanAdminActivation,
     ApplyAdminActivation,
     PlanAdminKeyContinuity,
@@ -112,7 +110,6 @@ const OPERATIONS: &[(&str, Command)] = &[
     ),
     ("rebuild-channel-usage", Command::RebuildChannelUsage),
     ("reconcile-model-usage", Command::ReconcileModelUsage),
-    ("writeoff-model-usage", Command::WriteoffModelUsage),
     ("plan-admin-activation", Command::PlanAdminActivation),
     ("apply-admin-activation", Command::ApplyAdminActivation),
     ("plan-admin-key-continuity", Command::PlanAdminKeyContinuity),
@@ -255,16 +252,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .into());
             }
             Some(admin::Operation::reconcile_model_usage(io::stdin().lock())?)
-        }
-        Command::WriteoffModelUsage => {
-            if arguments.config.is_none() {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "writeoff-model-usage requires explicit database-owner --config",
-                )
-                .into());
-            }
-            Some(admin::Operation::writeoff_model_usage(io::stdin().lock())?)
         }
         Command::InitDb => Some(admin::Operation::InitDb),
         Command::UpgradeDb => {

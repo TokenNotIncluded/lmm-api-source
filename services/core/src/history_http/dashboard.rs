@@ -116,7 +116,6 @@ const SELECT: &str = r#"
    (SELECT pa.detail FROM core_charging.usage_events pa WHERE pa.request_id=r.id AND pa.event_id='reservation-admission:v1') AS pricing_admission,
    (SELECT po.detail FROM core_charging.usage_events po WHERE po.request_id=r.id AND po.event_id='provider-observation:terminal') AS pricing_observation, a.kind AS payer_kind, p.username,
    coalesce(k.name,r.oauth_source->>'client_id','') AS token_name,
-   (SELECT w.detail FROM core_charging.usage_events w WHERE w.request_id=r.id AND w.event_id='operator-model-writeoff:v1') AS writeoff_event,
    e.detail AS final_event,
    (SELECT coalesce(jsonb_agg(to_jsonb(c)), '[]'::jsonb) FROM
       (SELECT operation_id,command FROM core_charging.ledger_commands

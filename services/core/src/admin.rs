@@ -38,7 +38,6 @@ pub enum Operation {
     InstallUsageReceiptIndex([u8; 32]),
     RebuildChannelUsage,
     ReconcileModelUsage(lmm_core::billing::charging::OperatorReconcileRequest),
-    WriteoffModelUsage(lmm_core::billing::charging::OperatorWriteoffRequest),
     UpgradeDatabase(Box<lmm_core::core_schema::UpgradeRequest>),
     PlanAdminActivation(PlanAdminActivationRequest),
     ApplyAdminActivation(Box<ApplyAdminActivationRequest>),
@@ -56,12 +55,6 @@ impl Operation {
     pub fn reconcile_model_usage(input: impl Read) -> io::Result<Self> {
         admin_approval::read_bounded_json(input)
             .map(Self::ReconcileModelUsage)
-            .map_err(approval_io)
-    }
-
-    pub fn writeoff_model_usage(input: impl Read) -> io::Result<Self> {
-        admin_approval::read_bounded_json(input)
-            .map(Self::WriteoffModelUsage)
             .map_err(approval_io)
     }
 
@@ -251,16 +244,6 @@ pub async fn run(operation: Operation) -> Result<(), Box<dyn Error>> {
                 std::sync::Arc::new(lmm_core::billing::transactional_ledger::TransactionalLedger),
             );
             let receipt = charging.operator_reconcile(request).await?;
-            serde_json::to_writer(io::stdout().lock(), &receipt)?;
-            println!();
-        }
-        Operation::WriteoffModelUsage(request) => {
-            lmm_core::core_schema::check(&pool).await?;
-            let charging = lmm_core::billing::charging::Charging::new(
-                pool,
-                std::sync::Arc::new(lmm_core::billing::transactional_ledger::TransactionalLedger),
-            );
-            let receipt = charging.operator_writeoff(request).await?;
             serde_json::to_writer(io::stdout().lock(), &receipt)?;
             println!();
         }

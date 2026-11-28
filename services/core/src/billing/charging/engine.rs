@@ -9,8 +9,6 @@ mod image;
 mod model_unknown;
 #[path = "operator_reconcile.rs"]
 pub(super) mod operator_reconcile;
-#[path = "operator_writeoff.rs"]
-pub(super) mod operator_writeoff;
 #[path = "route_attempts.rs"]
 mod route_attempts;
 use super::{
@@ -1526,10 +1524,7 @@ impl Charging {
         Ok(charge)
     }
     fn evidence(evidence: &str) -> Result<()> {
-        if evidence.trim().is_empty()
-            || evidence.len() > 500
-            || evidence == operator_writeoff::KIND
-        {
+        if evidence.trim().is_empty() || evidence.len() > 500 {
             Err(Error::Invalid)
         } else {
             Ok(())

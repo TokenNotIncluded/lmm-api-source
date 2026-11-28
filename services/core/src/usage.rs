@@ -249,7 +249,6 @@ const SELECT_REQUESTS: &str = r#"
  SELECT r.*,(SELECT pc.detail FROM core_charging.usage_events pc WHERE pc.request_id=r.id AND pc.event_id='reservation-contract:v1') AS pricing_contract,
    (SELECT pa.detail FROM core_charging.usage_events pa WHERE pa.request_id=r.id AND pa.event_id='reservation-admission:v1') AS pricing_admission,
    (SELECT po.detail FROM core_charging.usage_events po WHERE po.request_id=r.id AND po.event_id='provider-observation:terminal') AS pricing_observation, a.kind AS payer_kind, coalesce(k.name,r.oauth_source->>'client_id','') AS token_name,
-   (SELECT w.detail FROM core_charging.usage_events w WHERE w.request_id=r.id AND w.event_id='operator-model-writeoff:v1') AS writeoff_event,
    e.detail AS final_event
  FROM core_charging.requests r
  JOIN core_identity.accounts a ON a.id=r.payer_account_id
