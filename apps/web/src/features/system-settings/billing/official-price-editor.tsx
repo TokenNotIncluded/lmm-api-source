@@ -316,16 +316,6 @@ function Editor({
               models.dev
             </Button>
           )}
-          {deepseek0813 && (
-            <a
-              href='https://api-docs.deepseek.com/quick_start/pricing/'
-              target='_blank'
-              rel='noreferrer'
-              className='underline'
-            >
-              {t('Pricing')}
-            </a>
-          )}
         </div>
       )}
       {query.isPending && <p role='status'>{t('Loading...')}</p>}
