@@ -14,6 +14,7 @@ pub use engine::{
     Charging, operator_reconcile::OperatorReconcileRequest,
     operator_writeoff::OperatorWriteoffRequest,
 };
+pub(crate) use engine::operator_writeoff::{Audit as WriteoffAudit, KIND as OPERATOR_WRITEOFF_EVENT};
 pub(crate) use limits::key_quota_breakdown;
 pub use limits::{external_budgets, key_quota_snapshot, key_quota_snapshot_for_issuer};
 pub use types::*;

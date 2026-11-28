@@ -1011,8 +1011,10 @@ async fn operator_writeoff_releases_unknown_wallet_holds_once(pool: PgPool) {
     credit_wallet(&wallet, "operator-writeoff", 1_000).await;
     let engine = Charging::new(pool.clone(), Arc::new(TransactionalLedger));
     let ids = ["cd".repeat(32), "ef".repeat(32)];
-    for id in &ids {
-        let (spec, basis, proof) = prepared_legacy(id, 100);
+    for (id, (spec, basis, proof)) in ids
+        .iter()
+        .zip([prepared_expression(&ids[0]), prepared_legacy(&ids[1], 100)])
+    {
         engine
             .reserve_prepared_model_with_context(PERSONAL, &spec, &WORKER, None, None, basis, &proof)
             .await
@@ -1041,12 +1043,12 @@ async fn operator_writeoff_releases_unknown_wallet_holds_once(pool: PgPool) {
     };
 
     let before = wallet.balance(102).await.unwrap();
-    assert_eq!(before.reserved_units, 10);
+    assert_eq!(before.reserved_units, 50);
     assert_eq!(engine.operator_writeoff(input(None)).await, Err(Error::WrongState));
     engine.mark_unknown(&ids[1], &WORKER).await.unwrap();
     let preview = engine.operator_writeoff(input(None)).await.unwrap();
     assert_eq!(preview["mode"], "preview");
-    assert_eq!(preview["release_credits"], 10);
+    assert_eq!(preview["release_credits"], 50);
     assert_eq!(preview["charge_credits"], 0);
     assert_eq!(wallet.balance(102).await.unwrap(), before);
 
@@ -1059,13 +1061,16 @@ async fn operator_writeoff_releases_unknown_wallet_holds_once(pool: PgPool) {
     assert_eq!(applied["mode"], "applied");
     let after = wallet.balance(102).await.unwrap();
     assert_eq!(after.reserved_units, 0);
-    assert_eq!(after.spendable_units, before.spendable_units + 10);
+    assert_eq!(after.spendable_units, before.spendable_units + 50);
     assert_eq!(engine.operator_writeoff(input(Some(digest))).await.unwrap(), applied);
     assert_eq!(wallet.balance(102).await.unwrap(), after);
     for id in &ids {
         let charge = engine.resolve(id).await.unwrap().unwrap();
-        assert_eq!(charge.state, "released");
-        assert_eq!((charge.settled, charge.refunded, charge.outcome), (0, 0, None));
+        assert_eq!(charge.state, "settled");
+        assert_eq!(
+            (charge.settled, charge.refunded, charge.outcome.as_deref()),
+            (0, 0, Some("failed"))
+        );
     }
     let evidence: Value = sqlx::query_scalar(
         "SELECT detail->'raw_usage' FROM core_charging.usage_events \
@@ -1076,6 +1081,14 @@ async fn operator_writeoff_releases_unknown_wallet_holds_once(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(evidence, raw);
+    let mut transaction = pool.begin().await.unwrap();
+    assert_eq!(
+        crate::usage::channel_projection::backfill_channel_usage(&mut transaction)
+            .await
+            .unwrap(),
+        2
+    );
+    transaction.rollback().await.unwrap();
 }
 
 #[sqlx::test(migrations = false)]

@@ -1289,11 +1289,6 @@ impl Charging {
         Ok(charge)
     }
     async fn release_unstarted(&self, c: &mut PgConnection, charge: &Charge) -> Result<()> {
-        self.release_hold(c, charge, json!({"kind":"release_before_dispatch"}))
-            .await
-    }
-
-    async fn release_hold(&self, c: &mut PgConnection, charge: &Charge, receipt: Value) -> Result<()> {
         self.ledger
             .apply(c, command(charge, "release", Change::Release)?)
             .await?;
@@ -1303,7 +1298,13 @@ impl Charging {
         .bind(&charge.id)
         .execute(&mut *c)
         .await?;
-        event(c, &charge.id, "release", receipt).await?;
+        event(
+            c,
+            &charge.id,
+            "release",
+            json!({"kind":"release_before_dispatch"}),
+        )
+        .await?;
         let mut released = charge.clone();
         released.state = "released".into();
         record_channel_charge(c, &released).await
@@ -1525,7 +1526,10 @@ impl Charging {
         Ok(charge)
     }
     fn evidence(evidence: &str) -> Result<()> {
-        if evidence.trim().is_empty() || evidence.len() > 500 {
+        if evidence.trim().is_empty()
+            || evidence.len() > 500
+            || evidence == operator_writeoff::KIND
+        {
             Err(Error::Invalid)
         } else {
             Ok(())

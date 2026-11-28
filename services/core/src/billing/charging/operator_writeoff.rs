@@ -2,7 +2,7 @@
 use super::*;
 use serde::Deserialize;
 
-const KIND: &str = "operator-model-writeoff:v1";
+pub(crate) const KIND: &str = "operator-model-writeoff:v1";
 const MAX_BATCH: usize = 500;
 
 /// Private input for the offline model write-off command.
@@ -16,23 +16,23 @@ pub struct OperatorWriteoffRequest {
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct Entry {
-    request_id: String,
-    model: String,
-    group: String,
-    payer_account_id: i64,
-    revision: i64,
-    release_credits: i64,
+pub(crate) struct Entry {
+    pub(crate) request_id: String,
+    pub(crate) model: String,
+    pub(crate) group: String,
+    pub(crate) payer_account_id: i64,
+    pub(crate) revision: i64,
+    pub(crate) release_credits: i64,
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct Audit {
-    kind: String,
+pub(crate) struct Audit {
+    pub(crate) kind: String,
     operator: String,
     reason: String,
     confirmation_digest: String,
-    entry: Entry,
+    pub(crate) entry: Entry,
 }
 
 impl Charging {
@@ -103,7 +103,9 @@ impl Charging {
                 .ok_or(Error::NotFound)?
                 .charge;
             if let Some(digest) = &request.confirmation_digest
-                && charge.state == "released"
+                && charge.state == "settled"
+                && charge.outcome.as_deref() == Some("failed")
+                && charge.settled == 0
             {
                 entries.push(replayed(&mut tx, &charge, digest, &request.reason).await?);
                 continue;
@@ -140,9 +142,10 @@ impl Charging {
             return Err(Error::Conflict);
         }
         for (charge, entry) in pending.iter().zip(entries) {
-            self.release_hold(
+            event(
                 &mut tx,
-                charge,
+                &charge.id,
+                KIND,
                 json(&Audit {
                     kind: KIND.into(),
                     operator: operator.clone(),
@@ -150,6 +153,15 @@ impl Charging {
                     confirmation_digest: digest.clone(),
                     entry,
                 })?,
+            )
+            .await?;
+            self.post_settlement(
+                &mut tx,
+                charge.clone(),
+                Usage::default(),
+                Outcome::Failed,
+                Some(KIND),
+                0,
             )
             .await?;
         }
@@ -204,9 +216,10 @@ async fn replayed(
     reason: &str,
 ) -> Result<Entry> {
     let event: Value = sqlx::query_scalar(
-        "SELECT detail FROM core_charging.usage_events WHERE request_id=$1 AND event_id='release'",
+        "SELECT detail FROM core_charging.usage_events WHERE request_id=$1 AND event_id=$2",
     )
     .bind(&charge.id)
+    .bind(KIND)
     .fetch_optional(c)
     .await?
     .ok_or(Error::Conflict)?;

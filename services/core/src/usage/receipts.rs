@@ -2,7 +2,10 @@
 //! Loading limits, authorization and HTTP errors belong to the caller.
 use crate::billing::{
     CREDITS_PER_USD,
-    charging::{Change, LedgerCommand, Outcome, Price, Source, Usage, contract},
+    charging::{
+        Change, LedgerCommand, OPERATOR_WRITEOFF_EVENT, Outcome, Price, Source, Usage,
+        WriteoffAudit, contract,
+    },
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -83,6 +86,7 @@ struct FinalEvent {
     kind: String,
     usage: Usage,
     outcome: Outcome,
+    evidence: Option<String>,
 }
 fn decode<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, InvalidReceipt> {
     serde_json::from_value(value).map_err(|_| InvalidReceipt)
@@ -112,6 +116,8 @@ pub(crate) struct ReceiptValidation {
     owner: i64,
     payer: i64,
     final_event: Option<Value>,
+    writeoff_event: Option<Value>,
+    revision: i64,
     pricing_proof: Option<contract::ReservationContract>,
     pricing_observation: Option<crate::relay::Usage>,
     receipts: HashMap<String, Change>,
@@ -315,6 +321,8 @@ impl ReceiptValidation {
             owner,
             payer,
             final_event,
+            writeoff_event: row.try_get("writeoff_event")?,
+            revision: row.try_get("revision")?,
             pricing_proof,
             pricing_observation,
             receipts: HashMap::new(),
@@ -368,6 +376,9 @@ impl ReceiptValidation {
             refund_total,
             refund_count,
             final_event,
+            writeoff_event,
+            payer,
+            revision,
             pricing_proof,
             pricing_observation,
             ..
@@ -385,6 +396,40 @@ impl ReceiptValidation {
                 Outcome::Cancelled => "cancelled",
                 Outcome::Failed => "failed",
             };
+            let expected_gross = if event.evidence.as_deref() == Some(OPERATOR_WRITEOFF_EVENT) {
+                let audit: WriteoffAudit = decode(writeoff_event.ok_or(InvalidReceipt)?)?;
+                let entry = audit.entry;
+                if audit.kind != OPERATOR_WRITEOFF_EVENT
+                    || entry.request_id != id
+                    || entry.payer_account_id != payer
+                    || entry.model != price.model
+                    || entry.group != price.group
+                    || entry.release_credits != request.reserved
+                    || entry.revision.checked_add(1) != Some(revision)
+                    || request.source != Source::Wallet
+                    || request.credential_source != "api_key"
+                    || price.image.is_some()
+                    || price.audio.is_some()
+                    || price.tool.is_some()
+                    || price.text_request.is_some()
+                    || price.grounding.is_some()
+                    || event.outcome != Outcome::Failed
+                    || event.usage != Usage::default()
+                    || amounts.refunded != 0
+                {
+                    return Err(InvalidReceipt);
+                }
+                0
+            } else {
+                contract::terminal_cost(
+                    price,
+                    request.source,
+                    pricing_proof.as_ref(),
+                    event.usage,
+                    pricing_observation.as_ref(),
+                )
+                .map_err(|_| InvalidReceipt)?
+            };
             if event.kind != "final"
                 || Some(final_outcome) != outcome.as_deref()
                 || event.usage.input != usage.input
@@ -398,15 +443,7 @@ impl ReceiptValidation {
                     .text_request
                     .is_some_and(|receipt| receipt.outcome() != event.outcome)
                 || (price.grounding.is_some() != event.usage.grounding.is_some())
-                || contract::terminal_cost(
-                    price,
-                    request.source,
-                    pricing_proof.as_ref(),
-                    event.usage,
-                    pricing_observation.as_ref(),
-                )
-                .map_err(|_| InvalidReceipt)?
-                    != amounts.gross
+                || expected_gross != amounts.gross
             {
                 return Err(InvalidReceipt);
             }
