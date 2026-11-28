@@ -361,6 +361,9 @@ export function useAccountBindingFlow(
           codeOperation: codeOperation(resource),
         },
       })
+      const unconfirmed = t(
+        'Account binding could not be confirmed. Refresh the list before trying again.'
+      )
       let success = false
       let applied = false
       try {
@@ -379,7 +382,7 @@ export function useAccountBindingFlow(
           throw new axios.CanceledError('Binding superseded')
         }
         if (outcome === 'failed') {
-          throw new Error(t('Account binding could not be confirmed. Refresh the list before trying again.'))
+          throw new Error(unconfirmed)
         }
         success = true
         if (notify) toast.success(t('Binding successful!'))
@@ -391,9 +394,7 @@ export function useAccountBindingFlow(
             reportAuthError(
               error,
               t,
-              t(
-                'Account binding could not be confirmed. Refresh the list before trying again.'
-              )
+              unconfirmed
             )
           }
           if (!applied) void load()
@@ -416,7 +417,11 @@ export function useAccountBindingFlow(
               provider: operation.slug,
               state: resource.state,
               success,
-              message: success ? undefined : t('Account binding failed'),
+              message: success
+                ? undefined
+                : applied
+                  ? unconfirmed
+                  : t('Account binding failed'),
             },
             window.location.origin
           )

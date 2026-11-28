@@ -636,7 +636,13 @@ for (const result of ['missing', 'read-failed'] as const) {
       assert.equal(calls.filter((path) => path.endsWith('/finish')).length, 1)
       assert.equal(calls.filter((path) => path === '/api/user/account-links').length, 2)
       assert.deepEqual(successToasts, [])
-      assert.deepEqual(fixture.messages.map((msg) => (msg as { success: boolean }).success), [false])
+      assert.equal(fixture.messages.length, 1)
+      const reply = fixture.messages[0] as { success: boolean; message: string }
+      assert.equal(reply.success, false)
+      assert.equal(
+        reply.message,
+        'Account binding could not be confirmed. Refresh the list before trying again.'
+      )
       assert.equal(useAuthStore.getState().auth.accessToken, 'native-bound-token')
       assert.equal(controls.busy, false)
     } finally {
