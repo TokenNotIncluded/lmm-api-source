@@ -731,13 +731,17 @@ function PricingWorkspace({
           {t('Add Model')}
         </Button>
       </div>
-      <Table className='min-w-[42rem]'>
+      <Table className='w-full text-xs sm:min-w-[42rem] sm:text-sm'>
         <TableHeader>
           <TableRow>
-            <TableHead>{t('Model ID')}</TableHead>
-            <TableHead>{t('Input price (USD / 1M tokens)')}</TableHead>
-            <TableHead>{t('Output price (USD / 1M tokens)')}</TableHead>
-            <TableHead>{t('Source')}</TableHead>
+            <TableHead className='whitespace-normal'>{t('Model ID')}</TableHead>
+            <TableHead className='whitespace-normal'>
+              {t('Input price (USD / 1M tokens)')}
+            </TableHead>
+            <TableHead className='whitespace-normal'>
+              {t('Output price (USD / 1M tokens)')}
+            </TableHead>
+            <TableHead className='hidden sm:table-cell'>{t('Source')}</TableHead>
             <TableHead className='text-right'>{t('Actions')}</TableHead>
           </TableRow>
         </TableHeader>
@@ -746,7 +750,7 @@ function PricingWorkspace({
             .slice((officialPage - 1) * 20, officialPage * 20)
             .map(([model, price]) => (
               <TableRow key={model}>
-                <TableCell className='font-mono'>{model}</TableCell>
+                <TableCell className='font-mono whitespace-normal break-all'>{model}</TableCell>
                 {(['input', 'output'] as const).map((meter) => (
                   <TableCell key={meter} className='tabular-nums'>
                     {price.tiered
@@ -759,7 +763,7 @@ function PricingWorkspace({
                       </span>}
                   </TableCell>
                 ))}
-                <TableCell className='max-w-60 whitespace-normal break-all'>
+                <TableCell className='hidden max-w-60 whitespace-normal break-all sm:table-cell'>
                   {price.source}
                 </TableCell>
                 <TableCell className='text-right'>
