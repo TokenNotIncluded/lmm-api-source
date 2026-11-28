@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { ArrowRight, Loader2 } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import type { z } from 'zod'
@@ -49,6 +49,7 @@ export function ForgotPasswordForm({
   ...props
 }: React.HTMLAttributes<HTMLFormElement>) {
   const { t } = useTranslation()
+  const pendingRequest = useRef(false)
   const [isLoading, setIsLoading] = useState(false)
   const [result, setResult] = useState<'accepted' | 'failed' | null>(null)
   const [turnstileWidgetKey, setTurnstileWidgetKey] = useState(0)
@@ -74,8 +75,9 @@ export function ForgotPasswordForm({
   const turnstileReady = !isTurnstileEnabled || Boolean(turnstileToken)
 
   async function onSubmit(data: z.infer<typeof forgotPasswordFormSchema>) {
-    if (isLoading || isActive || !validateTurnstile()) return
+    if (pendingRequest.current || isActive || !validateTurnstile()) return
 
+    pendingRequest.current = true
     setIsLoading(true)
     setResult(null)
     try {
@@ -89,6 +91,7 @@ export function ForgotPasswordForm({
     } catch {
       setResult('failed')
     } finally {
+      pendingRequest.current = false
       setTurnstileToken('')
       setTurnstileWidgetKey((current) => current + 1)
       setIsLoading(false)

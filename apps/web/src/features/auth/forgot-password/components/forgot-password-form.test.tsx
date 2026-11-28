@@ -51,9 +51,14 @@ test('a reset request can be resent with the same address after the Core issue w
   const adapter = api.defaults.adapter
   const address = 'recovery-fixture@example.test'
   const attempts: string[] = []
+  let releaseFirstResponse!: () => void
+  const firstResponse = new Promise<void>((resolve) => {
+    releaseFirstResponse = resolve
+  })
   api.defaults.adapter = async (config) => {
     assert.equal(config.url, '/api/identity/email/password-reset/request')
     attempts.push(JSON.parse(config.data).email)
+    if (attempts.length === 1) await firstResponse
     return {
       config,
       headers: {},
@@ -103,16 +108,25 @@ test('a reset request can be resent with the same address after the Core issue w
       setValue.call(email, address)
       email.dispatchEvent(new Event('input', { bubbles: true }))
     })
+    const dispatchSubmit = () =>
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
     const submit = async () => {
       await act(async () => {
-        form.dispatchEvent(
-          new Event('submit', { bubbles: true, cancelable: true })
-        )
+        dispatchSubmit()
         await new Promise((resolve) => setTimeout(resolve, 0))
       })
     }
-    await submit()
+    await act(async () => {
+      dispatchSubmit()
+      dispatchSubmit()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
     assert.deepEqual(attempts, [address])
+    assert.equal(button.disabled, true)
+    await act(async () => {
+      releaseFirstResponse()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
     assert.equal(email.value, address)
     assert.equal(button.disabled, true)
     assert.match(button.textContent ?? '', /60s/)
@@ -128,6 +142,7 @@ test('a reset request can be resent with the same address after the Core issue w
     assert.deepEqual(attempts, [address, address])
     assert.equal(PASSWORD_RESET_COUNTDOWN, 30)
   } finally {
+    releaseFirstResponse()
     await act(async () => root.unmount())
     client.clear()
     api.defaults.adapter = adapter
