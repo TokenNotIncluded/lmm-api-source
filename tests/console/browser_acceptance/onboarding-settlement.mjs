@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Invoked by the SQLx fixture. Business requests always go to its real Core listener.
 import assert from 'node:assert/strict'
+import { runAccountBrowser } from './identity-account.mjs'
 import { captureConsolePages } from './core-page-captures.mjs'
 import { capturePaidLogViews } from './usage-log-captures.mjs'
 import { checkTerminalLog, exerciseTerminal } from './terminal-acceptance.mjs'
@@ -26,7 +27,8 @@ const extensionRoutes = new Set([
 const dist = resolve(process.env.BROWSER_WEB_DIST)
 const root = '/core/v1/admin/routing'
 const config = root + '/configuration'
-const { model, sibling, group, otherGroup } = JSON.parse(process.env.BROWSER_SCENARIO)
+const scenario = JSON.parse(process.env.BROWSER_SCENARIO)
+const { model, sibling, group, otherGroup } = scenario
 assert.equal(new Set([model, sibling, group, otherGroup]).size, 4)
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.woff2': 'font/woff2' }
 const front = http.createServer(async (req, res) => {
@@ -54,10 +56,12 @@ const front = http.createServer(async (req, res) => {
   } catch { res.writeHead(404); res.end() }
 })
 
-async function session(browser, username, destination, contextOptions = {}) {
+async function session(browser, username, destination, contextOptions = {}, consentOrigin) {
   const context = await browser.newContext({ locale: 'en-US', ...contextOptions })
-  await context.route('**/*', route => new URL(route.request().url()).origin === web
-    ? route.continue() : route.abort())
+  await context.route('**/*', route => {
+    const origin = new URL(route.request().url()).origin
+    return origin === web || origin === consentOrigin ? route.continue() : route.abort()
+  })
   const page = await context.newPage()
   await page.goto(web + '/sign-in?redirect=' + encodeURIComponent(destination))
   await page.getByLabel('Username or Email', { exact: true }).fill(username)
@@ -376,14 +380,19 @@ async function settle(browser) {
 await new Promise((ok, fail) => front.once('error', fail).listen(41781, '127.0.0.1', ok))
 let browser
 try {
-  browser = await chromium.launch({ headless: true })
-  const terminal = await exerciseTerminal(browser, session, request, { model, sibling })
-  const publication = await onboard(browser)
-  const payment = await settle(browser)
-  terminal.log = await checkTerminalLog(browser,session,payment.request_id)
-  const screenshots = await capturePaidLogViews(browser, session, payment, web)
-  const pages = await captureConsolePages(browser, session, web, payment, publication)
-  process.stdout.write(JSON.stringify({ publication, payment, terminal, screenshots, pages }))
+  if (scenario.bindingProvider) {
+    const proof = await runAccountBrowser(chromium, session, request, web, scenario)
+    process.stdout.write(JSON.stringify(proof))
+  } else {
+    browser = await chromium.launch({ headless: true })
+    const terminal = await exerciseTerminal(browser, session, request, { model, sibling })
+    const publication = await onboard(browser)
+    const payment = await settle(browser)
+    terminal.log = await checkTerminalLog(browser,session,payment.request_id)
+    const screenshots = await capturePaidLogViews(browser, session, payment, web)
+    const pages = await captureConsolePages(browser, session, web, payment, publication)
+    process.stdout.write(JSON.stringify({ publication, payment, terminal, screenshots, pages }))
+  }
 } finally {
   await browser?.close()
   front.closeAllConnections()

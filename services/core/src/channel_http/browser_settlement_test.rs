@@ -186,7 +186,30 @@ async fn browser_onboarding_wallet(pool: PgPool) {
     let other_group = format!("pro-{nonce}");
     let model = format!("intake-{nonce}");
     let sibling = format!("sibling-{nonce}");
-    let scenario = json!({"model":model,"sibling":sibling,"group":group,"otherGroup":other_group});
+    let mut scenario = json!({"model":model,"sibling":sibling,"group":group,"otherGroup":other_group});
+    let login_email = format!("browser-{nonce}@example.test");
+    let account_access = std::env::var("BROWSER_ACCOUNT_ACCESS").as_deref() == Ok("true");
+    let (identity, binding_provider) = if account_access {
+        // Start from the persisted state of a verified ordinary account.
+        sqlx::query("UPDATE core_identity.user_profiles SET email=$1,email_login_allowed=TRUE,email_version=1 WHERE user_id=7")
+            .bind(&login_email)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO core_identity.email_addresses(email_key,user_id,state,email_version,verified_at) VALUES($1,7,'verified',1,clock_timestamp())")
+            .bind(&login_email)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let (identity, provider) =
+            crate::identity::federated::browser_fixture::start(identity, &pool, &nonce, WEB_ORIGIN)
+                .await;
+        scenario["bindingProvider"] = provider.descriptor();
+        scenario["loginEmail"] = json!(login_email);
+        (identity, Some(provider))
+    } else {
+        (identity, None)
+    };
     sqlx::query("INSERT INTO core_identity.user_routing_groups(user_id,group_name,enabled,source_reference) VALUES(7,$1,true,'synthetic:browser')")
         .bind(&group).execute(&pool).await.unwrap();
 
@@ -249,6 +272,8 @@ async fn browser_onboarding_wallet(pool: PgPool) {
         None,
         PublicStatus {
             password_login_enabled: true,
+            native_account_bindings: identity.account_links_enabled(),
+            federated_auth: identity.federated_auth_enabled(),
             ..Default::default()
         },
     )
@@ -306,6 +331,36 @@ async fn browser_onboarding_wallet(pool: PgPool) {
         String::from_utf8_lossy(&output.stderr)
     );
     let mut proof: Value = serde_json::from_slice(&output.stdout).unwrap();
+    if let Some(provider) = binding_provider {
+        assert_eq!(hits.load(Ordering::SeqCst), 0);
+        let verified: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM core_identity.email_addresses e JOIN core_identity.user_profiles p
+             ON p.user_id=e.user_id AND p.email_version=e.email_version AND p.email=e.email_key
+             WHERE e.user_id=7 AND e.email_key=$1 AND e.state='verified' AND p.email_login_allowed",
+        )
+        .bind(&login_email)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(verified, 1);
+        assert_eq!(proof["email_login"]["user_id"], 7);
+        assert_eq!(proof["external_binding"]["user_id"], 7);
+        proof["email_login"]["verified_owners"] = json!(verified);
+        proof["external_binding"]["database"] = provider.verify(&pool, 7).await;
+        let receipt = std::path::PathBuf::from(std::env::var_os("BROWSER_RECEIPT").unwrap());
+        for (key, file) in [
+            ("email_login", "email-login.json"),
+            ("external_binding", "external-binding.json"),
+        ] {
+            std::fs::write(
+                receipt.with_file_name(file),
+                serde_json::to_vec_pretty(&proof[key]).unwrap(),
+            )
+            .unwrap();
+        }
+        std::fs::write(receipt, serde_json::to_vec_pretty(&proof).unwrap()).unwrap();
+        return;
+    }
     let terminal = &proof["terminal"];
     let audited: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM core_identity.audit WHERE actor_user_id=8 AND action='channel.configuration.publish' AND target->'change'->>'reason'='missing-price' AND target->'change'->>'confirmation_digest'=$1",

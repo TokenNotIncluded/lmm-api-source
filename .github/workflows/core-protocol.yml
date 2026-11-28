@@ -10,6 +10,10 @@ on:
         description: Run the Chromium onboarding and same-request wallet receipt gate.
         type: boolean
         default: false
+      browser_account_access:
+        description: Verify ordinary email sign-in and authenticated external account binding in Chromium.
+        type: boolean
+        default: false
       browser_only:
         description: Run only the Chromium onboarding and wallet job.
         type: boolean
@@ -618,8 +622,8 @@ jobs:
           retention-days: 7
 
   browser-onboarding-wallet:
-    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.browser_onboarding_wallet || inputs.browser_only) }}
-    name: Browser onboarding and same-request wallet receipt
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.browser_onboarding_wallet || inputs.browser_only || inputs.browser_account_access) }}
+    name: ${{ inputs.browser_account_access && 'Browser email login and external account binding' || 'Browser onboarding and same-request wallet receipt' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     env:
@@ -689,6 +693,9 @@ jobs:
               src/features/native-users/access-editor.test.tsx \
               src/features/native-users/adjustments-api.test.ts \
               src/features/native-users/page.test.tsx \
+              src/features/auth/sign-in/components/user-auth-form.test.tsx \
+              src/features/profile/components/native-account-links.test.tsx \
+              src/features/profile/components/tabs/account-bindings-compatibility.test.tsx \
               src/features/plugins/index.test.tsx \
               src/features/usage-logs/lib/history-response.test.ts \
               src/features/usage-logs/lib/receipt-state.test.ts \
@@ -705,16 +712,26 @@ jobs:
         run: |
           rustup toolchain install 1.100.0 --profile minimal
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends protobuf-compiler
-      - name: Reconcile one browser publication, ordinary key, and private PostgreSQL capture
+          sudo apt-get install --yes --no-install-recommends protobuf-compiler libnss3-tools
+      - name: Run the selected browser scenario against real services
         working-directory: services/core
         env:
           PLAYWRIGHT_MODULE: ${{ runner.temp }}/onboarding-browser/node_modules/playwright/index.mjs
           BROWSER_WEB_DIST: ${{ github.workspace }}/apps/web/dist
           BROWSER_RECEIPT: ${{ runner.temp }}/onboarding-evidence/receipt.json
+          BROWSER_ACCOUNT_ACCESS: ${{ inputs.browser_account_access }}
         run: |
           mkdir -p "$RUNNER_TEMP/onboarding-evidence"
           git rev-parse HEAD > "$RUNNER_TEMP/onboarding-evidence/commit.txt"
+          if [[ "$BROWSER_ACCOUNT_ACCESS" == true ]]; then
+            for test_case in \
+              email_login_resolves_imported_aliases_and_current_verified_owners \
+              verified_email_login_accepts_original_case_without_guessing_an_owner \
+              consent_email_alias_and_policy_changes_are_enforced; do
+              cargo test --locked --test legacy_auth "$test_case" -- --exact | tee "$RUNNER_TEMP/account-login-test.log"
+              grep -F "test $test_case ... ok" "$RUNNER_TEMP/account-login-test.log"
+            done
+          fi
           gate=channel_http::recovery_tests::browser_settlement_test::browser_onboarding_wallet
           cargo test --locked --lib "$gate" -- --exact --ignored --nocapture
           test -s "$BROWSER_RECEIPT"
@@ -731,7 +748,7 @@ jobs:
           retention-days: 7
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: browser-onboarding-wallet-${{ github.sha }}-${{ github.run_id }}
+          name: ${{ inputs.browser_account_access && 'browser-account-access' || 'browser-onboarding-wallet' }}-${{ github.sha }}-${{ github.run_id }}
           path: ${{ runner.temp }}/onboarding-evidence/
           if-no-files-found: error
           retention-days: 7
