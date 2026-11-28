@@ -229,6 +229,21 @@ pub(crate) fn usage_with_cache_creation_mode(
                 }
             }
             u.output_tokens = counter(v, "output_tokens")?;
+            if let Some(details) = v
+                .get("output_tokens_details")
+                .filter(|value| !value.is_null())
+            {
+                if details
+                    .as_object()
+                    .is_none_or(|fields| fields.keys().any(|key| key != "thinking_tokens"))
+                {
+                    return Err(RelayError::Protocol(
+                        "invalid Anthropic output token details",
+                    ));
+                }
+                // Thinking tokens are included in the reported output total.
+                u.reasoning_output_tokens = counter(details, "thinking_tokens")?;
+            }
         }
         UpstreamProtocol::Gemini => {
             u.input_tokens = counter(v, "promptTokenCount")?;

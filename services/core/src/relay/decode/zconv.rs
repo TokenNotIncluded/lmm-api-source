@@ -438,6 +438,9 @@ impl Decoder {
                 usage.remove("inference_geo");
                 usage.remove("iterations");
                 usage.remove("server_tool_use");
+                // The authoritative receipt reads this subset as Anthropic
+                // thinking usage. It does not belong to the content converter.
+                usage.remove("output_tokens_details");
             }
             if inactive_stop_details {
                 content[stop_details_parent]

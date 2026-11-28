@@ -1182,6 +1182,40 @@ fn annotated_responses_fail_instead_of_losing_citations() {
     ));
 }
 #[test]
+fn anthropic_thinking_usage_preserves_the_terminal_receipt() {
+    let mut decoder = Decoder::new(UpstreamProtocol::Anthropic, &Limits::default());
+    frame(
+        &mut decoder,
+        json!({"type":"message_start","message":{"id":"claude_test","content":[],
+            "usage":{"input_tokens":12,"output_tokens":0,"output_tokens_details":null}}}),
+    )
+    .unwrap();
+    let events = frame(
+        &mut decoder,
+        json!({"type":"message_delta","delta":{"stop_reason":"end_turn","stop_details":null},
+            "usage":{"output_tokens":30,"output_tokens_details":{"thinking_tokens":28}}}),
+    )
+    .unwrap();
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::Usage(usage)
+        if usage.output_tokens == Some(30) && usage.reasoning_output_tokens == Some(28)))
+    );
+    frame(&mut decoder, json!({"type":"message_stop"})).unwrap();
+    assert!(decoder.eof().is_ok());
+    assert!(
+        super::decode::usage(
+            UpstreamProtocol::Anthropic,
+            &json!({
+                "output_tokens":30,"output_tokens_details":{"thinking_tokens":31}
+            })
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn opaque_reasoning_does_not_interrupt_responses_usage() {
     let mut decoder = Decoder::new(UpstreamProtocol::Responses, &Limits::default());
     let reasoning = json!({
