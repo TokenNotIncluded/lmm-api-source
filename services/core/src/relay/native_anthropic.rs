@@ -302,7 +302,7 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
             "output_config",
         ],
     )?;
-    let output_effort = v.get("output_config").map(output_effort).transpose()?;
+    let top_level_effort = v.get("output_config").map(output_effort).transpose()?;
     if let Some(metadata) = v.get("metadata") {
         keys(metadata, "metadata", &["user_id"])?;
         if metadata
@@ -491,7 +491,7 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
         request.anthropic_ordered_messages = v.get_mut("messages").map(Value::take);
     }
     request.anthropic_metadata = v.get_mut("metadata").map(Value::take);
-    request.anthropic_output_effort = output_effort;
+    request.anthropic_output_effort = top_level_effort;
     if v["tools"].as_array().is_some_and(|tools| {
         tools
             .iter()

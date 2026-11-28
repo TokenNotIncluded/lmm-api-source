@@ -150,6 +150,11 @@ jobs:
           }
 
           for name in \
+            relay::tests::anthropic_thinking_usage_preserves_the_terminal_receipt \
+            relay::tests::opaque_reasoning_does_not_interrupt_responses_usage \
+            relay::native_anthropic::tests::native_anthropic_preserves_eager_tool_streaming \
+            relay::native_anthropic::tests::native_anthropic_keeps_inline_system_messages_at_their_original_position \
+            relay::native_anthropic::tests::native_anthropic_preserves_thinking_and_context_controls \
             relay::openrouter_tests::openrouter_stream_images_arrive_before_finish_and_keep_usage_only_tail \
             relay::openrouter_tests::openrouter_repeated_finish_carries_authoritative_usage_once \
             relay::openrouter_tests::openrouter_tool_stream_rejects_malformed_arguments_usage_and_conflicting_finish \
