@@ -405,6 +405,22 @@ test('twenty exact tariff fractions survive price review, publication and subseq
   })
   let config: NativeConfiguration = {
     ...base,
+    bindings: {
+      ...base.bindings,
+      contexts: [
+        {
+          upstream_id: 1,
+          upstream_model: 'model-a',
+          protocol: 'openai_chat',
+          endpoint: base.routing.upstreams[0].endpoint,
+          max_input_tokens: 8192,
+          max_output_tokens: 4096,
+          contract_revision: 'fixture-v1',
+          missing_cached_tokens_is_zero: false,
+          missing_cache_creation_tokens_is_zero: false,
+        },
+      ],
+    },
     prices: parseNativeDocument(
       `{"prices":{"version":1,"rules":[${rows.join(',')}]}}`
     ).prices as NativeConfiguration['prices'],
