@@ -148,11 +148,13 @@ async function fill(name: string, value: string) {
   })
 }
 
-async function submit() {
+async function submit(count = 1) {
   const form = host.querySelector('form')
   assert.ok(form)
   await act(async () => {
-    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    for (let attempt = 0; attempt < count; attempt++) {
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    }
     await flush()
   })
 }
@@ -188,7 +190,7 @@ test('StrictMode preserves historical link credentials, validates confirmation, 
   assert.match(host.textContent ?? '', /Passwords don't match/)
   assert.deepEqual(requests, [])
   await fill('confirmPassword', ' chosen password ')
-  await submit()
+  await submit(2)
   assert.deepEqual(requests, [
     {
       url: '/api/user/reset',
@@ -196,6 +198,7 @@ test('StrictMode preserves historical link credentials, validates confirmation, 
     },
   ])
   assert.match(host.textContent ?? '', /auth.resetPasswordConfirm.success/)
+  assert.doesNotMatch(host.textContent ?? '', /Reset failed/)
   assert.equal(host.querySelectorAll('input').length, 0)
   assert.doesNotMatch(host.textContent ?? '', /chosen password|clipboard/)
   assert.equal(localStorage.length, 0)

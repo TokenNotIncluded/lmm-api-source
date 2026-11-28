@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Loader2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import type { z } from 'zod'
@@ -68,6 +68,7 @@ export function ResetPasswordConfirm() {
   useEffect(() => {
     delete window.__lmmEmailReset
   }, [])
+  const submissionLocked = useRef(false)
   const [loading, setLoading] = useState(false)
   const [failed, setFailed] = useState(false)
   const form = useForm<z.infer<typeof resetPasswordFormSchema>>({
@@ -81,8 +82,9 @@ export function ResetPasswordConfirm() {
   } = useCountdown({ initialSeconds: PASSWORD_RESET_COUNTDOWN })
 
   async function handleSubmit(values: z.infer<typeof resetPasswordFormSchema>) {
-    if (reset.kind !== 'ready' || loading || isActive) return
+    if (reset.kind !== 'ready' || submissionLocked.current || isActive) return
 
+    submissionLocked.current = true
     startCountdown()
     setLoading(true)
     setFailed(false)
@@ -96,9 +98,11 @@ export function ResetPasswordConfirm() {
         form.reset()
         setReset({ kind: 'complete' })
       } else {
+        submissionLocked.current = false
         setFailed(true)
       }
     } catch {
+      submissionLocked.current = false
       setFailed(true)
     } finally {
       setLoading(false)

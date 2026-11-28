@@ -695,6 +695,7 @@ jobs:
               src/features/native-users/page.test.tsx \
               src/features/auth/sign-in/components/user-auth-form.test.tsx \
               src/features/auth/forgot-password/components/forgot-password-form.test.tsx \
+              src/features/auth/reset-password-confirm/index.test.tsx \
               src/features/profile/components/native-account-links.test.tsx \
               src/features/profile/components/tabs/account-bindings-compatibility.test.tsx \
               src/features/plugins/index.test.tsx \
