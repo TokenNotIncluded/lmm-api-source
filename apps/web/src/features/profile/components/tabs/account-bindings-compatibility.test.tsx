@@ -203,9 +203,10 @@ after(() => domWindow.close())
 describe('native-only account binding entry', () => {
   test('hides binding actions whose required OAuth configuration is missing', async () => {
     const status = { ...misconfiguredOAuthStatus(), native_account_bindings: false }
+    const response = deferred<{ data: { success: boolean; data: typeof status } }>()
     api.get = (async (url) => {
       if (url === '/api/status') {
-        return { data: { success: true, data: status } }
+        return response.promise
       }
       return { data: { success: true, data: [] } }
     }) as typeof api.get
@@ -213,8 +214,17 @@ describe('native-only account binding entry', () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     })
-    queryClient.setQueryData(['status', 'anonymous'], status)
+    const key = ['status', 'anonymous']
+    queryClient.setQueryData(key, { ...status, native_account_bindings: true })
     const { root } = await renderBindings(queryClient)
+    await act(async () => {
+      response.resolve({ data: { success: true, data: status } })
+      await waitForCondition(
+        () => queryClient.getQueryData<typeof status>(key)?.native_account_bindings === false,
+        'live status did not disable account binding'
+      )
+      await flushQueries()
+    })
 
     const linked = document.querySelector('[aria-label="Linked sign-in accounts"]')
     assert.ok(linked?.textContent?.includes('Disabled'))
