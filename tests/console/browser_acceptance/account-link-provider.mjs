@@ -55,7 +55,9 @@ async function authorize(req, res) {
       || !/^[A-Za-z0-9_-]{43}$/.test(v.get('code_challenge'))) return deny(res)
     const ticket = random()
     consent.set(ticket, {state:v.get('state'),challenge:v.get('code_challenge')})
-    res.writeHead(200, {'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'no-referrer'})
+    // A form navigation needs its same-origin Origin for the consent check. An
+    // origin-only referrer keeps the authorization URL's query out of the POST.
+    res.writeHead(200, {'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'strict-origin'})
     res.end('<!doctype html><title>Test identity provider</title><h1>Link your test account</h1><form method="post" action="/consent"><input type="hidden" name="ticket" value="'+ticket+'"><button>Allow account link</button></form>')
   } else if (req.method === 'POST' && url.pathname === '/consent' && req.headers.origin === authorizationOrigin) {
     const ticket = (await form(req)).get('ticket')
