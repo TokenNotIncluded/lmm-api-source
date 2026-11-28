@@ -350,12 +350,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
               {states ? (
                 <NativeRequestBadges
                   states={states}
-                  conversion={
-                    isAdmin &&
-                    log.route_attempts?.some(
-                      (attempt) => attempt.protocol_path === 'converted'
-                    )
-                  }
+                  routeAttempts={isAdmin ? log.route_attempts : undefined}
                 />
               ) : (
                 <StatusBadge

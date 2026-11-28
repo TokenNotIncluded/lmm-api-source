@@ -76,6 +76,29 @@ export function safeConversionChain(value: unknown): string[] {
   return value
 }
 
+type RouteAttempt = NonNullable<UsageLog['route_attempts']>[number]
+
+const protocolLabels: Readonly<Record<string, string>> = {
+  chat: 'Chat',
+  openai_chat: 'Chat',
+  responses: 'Responses',
+  openai_responses: 'Responses',
+  anthropic: 'Anthropic',
+  anthropic_messages: 'Anthropic',
+  gemini: 'Gemini',
+  gemini_generate_content: 'Gemini',
+}
+
+export function routeProtocolDirection(
+  attempt: RouteAttempt
+): string | undefined {
+  const source = protocolLabels[attempt.inbound_protocol ?? '']
+  const target = protocolLabels[attempt.protocol ?? '']
+  if (attempt.protocol_path === 'converted' && source && target && source !== target) {
+    return `${source} → ${target}`
+  }
+}
+
 function safeCode(value: unknown): string | undefined {
   if (
     typeof value !== 'string' ||

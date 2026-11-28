@@ -73,7 +73,11 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { readNativeUsageRequest } from '../../api'
 import type { UsageLog } from '../../data/schema'
-import { safeConversionChain, safeRequestPath } from '../../lib/failure-facts'
+import {
+  routeProtocolDirection,
+  safeConversionChain,
+  safeRequestPath,
+} from '../../lib/failure-facts'
 import {
   parseLogOther,
   formatModelName,
@@ -1017,16 +1021,12 @@ function DetailsDialogContent(props: DetailsDialogProps) {
                       mono
                     />
                   )}
-                  <DetailRow
-                    label={t('Request Conversion')}
-                    value={
-                      attempt.protocol_path === 'converted'
-                        ? t('Cross-protocol conversion')
-                        : attempt.protocol_path === 'same_protocol'
-                          ? t('Same wire protocol')
-                          : t('Not recorded')
-                    }
-                  />
+                  {routeProtocolDirection(attempt) && (
+                    <DetailRow
+                      label={t('Request Conversion')}
+                      value={routeProtocolDirection(attempt)}
+                    />
+                  )}
                   {attempt.status_code != null && (
                     <DetailRow
                       label={t('Status Code')}

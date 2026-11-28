@@ -3,6 +3,9 @@ import { useTranslation } from 'react-i18next'
 
 import { StatusBadge } from '@/components/status-badge'
 
+import type { UsageLog } from '../data/schema'
+import { routeProtocolDirection } from '../lib/failure-facts'
+
 import {
   nativeRequestStates,
   requestResultLabels,
@@ -11,13 +14,16 @@ import {
 
 export function NativeRequestBadges({
   states,
-  conversion,
+  routeAttempts,
 }: {
-  conversion?: boolean
+  routeAttempts?: UsageLog['route_attempts']
   states: NonNullable<ReturnType<typeof nativeRequestStates>>
 }) {
   const { t } = useTranslation()
   const { result, settlement } = states
+  const directions = new Set(
+    routeAttempts?.map(routeProtocolDirection).filter((direction) => direction != null)
+  )
   return (
     <div className='flex flex-wrap items-center gap-1 text-xs'>
       <span title={t('Request result')}>
@@ -44,11 +50,14 @@ export function NativeRequestBadges({
           copyable={false}
         />
       </span>
-      {conversion && (
-        <span className='text-muted-foreground'>
-          {t('Cross-protocol conversion')}
+      {[...directions].map((direction) => (
+        <span
+          key={direction}
+          className='text-muted-foreground whitespace-nowrap'
+        >
+          {direction}
         </span>
-      )}
+      ))}
     </div>
   )
 }
