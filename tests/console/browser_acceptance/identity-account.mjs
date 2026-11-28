@@ -39,7 +39,8 @@ async function verifyBrowserAccounts(browser, session, request, web, scenario) {
   const provider = scenario.bindingProvider
   const origin = new URL(provider.authorizationOrigin)
   assert.equal(origin.protocol, 'https:')
-  assert.ok(['127.0.0.1', 'localhost'].includes(origin.hostname))
+  assert.equal(origin.hostname, '127.0.0.2')
+  assert.notEqual(origin.hostname, new URL(web).hostname)
   assert.equal(origin.origin, provider.authorizationOrigin)
   const label = 'Linked sign-in accounts'
   const linkPath = '/api/user/account-links'
