@@ -55,6 +55,7 @@ import {
 import { NativePriceCoveragePanel } from './native-price-coverage-panel'
 import { NativePriceRuleDialog } from './native-price-rule-dialog'
 import {
+  fractionText,
   nextPriceRuleId,
   priceChanges,
   priceRateText,
@@ -446,6 +447,12 @@ function PricingWorkspace({
     )
   }
   const needle = search.trim().toLowerCase()
+  const catalog = Object.entries(configuration.bindings.official_prices?.models ?? {})
+  const officialPrices = catalog
+    .filter(([model]) => model.toLowerCase().includes(needle))
+    .sort(([left], [right]) => left.localeCompare(right))
+  const officialLastPage = Math.max(1, Math.ceil(officialPrices.length / 20))
+  const officialPage = Math.min(page, officialLastPage)
   const groups = [
     ...new Set([
       ...configuration.routing.groups.map((item) => item.name),
@@ -693,6 +700,108 @@ function PricingWorkspace({
                   'Changes stay in your draft until you preview and publish them.'
                 )}
           </p>
+        </div>
+      )}
+    </div>
+  )
+  const officialCatalog = (
+    <div className='space-y-4'>
+      <div className='flex flex-wrap items-center gap-3'>
+        <Input
+          className='min-w-0 sm:max-w-sm'
+          aria-label={t('Search models')}
+          placeholder={t('Search models')}
+          value={search}
+          onChange={(event) => {
+            setSearch(event.target.value)
+            setPage(1)
+          }}
+        />
+        <Button
+          type='button'
+          disabled={busy || !!draft || query.isError}
+          onClick={() => {
+            setModelInput(search.trim())
+            setOfficialModel('')
+          }}
+        >
+          {t('Add Model')}
+        </Button>
+      </div>
+      <Table className='min-w-[42rem]'>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{t('Model ID')}</TableHead>
+            <TableHead>{t('Input price (USD / 1M tokens)')}</TableHead>
+            <TableHead>{t('Output price (USD / 1M tokens)')}</TableHead>
+            <TableHead>{t('Source')}</TableHead>
+            <TableHead className='text-right'>{t('Actions')}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {officialPrices
+            .slice((officialPage - 1) * 20, officialPage * 20)
+            .map(([model, price]) => (
+              <TableRow key={model}>
+                <TableCell className='font-mono'>{model}</TableCell>
+                {(['input', 'output'] as const).map((meter) => (
+                  <TableCell key={meter} className='tabular-nums'>
+                    {price.tiered
+                      ? fractionText(price.tiered.tiers[0]?.rates[meter]) ?? '—'
+                      : microsToUsd(price.rates[meter])}
+                    {price.tiered &&
+                      (price.tiered.tiers.length > 1 || price.tiered.calendar) &&
+                      <span className='text-muted-foreground ms-2 text-xs'>
+                        {t('Tiered pricing')}
+                      </span>}
+                  </TableCell>
+                ))}
+                <TableCell className='max-w-60 whitespace-normal break-all'>
+                  {price.source}
+                </TableCell>
+                <TableCell className='text-right'>
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    disabled={busy || !!draft || query.isError}
+                    onClick={() => setOfficialModel(model)}
+                  >
+                    {t('Edit')}
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          {officialPrices.length === 0 && (
+            <TableRow>
+              <TableCell colSpan={5}>{t('No models found')}</TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+      {officialLastPage > 1 && (
+        <div className='flex flex-wrap items-center justify-end gap-3'>
+          <span className='text-muted-foreground text-sm'>
+            {t('Page {{current}} of {{total}}', {
+              current: officialPage,
+              total: officialLastPage,
+            })}
+          </span>
+          <Button
+            type='button'
+            variant='outline'
+            disabled={officialPage === 1}
+            onClick={() => setPage(officialPage - 1)}
+          >
+            {t('Previous page')}
+          </Button>
+          <Button
+            type='button'
+            variant='outline'
+            disabled={officialPage === officialLastPage}
+            onClick={() => setPage(officialPage + 1)}
+          >
+            {t('Next page')}
+          </Button>
         </div>
       )}
     </div>
@@ -1083,12 +1192,14 @@ function PricingWorkspace({
           }
         />
       ) : (
-        <Tabs defaultValue='models'>
+        <Tabs defaultValue={catalog.length ? 'official' : 'models'}>
           <TabsList variant='navigation' aria-label={t('Model Pricing')}>
-            <TabsTrigger value='models'>{t('Model prices')}</TabsTrigger>
+            <TabsTrigger value='official'>{t('Official base price')}</TabsTrigger>
+            <TabsTrigger value='models'>{t('Price rules')}</TabsTrigger>
             <TabsTrigger value='missing'>{t('Unset price models')}</TabsTrigger>
             <TabsTrigger value='tools'>{t('Tool prices')}</TabsTrigger>
           </TabsList>
+          <TabsContent value='official'>{officialCatalog}</TabsContent>
           <TabsContent value='models' className='space-y-7'>
             {modelPrices}
           </TabsContent>
