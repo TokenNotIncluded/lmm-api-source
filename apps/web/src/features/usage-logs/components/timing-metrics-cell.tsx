@@ -212,6 +212,7 @@ export function StreamTpsCell(props: StreamTpsCellProps) {
         className='text-muted-foreground px-0.5 tabular-nums'
         title={t('Output tokens divided by total request duration.')}
       >
+        {props.tokensPerSecond != null && `${t('Request throughput')} · `}
         {tpsLabel}
       </span>
       {props.generationSpeed != null && (
