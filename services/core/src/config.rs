@@ -3415,7 +3415,7 @@ fn model_gateway_with_origins(
         || config.routing.routes.is_empty()
         || config.credentials.is_empty()
         || !(1..=240).contains(&config.timeout_seconds)
-        || !(1..=131_072).contains(&config.max_output_tokens)
+        || config.max_output_tokens == 0
     {
         return Err(invalid_config(
             "model configuration has no usable grants or exceeds limits",
