@@ -7,6 +7,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  microsToUsd,
+  usdToMicros,
+} from '@/features/channels/components/native-model-draft'
 import type {
   NativeConfiguration,
   NativeRoutingScope,
@@ -18,6 +22,7 @@ import {
   cacheWriteTariffTarget,
   officialPriceDestinations,
 } from './official-cache-write-coverage'
+import { priceRateKeys, type PriceRateKey } from './native-price-rules'
 import {
   previewOfficialPriceToml,
   publishOfficialPrice,
@@ -28,6 +33,7 @@ import {
 import {
   missingOfficialRatePaths,
   readOfficialToml,
+  writeOfficialToml,
 } from './official-price-toml'
 
 type Props = {
@@ -70,12 +76,8 @@ function Editor({
   const [preview, setPreview] = useState<OfficialPricePreview | null>(null)
   const [source, setSource] = useState(channelId ? 'channel' : 'models.dev')
   const [channel, setChannel] = useState(channelId ? String(channelId) : '')
-  // DeepSeek's published API ID for the 0813 revision is deepseek-v4-pro.
-  const deepseek0813 = model === 'deepseek-v4-pro-0813'
-  const [provider, setProvider] = useState(deepseek0813 ? 'deepseek' : '')
-  const [sourceModel, setSourceModel] = useState(
-    deepseek0813 ? 'deepseek-v4-pro' : model
-  )
+  const [provider, setProvider] = useState('')
+  const [sourceModel, setSourceModel] = useState(upstreamModel ?? model)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState<'missing' | 'published' | null>(null)
   const [busy, setBusy] = useState(false)
@@ -123,6 +125,22 @@ function Editor({
   }, [base.routing, channelId, draft, model, sourceChannel])
   const missingRates = diagnostics?.missing ?? []
   const text = draft ?? query.data
+  const flat = useMemo(() => {
+    if (text === undefined) return
+    try {
+      const candidate = readOfficialToml(model, text)
+      if (!candidate.tiered && !candidate.unmapped_rates) return candidate
+    } catch {
+      // An invalid draft remains editable in the original TOML field.
+    }
+  }, [model, text])
+  const rateLabels: Record<PriceRateKey, string> = {
+    input: t('Input price (USD / 1M tokens)'),
+    output: t('Output price (USD / 1M tokens)'),
+    cache_read: t('Cache read (USD / 1M tokens)'),
+    cache_write: t('Cache write (USD / 1M tokens)'),
+    request: t('Request fee (USD / request)'),
+  }
   const stale =
     configuration.version.pricing !== base.version.pricing ||
     configuration.version.routing !== base.version.routing
@@ -325,16 +343,63 @@ function Editor({
       )}
       {text !== undefined && (
         <>
-          <label className='block space-y-1 text-sm'>
-            <span>{t('Model price (TOML)')}</span>
+          {flat && (
+            <form
+              key={text}
+              className='space-y-3'
+              onSubmit={(event) => {
+                event.preventDefault()
+                const fields = new FormData(event.currentTarget)
+                const rates: typeof flat.rates = {}
+                for (const key of priceRateKeys) {
+                  const field = String(fields.get(key) ?? '')
+                  if (!field) continue
+                  const value = usdToMicros(field)
+                  if (value === null) {
+                    setError(rateLabels[key] + ' · ' + t('Invalid amount'))
+                    return
+                  }
+                  rates[key] = value
+                }
+                change(writeOfficialToml(model, { ...flat, rates }))
+              }}
+            >
+              <div className='grid gap-x-4 gap-y-3 sm:grid-cols-2'>
+                {priceRateKeys.map((key) => (
+                  <label key={key} className='block min-w-0 space-y-1 text-sm'>
+                    <span>{rateLabels[key]}</span>
+                    <Input
+                      name={key}
+                      inputMode='decimal'
+                      pattern='[0-9]+([.][0-9]{1,6})?'
+                      defaultValue={
+                        flat.rates[key] === undefined
+                          ? ''
+                          : microsToUsd(flat.rates[key])
+                      }
+                      readOnly={!editable}
+                    />
+                  </label>
+                ))}
+              </div>
+              <Button type='submit' variant='outline' disabled={!editable}>
+                {t('Apply')}
+              </Button>
+            </form>
+          )}
+          <details className='space-y-2' open={!flat}>
+            <summary className='cursor-pointer text-sm font-medium'>
+              {t('Advanced')} · {t('Model price (TOML)')}
+            </summary>
             <Textarea
+              aria-label={t('Model price (TOML)')}
               className='min-h-48 font-mono'
               spellCheck={false}
               value={text}
               readOnly={!editable}
               onChange={(event) => change(event.target.value)}
             />
-          </label>
+          </details>
           {(missingRates.length > 0 || diagnostics?.coverage) && (
             <div role='status' className='space-y-1 text-sm'>
               {missingRates.length > 0 && (
