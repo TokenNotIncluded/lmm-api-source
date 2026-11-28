@@ -83,6 +83,7 @@ fn keys(v: &Value, scope: &'static str, allowed: &[&str]) -> Result<(), RelayErr
     Ok(())
 }
 const PER_TURN_CONTROL_BETA: &str = "per-turn-control-2026-07-01";
+const THINKING_UPDATES_BETA: &str = "thinking-display-updates-2026-08-18";
 
 fn output_effort(config: &Value) -> Result<&'static str, RelayError> {
     keys(config, "output_config", &["effort"])?;
@@ -504,10 +505,25 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
             request.anthropic_controls.insert(name.into(), value.take());
         }
     }
+    let thinking_updates = request
+        .anthropic_controls
+        .get("thinking")
+        .and_then(|thinking| thinking.get("display"))
+        .and_then(Value::as_str)
+        == Some("updates");
     let control_betas = if request.anthropic_controls.is_empty() {
         None
     } else {
-        let payload = serde_json::to_vec(&request.anthropic_controls)
+        let mut validation_controls = request.anthropic_controls.clone();
+        if thinking_updates {
+            // The beta has the same request constraints as omitted display.
+            // Keep the actual value and beta for native upstream dispatch.
+            validation_controls
+                .get_mut("thinking")
+                .ok_or(RelayError::Invalid("invalid Anthropic controls"))?["display"] =
+                json!("omitted");
+        }
+        let payload = serde_json::to_vec(&validation_controls)
             .map_err(|_| RelayError::Invalid("invalid Anthropic controls"))?;
         let mut tokens = [zconv::json::Token::EMPTY; 64];
         let controls = zconv::json::parse(&payload, &mut tokens, zconv::json::Limits::default())
@@ -521,6 +537,7 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
     let betas = [
         control_betas,
         has_per_turn_effort.then_some(PER_TURN_CONTROL_BETA),
+        thinking_updates.then_some(THINKING_UPDATES_BETA),
     ]
     .into_iter()
     .flatten()
@@ -1246,6 +1263,29 @@ mod tests {
                 .upstream_body_to(UpstreamProtocol::Chat, "selected")
                 .is_err()
         );
+    }
+
+    #[test]
+    fn native_anthropic_negotiates_thinking_progress_updates() {
+        let thinking = json!({"type":"adaptive","display":"updates"});
+        let body = request(json!({
+            "thinking":thinking,
+            "context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]},
+        }));
+        let parsed = parse(&body, &Limits::default()).unwrap();
+        assert_eq!(
+            parsed.anthropic_control_betas.as_deref(),
+            Some("context-management-2025-06-27,thinking-display-updates-2026-08-18"),
+        );
+        let wire = parsed
+            .upstream_body_to(UpstreamProtocol::Anthropic, "selected")
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&wire).unwrap()["thinking"],
+            thinking
+        );
+        let disabled = request(json!({"thinking":{"type":"disabled","display":"updates"}}));
+        assert!(parse(&disabled, &Limits::default()).is_err());
     }
 
     #[test]

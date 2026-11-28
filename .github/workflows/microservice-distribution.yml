@@ -155,6 +155,7 @@ jobs:
             relay::native_anthropic::tests::native_anthropic_preserves_eager_tool_streaming \
             relay::native_anthropic::tests::native_anthropic_keeps_inline_system_messages_at_their_original_position \
             relay::native_anthropic::tests::native_anthropic_preserves_thinking_and_context_controls \
+            relay::native_anthropic::tests::native_anthropic_negotiates_thinking_progress_updates \
             relay::openrouter_tests::openrouter_stream_images_arrive_before_finish_and_keep_usage_only_tail \
             relay::openrouter_tests::openrouter_repeated_finish_carries_authoritative_usage_once \
             relay::openrouter_tests::openrouter_tool_stream_rejects_malformed_arguments_usage_and_conflicting_finish \
