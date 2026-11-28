@@ -358,7 +358,7 @@ fn provider_owned_anthropic_blocks_never_become_local_tools_or_success() {
 fn provider_usage_details_fail_at_full_start_and_final_receipt_boundaries() {
     for (field, value) in [
         ("server_tool_use", json!({"web_search_requests":1})),
-        ("service_tier", json!("standard")),
+        ("service_tier", json!("batch")),
         ("inference_geo", json!("us")),
         (
             "iterations",
