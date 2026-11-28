@@ -1,5 +1,4 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
-import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { microsToUsd } from '@/features/channels/components/native-model-draft'
@@ -282,36 +281,5 @@ export function NativeRulePrices({
         </div>
       </details>
     </div>
-  )
-}
-
-export function GroupPriceRows({
-  rules,
-  render,
-}: {
-  rules: NativePriceRule[]
-  render: (rule: NativePriceRule) => ReactNode
-}) {
-  const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
-  if (!rules.length) return <span>{t('No published rule')}</span>
-  return (
-    <details onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary className='cursor-pointer'>
-        {t('Model prices')} · {rules.length}
-      </summary>
-      {open && (
-        <div className='mt-2 space-y-3'>
-          {rules.map((rule) => (
-            <div key={rule.id}>
-              <div className='font-mono text-xs'>
-                {rule.model} · {rule.speed}
-              </div>
-              {render(rule)}
-            </div>
-          ))}
-        </div>
-      )}
-    </details>
   )
 }

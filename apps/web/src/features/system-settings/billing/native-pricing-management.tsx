@@ -65,7 +65,7 @@ import {
   type NativePriceRule,
 } from './native-price-rules'
 import { NativeRouterPrices } from './native-router-prices'
-import { GroupPriceRows, NativeRulePrices } from './native-rule-prices'
+import { NativeRulePrices } from './native-rule-prices'
 import { OfficialBatchPriceReview } from './official-batch-price-review'
 import { previewOfficialGroupMultiplier } from './official-price-api'
 import { OfficialPriceEditor } from './official-price-editor'
@@ -605,7 +605,6 @@ function PricingWorkspace({
             <TableHead>{t('Group')}</TableHead>
             <TableHead>{t('Original group description')}</TableHead>
             <TableHead>{t('Group multiplier')}</TableHead>
-            <TableHead>{t('Model prices')}</TableHead>
             <TableHead className='text-right'>{t('Actions')}</TableHead>
           </TableRow>
         </TableHeader>
@@ -632,12 +631,6 @@ function PricingWorkspace({
                     : values?.size
                       ? t('Mixed price multipliers')
                       : t('Unset price')}
-                </TableCell>
-                <TableCell>
-                  <GroupPriceRows
-                    rules={rules.filter((rule) => rule.group === name)}
-                    render={rulePrices}
-                  />
                 </TableCell>
                 <TableCell className='text-right'>
                   <Button
