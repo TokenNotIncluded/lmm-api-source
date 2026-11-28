@@ -1,5 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
-import { useId, useMemo, useRef, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
@@ -9,7 +9,6 @@ import { OfficialBatchPriceReview } from '@/features/system-settings/billing/off
 import { OfficialPriceEditor } from '@/features/system-settings/billing/official-price-editor'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 
-import { nativeConfiguredPrice } from '../lib/native-price-display'
 import {
   NATIVE_ROOT,
   nativeRequest,
@@ -17,8 +16,6 @@ import {
   type NativeRoutingScope,
 } from '../native-api'
 import { NativeIntakeReview } from './native-intake-review'
-import { groupIntake, intakeIndex } from './native-intake-routes'
-import { microsToUsd } from './native-model-draft'
 import { NativePendingRoute } from './native-pending-route'
 
 const pageSize = 25
@@ -57,10 +54,8 @@ export function NativeChannelOnboarding({
   const [reviewBusy, setReviewBusy] = useState(false)
   const [reviewIds, setReviewIds] = useState<Set<string>>(new Set())
   const [overrides, setOverrides] = useState<Record<string, string>>({})
-  const [details, setDetails] = useState<string | null>(null)
   const [filter, setFilter] = useState('all')
   const [panel, setPanel] = useState<'prices' | 'routes' | null>(null)
-  const index = useMemo(() => intakeIndex(configuration), [configuration])
   const [error, setError] = useState('')
   const lock = useRef(false)
   const channel = configuration.routing.upstreams.find(
@@ -112,6 +107,7 @@ export function NativeChannelOnboarding({
     ...new Set([...latestAdded, ...knownModels, ...(lastSync?.removed ?? [])]),
   ]
   const observed = new Set(discovery?.models ?? [])
+  const official = configuration.bindings.official_prices?.models ?? {}
   function rowInfo(id: string) {
     const names = publicModels(id)
     const override = Object.hasOwn(overrides, id) ? overrides[id] : undefined
@@ -119,24 +115,14 @@ export function NativeChannelOnboarding({
       upstream: id,
       model: (override ?? (names.length === 1 ? names[0] : '')).trim(),
     }
-    const states =
-      channel && pair.model
-        ? [...groups].map((group) => ({
-            group,
-            state: groupIntake(configuration, index, channel, pair, group),
-          }))
-        : []
+    const hasOfficialPrice = pair.model
+      ? Object.hasOwn(official, pair.model)
+      : names.some((name) => Object.hasOwn(official, name))
     return {
       names,
       pair,
-      states,
       absent: Boolean(discovery && !observed.has(id)),
-      missing: states
-        .filter(
-          ({ state }) => !state.prices.length || state.prices.some((p) => !p)
-        )
-        .map(({ group }) => group),
-      ready: states.some(({ state }) => !state.done && !state.reasons.length),
+      hasOfficialPrice,
     }
   }
   const reviewModels = [...reviewIds].map((id) => rowInfo(id).pair)
@@ -146,27 +132,19 @@ export function NativeChannelOnboarding({
     ['new', t('Newly discovered')],
     ['removed', t('Absent from upstream catalog')],
     ['missing', t('Missing price')],
-    ['ready', t('Ready for route preview')],
   ]
   const filtered = models.filter((model) => {
     if (!model.toLowerCase().includes(search.trim().toLowerCase())) return false
     if (filter === 'new') return lastSync?.added.has(model)
     if (filter === 'removed') return Boolean(discovery && !observed.has(model))
-    if (filter === 'all') return true
-    const info = rowInfo(model)
-    return filter === 'ready'
-      ? info.ready
-      : info.missing.length > 0 || !info.states[0]?.state.base
+    return filter !== 'missing' || !rowInfo(model).hasOfficialPrice
   })
   const currentPage = Math.min(
     page,
     Math.max(0, Math.ceil(filtered.length / pageSize) - 1)
   )
-  const official = configuration.bindings.official_prices?.models ?? {}
-  const missingOfficial = (model: string) =>
-    !publicModels(model).some((id) => Object.hasOwn(official, id))
   const unpriced = [...pending].filter(
-    (id) => !live.has(id) && missingOfficial(id)
+    (id) => !live.has(id) && !rowInfo(id).hasOfficialPrice
   )
   const choices = editing ? publicModels(editing) : []
   const priced = choices.filter((name) => Object.hasOwn(official, name))
@@ -374,7 +352,6 @@ export function NativeChannelOnboarding({
                   t('Model'),
                   t('Pending'),
                   t('Status'),
-                  t('Group price rules'),
                 ].map((label, i) => (
                   <th
                     scope='col'
@@ -397,7 +374,7 @@ export function NativeChannelOnboarding({
                     : live.has(model)
                       ? t('Enabled')
                       : pending.has(model)
-                        ? missingOfficial(model)
+                        ? !info.hasOfficialPrice
                           ? t('Pending pricing')
                           : t('Pending activation')
                         : selected.has(model)
@@ -500,7 +477,7 @@ export function NativeChannelOnboarding({
                       </td>
                       <td className='min-w-32 p-2'>
                         <p>{summary}</p>
-                        {missingOfficial(model) && !live.has(model) && (
+                        {!info.hasOfficialPrice && (
                           <p className='text-muted-foreground text-xs'>
                             {t('Missing official base price: {{models}}', {
                               models: info.pair.model || info.names.join(', '),
@@ -510,11 +487,6 @@ export function NativeChannelOnboarding({
                         {!info.pair.model && (
                           <p className='text-xs'>
                             {t('Choose a public model ID.')}
-                          </p>
-                        )}
-                        {info.ready && (
-                          <p className='text-xs'>
-                            {t('Ready for route preview')}
                           </p>
                         )}
                         {pending.has(model) && !live.has(model) && (
@@ -531,98 +503,6 @@ export function NativeChannelOnboarding({
                           >
                             {t('Pricing')}
                           </Button>
-                        )}
-                      </td>
-                      <td className='min-w-48 p-2'>
-                        {info.missing.length > 0 && (
-                          <p className='text-xs'>
-                            {t('Missing group prices: {{groups}}', {
-                              groups: info.missing.join(', '),
-                            })}
-                          </p>
-                        )}
-                        <Button
-                          type='button'
-                          size='sm'
-                          variant='ghost'
-                          aria-expanded={details === model}
-                          onClick={() =>
-                            setDetails(details === model ? null : model)
-                          }
-                        >
-                          {t('Group prices and blockers')}
-                        </Button>
-                        {details === model && (
-                          <div className='space-y-2 text-xs'>
-                            <p>
-                              {t('Price source')}{' '}
-                              {info.states[0]?.state.base?.source ??
-                                t('Not recorded')}{' '}
-                              · {t('Pricing version')}{' '}
-                              {configuration.version.pricing}
-                            </p>
-                            {info.states.map(({ group, state }) => (
-                              <div key={group}>
-                                <p className='font-medium'>
-                                  {group} · ×
-                                  {microsToUsd(
-                                    Object.hasOwn(
-                                      configuration.bindings.official_prices
-                                        ?.group_multipliers_ppm ?? {},
-                                      group
-                                    )
-                                      ? configuration.bindings.official_prices!
-                                          .group_multipliers_ppm[group]
-                                      : 1_000_000
-                                  )}
-                                </p>
-                                {state.base &&
-                                  (state.base.tiered ? (
-                                    <p>{t('Tiered pricing')}</p>
-                                  ) : (
-                                    <p>
-                                      {t('Base price (1×)')} ·{' '}
-                                      {t('Input price (USD / 1M tokens)')}{' '}
-                                      {microsToUsd(state.base.rates.input)}
-                                      {' · '}
-                                      {t('Output price (USD / 1M tokens)')}{' '}
-                                      {microsToUsd(state.base.rates.output)}
-                                    </p>
-                                  ))}
-                                {state.prices
-                                  .filter(
-                                    (r): r is Record<string, unknown> => !!r
-                                  )
-                                  .map((rule) => (
-                                    <p key={String(rule.id)}>
-                                      {String(rule.speed)} ·{' '}
-                                      {t(
-                                        'Effective input price (USD / 1M tokens)'
-                                      )}{' '}
-                                      {nativeConfiguredPrice(rule, 'input') ??
-                                        '—'}
-                                      {' · '}
-                                      {t(
-                                        'Effective output price (USD / 1M tokens)'
-                                      )}{' '}
-                                      {nativeConfiguredPrice(rule, 'output') ??
-                                        '—'}
-                                    </p>
-                                  ))}
-                                <p>
-                                  {state.reasons.length
-                                    ? state.reasons
-                                        .map((reason) => t(reason))
-                                        .join(' · ')
-                                    : state.done
-                                      ? t('Already published')
-                                      : t(
-                                          'Group price will be generated in the route preview.'
-                                        )}
-                                </p>
-                              </div>
-                            ))}
-                          </div>
                         )}
                       </td>
                     </tr>

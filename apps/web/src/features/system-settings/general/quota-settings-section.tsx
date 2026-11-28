@@ -48,13 +48,23 @@ export function QuotaSettingsSection() {
   return (
     <SettingsSection title={t('Quota Settings')}>
       <div className='max-w-3xl space-y-8'>
-        <p className='text-muted-foreground text-sm'>
-          {t(
-            'Reward settings are managed by the services that apply them. Choose a supported workflow below.'
-          )}
-        </p>
         <CoreWalletPresets />
         <div className='divide-y'>
+          <div className='flex flex-col gap-4 py-6 sm:flex-row sm:items-center sm:justify-between'>
+            <h3 className='font-medium'>{t('Check-in Rewards')}</h3>
+            <Button
+              render={
+                <Link
+                  to='/system-settings/billing/$section'
+                  params={{ section: 'checkin' }}
+                />
+              }
+              variant='outline'
+              className='shrink-0 self-start sm:self-auto'
+            >
+              {t('Open')}
+            </Button>
+          </div>
           {destinations.map((destination) => (
             <div
               key={destination.to}

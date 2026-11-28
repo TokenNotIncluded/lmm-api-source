@@ -4,8 +4,6 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { nativePriceRuleSchema } from '@/features/system-settings/billing/native-price-rules'
-import { NativeRulePrices } from '@/features/system-settings/billing/native-rule-prices'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 
 import type {
@@ -217,11 +215,7 @@ export function NativeIntakeReview({
                   ? state.reasons.map((reason) => t(reason)).join(' · ')
                   : state.done
                     ? t('Already published')
-                    : state.prices.every(Boolean) && state.prices.length
-                      ? t('Ready for route preview')
-                      : t(
-                          'Group price will be generated in the route preview.'
-                        )}
+                    : t('Ready for route preview')}
               </span>
             </li>
           ))}
@@ -236,43 +230,14 @@ export function NativeIntakeReview({
             {t('Pricing version')} {configuration.version.pricing} →{' '}
             {review.body.prices.version}
           </p>
-          {review.summaries.map((row) => {
-            const base =
-              configuration.bindings.official_prices?.models[row.model]
-            return (
-              <details
-                key={JSON.stringify([row.model, row.group])}
-                className='border-b pb-2 text-sm'
-              >
-                <summary className='cursor-pointer'>
-                  {row.model} · {row.group} · {t('Affected channels')}{' '}
-                  {row.channels.map((id) => '#' + id).join(', ')}
-                </summary>
-                <p className='py-2'>
-                  {t('Upstream model')} {row.upstream} · {t('Price source')}{' '}
-                  {base?.source ?? '—'}
-                </p>
-                {row.rules.map((rule) => {
-                  const previous = nativePriceRuleSchema.safeParse(
-                    index.rules.get(
-                      JSON.stringify([rule.model, rule.group, rule.speed])
-                    )
-                  )
-                  return (
-                    <div className='py-1' key={rule.id}>
-                      <p>{rule.speed}</p>
-                      <NativeRulePrices
-                        rule={rule}
-                        current={previous.success ? previous.data : undefined}
-                        configuration={configuration}
-                        cached={false}
-                      />
-                    </div>
-                  )
-                })}
-              </details>
-            )
-          })}
+          <ul className='divide-y text-sm'>
+            {review.summaries.map((row) => (
+              <li key={JSON.stringify([row.model, row.group])} className='py-2'>
+                {row.model} · {row.group} · {t('Affected channels')}{' '}
+                {row.channels.map((id) => '#' + id).join(', ')}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
       {error && (

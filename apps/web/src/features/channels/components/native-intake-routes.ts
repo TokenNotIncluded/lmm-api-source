@@ -149,7 +149,6 @@ export function groupIntake(
     context,
     speed,
     coveredSpeeds,
-    prices,
     done,
     active,
     reasons,
