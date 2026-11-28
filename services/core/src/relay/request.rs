@@ -2077,7 +2077,10 @@ impl Request {
             protocol,
             UpstreamProtocol::Anthropic | UpstreamProtocol::Gemini
         ) {
-            self.validate_system()?;
+            self.validate_system(
+                protocol == UpstreamProtocol::Anthropic
+                    && self.anthropic_ordered_messages.is_some(),
+            )?;
         }
         for block in self.messages.iter().flat_map(|message| &message.content) {
             match block {
@@ -2419,11 +2422,11 @@ impl Request {
         self.sampling(&mut v);
         Ok(v)
     }
-    fn validate_system(&self) -> Result<(), RelayError> {
+    fn validate_system(&self, retain_native_order: bool) -> Result<(), RelayError> {
         let mut conversation = false;
         for message in &self.messages {
             if matches!(message.role, Role::System | Role::Developer) {
-                if conversation {
+                if conversation && !(retain_native_order && message.role == Role::System) {
                     return Err(RelayError::Unsupported(
                         "late system instructions cannot be reordered",
                     ));
