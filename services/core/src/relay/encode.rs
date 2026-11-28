@@ -34,6 +34,7 @@ pub(crate) struct Encoder {
     stop_sequence: Option<String>,
     usage: Usage,
     anthropic_input_tokens: Option<u64>,
+    initial_anthropic_input: bool,
     finish: Option<FinishReason>,
     bytes: usize,
     limits: Limits,
@@ -93,6 +94,7 @@ impl Encoder {
             stop_sequence: None,
             usage: Usage::default(),
             anthropic_input_tokens: None,
+            initial_anthropic_input: false,
             finish: None,
             bytes: 0,
             limits: limits.clone(),
@@ -135,23 +137,52 @@ impl Encoder {
             .saturating_add(self.limits.max_blocks.saturating_mul(4096))
     }
     pub fn prepare_frame(&mut self, events: &[Event]) -> Result<(), RelayError> {
-        if self.stream
-            && self.client == ClientProtocol::Anthropic
-            && !self.started
+        if !self.started
             && let [
                 Event::Start(_),
                 Event::AnthropicInputTokens(input),
                 Event::Usage(usage),
             ] = events
         {
-            self.writer = Some(stream::Writer::with_initial_usage(
-                self,
-                zconv::stream::Usage {
-                    uncached_input: Some(*input),
-                    output: usage.output_tokens,
-                    ..Default::default()
-                },
-            )?);
+            self.initial_anthropic_input = true;
+            if self.stream && self.client == ClientProtocol::Anthropic {
+                self.writer = Some(stream::Writer::with_initial_usage(
+                    self,
+                    zconv::stream::Usage {
+                        uncached_input: Some(*input),
+                        output: usage.output_tokens,
+                        ..Default::default()
+                    },
+                )?);
+            }
+            return Ok(());
+        }
+        if self.initial_anthropic_input {
+            for pair in events.windows(2) {
+                if let [Event::AnthropicInputTokens(input), Event::Usage(usage)] = pair {
+                    // Anthropic start counts are provisional. A complete
+                    // terminal receipt can replace the start input snapshot.
+                    // Partial or intermediate receipts still merge strictly.
+                    if matches!(events.last(), Some(Event::Finish(_)))
+                        && self.anthropic_input_tokens.is_some_and(|old| *input < old)
+                        && usage.input_tokens.is_some()
+                        && usage.output_tokens.is_some()
+                        && usage.cached_input_tokens.is_some()
+                        && usage.effective_cache_creation_input_tokens()?.is_some()
+                    {
+                        self.anthropic_input_tokens = None;
+                        self.usage.input_tokens = None;
+                        self.usage.uncached_input_tokens = None;
+                        self.usage.cached_input_tokens = None;
+                        self.usage.cache_creation_input_tokens = None;
+                        self.usage.cache_creation_details = None;
+                    }
+                    break;
+                }
+            }
+            if events.iter().any(|event| matches!(event, Event::Usage(_))) {
+                self.initial_anthropic_input = false;
+            }
         }
         Ok(())
     }

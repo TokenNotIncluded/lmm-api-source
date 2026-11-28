@@ -1213,6 +1213,68 @@ fn anthropic_stream_start_forwards_observed_usage() {
 }
 
 #[test]
+fn complete_native_terminal_usage_can_correct_the_provisional_input() {
+    let limits = Limits::default();
+    let request = Request::parse(
+        ClientProtocol::Anthropic,
+        br#"{"model":"test","stream":true,"max_tokens":100,"messages":[{"role":"user","content":"hello"}]}"#,
+        &limits,
+    )
+    .unwrap();
+    for complete in [false, true] {
+        let mut decoder = Decoder::new(UpstreamProtocol::Anthropic, &limits);
+        let mut encoder = Encoder::new(&request, "corrected_usage", &limits);
+        let start = frame(
+            &mut decoder,
+            json!({"type":"message_start","message":{"id":"claude_test","content":[],
+                "usage":{"input_tokens":45,"output_tokens":0,
+                    "cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}),
+        )
+        .unwrap();
+        encoder.prepare_frame(&start).unwrap();
+        for event in start {
+            encoder.consume(event).unwrap();
+        }
+        let mut usage = json!({"input_tokens":15,"output_tokens":6,
+            "cache_creation_input_tokens":0});
+        if complete {
+            usage["cache_read_input_tokens"] = json!(0);
+        }
+        let terminal = frame(
+            &mut decoder,
+            json!({"type":"message_delta",
+            "delta":{"stop_reason":"end_turn"}, "usage":usage}),
+        )
+        .unwrap();
+        encoder.prepare_frame(&terminal).unwrap();
+        let result = terminal
+            .into_iter()
+            .try_for_each(|event| encoder.consume(event).map(|_| ()));
+        if complete {
+            result.unwrap();
+            for event in frame(&mut decoder, json!({"type":"message_stop"})).unwrap() {
+                encoder.consume(event).unwrap();
+            }
+            let bytes = encoder.terminal().unwrap().concat();
+            let wire = String::from_utf8(bytes).unwrap();
+            let data = wire
+                .lines()
+                .find_map(|line| line.strip_prefix("data: "))
+                .unwrap();
+            let terminal: Value = serde_json::from_str(data).unwrap();
+            assert_eq!(terminal["usage"]["input_tokens"], 15);
+            assert_eq!(encoder.usage().input_tokens, Some(15));
+            assert_eq!(encoder.usage().output_tokens, Some(6));
+        } else {
+            assert!(matches!(
+                result,
+                Err(RelayError::Protocol("decreasing native input usage"))
+            ));
+        }
+    }
+}
+
+#[test]
 fn anthropic_thinking_usage_preserves_the_terminal_receipt() {
     let mut decoder = Decoder::new(UpstreamProtocol::Anthropic, &Limits::default());
     frame(
