@@ -285,101 +285,22 @@ function button(container: Element, text: string) {
   return value as HTMLButtonElement
 }
 
-test('channel group prices copy only a matching default speed, preview, publish and reload', async () => {
+test('channel editing does not expose model and group prices', async () => {
   const config = fixture()
-  config.routing.routes[0].group = 'vip'
-  config.routing.groups.push({ name: 'vip', enabled: true })
-  const standard = config.prices.rules[0]
-  config.prices.rules.push({
-    ...standard,
-    id: 2,
-    group: 'vip',
-    rates: { ...standard.rates, input: 42 },
-  })
-  config.prices.rules.push({ ...standard, id: 3, speed: 'fast' })
-  const original = structuredClone(config.prices.rules)
-  let writes = 0
-  const digest = 'e'.repeat(64)
-  api.request = (async (options: {
-    url: string
-    method: string
-    data?: Record<string, unknown>
-  }) => {
-    const ok = (data: unknown) => ({ data: { success: true, data } })
-    if (options.method === 'GET') return ok(config)
-    const body = required(options.data)
-    const next = body.prices as typeof config.prices
-    assert.deepEqual(body.expected_version, { routing: 1, pricing: 1 })
-    assert.deepEqual(next.rules[0], original[0])
-    assert.deepEqual(next.rules[2], original[2])
-    assert.equal(next.rules[1].id, 2)
-    assert.equal(next.rules[1].group, 'vip')
-    assert.equal(next.rules[1].rates.input, 2)
-    assert.equal(next.rules[1].group_multiplier_ppm, 1_500_000)
-    if (options.method === 'POST') {
-      assert.equal(options.url, '/core/v1/admin/routing/prices/preview')
-      return ok({
-        before: config.prices,
-        after: next,
-        confirmation_digest: digest,
-      })
-    }
-    assert.equal(options.method, 'PUT')
-    assert.equal(options.url, '/core/v1/admin/routing/prices')
-    assert.equal(body.confirmation_digest, digest)
-    config.prices = next
-    config.version = { routing: 2, pricing: 2 }
-    config.routing.version = 2
-    writes++
-    return ok({ version: config.version })
-  }) as typeof api.request
+  api.request = (async () => ({
+    data: { success: true, data: config },
+  })) as typeof api.request
   const container = await mount('channels')
   await until(() =>
     [...container.querySelectorAll('button')].some(
       (item) => item.textContent === 'Edit'
     )
   )
-  const openGroup = async () => {
-    await act(async () => button(container, 'Edit').click())
-    const form = required(
-      container.querySelector('form[aria-label="Edit Channel"]')
-    )
-    await act(async () => button(form, 'Edit group prices').click())
-    return required(
-      container.querySelector('form[aria-label="Edit group prices"]')
-    )
-  }
-  let form = await openGroup()
-  const multiplier = () =>
-    required(
-      [...form.querySelectorAll('label')]
-        .find((label) => label.textContent === 'Group multiplier')
-        ?.querySelector('input')
-    )
-  await act(async () =>
-    button(form, 'Copy prices from the default group').click()
+  await act(async () => button(container, 'Edit').click())
+  const form = required(
+    container.querySelector('form[aria-label="Edit Channel"]')
   )
-  await changeInput(multiplier(), '1.5')
-  await act(async () => button(form, 'Preview').click())
-  assert.ok(
-    form.textContent?.includes('Confirm and apply'),
-    container.textContent ?? ''
-  )
-  await until(() => !!form.textContent?.includes('Confirm and apply'))
-  assert.equal(writes, 0)
-  assert.match(
-    required(form.querySelector('section[aria-label="Preview"]')).textContent ??
-      '',
-    /0\.000003/
-  )
-  await act(async () => button(form, 'Confirm and apply').click())
-  await until(
-    () =>
-      writes === 1 &&
-      !container.querySelector('form[aria-label="Edit group prices"]')
-  )
-  form = await openGroup()
-  assert.equal(multiplier().value, '1.5')
+  assert.doesNotMatch(form.textContent ?? '', /Group price rules|Edit group prices/)
 })
 
 test('prices require a reviewed preview and editing invalidates the exact confirmation before one CAS publication', async () => {

@@ -43,10 +43,7 @@ import {
   setNativeChannelsTag,
 } from '../api'
 import { nativeModelLogo, resolveNativeProvider } from '../lib/native-provider'
-import {
-  readChannelDraft,
-  nativeProtocolLabel,
-} from '../lib/native-routing-form'
+import { nativeProtocolLabel } from '../lib/native-routing-form'
 import {
   assertNativeDraftTimeouts,
   nativeTimeoutErrorMessage,
@@ -65,7 +62,6 @@ import {
   type NativeChannelBatchPatch,
   type NativeModelRoute,
   type NativePriceDraft,
-  type NativePrices,
   type NativeUpstream,
   type NativeVendor,
   type NativeVersion,
@@ -97,10 +93,6 @@ import {
   NativeChannelStatisticsSummary,
 } from './native-channel-statistics'
 import {
-  NativeChannelPriceSection,
-  NativeGroupPrices,
-} from './native-group-prices'
-import {
   defaultModelDisplayName,
   newModelTarget,
   publishedGroupMultiplier,
@@ -121,7 +113,6 @@ type Editor = {
   method: 'POST' | 'PUT'
   document: string
   previewPath?: string
-  priceRoute?: NativeModelRoute
   modelEditing?: boolean
   secret?: boolean
   readOnly?: boolean
@@ -761,11 +752,10 @@ function NativeRoutingWorkspace({
     }
     openEditor(next)
   }
-  function priceEditor(priceRoute?: NativeModelRoute) {
+  function priceEditor() {
     if (!configuration) return
     openEditor({
-      title: priceRoute ? t('Edit group prices') : t('Pricing'),
-      priceRoute,
+      title: t('Pricing'),
       method: 'PUT',
       path: `${NATIVE_ROOT}/prices`,
       previewPath: `${NATIVE_ROOT}/prices/preview`,
@@ -810,14 +800,6 @@ function NativeRoutingWorkspace({
       )
       if (editor.method === 'POST' || channel) {
         channelEditor(channel, editor.trigger)
-        return
-      }
-    } else if (editor.priceRoute) {
-      const route = configuration.routing.routes.find(
-        (item) => item.id === editor.priceRoute?.id
-      )
-      if (route) {
-        priceEditor(route)
         return
       }
     } else if (editor.modelEditing !== undefined) {
@@ -1282,36 +1264,6 @@ function NativeRoutingWorkspace({
             }}
           />
         )}
-        {editor.channelId && (
-          <section className='min-w-0 space-y-4 border-t pt-5'>
-            <h3 className='text-base font-semibold'>
-              {t('Group price rules')}
-            </h3>
-            <NativeChannelPriceSection
-              draft={readChannelDraft(editor.document)}
-              configuration={configuration}
-              disabled={writeDisabled || editorStale}
-              onEditPrices={priceEditor}
-            />
-          </section>
-        )}
-        {editor.priceRoute && (
-          <NativeGroupPrices
-            route={editor.priceRoute}
-            prices={parseNativeDocument(editor.document).prices as NativePrices}
-            disabled={writeDisabled || editorStale}
-            onChange={(prices) => {
-              setEditor({
-                ...editor,
-                document: pretty({
-                  ...parseNativeDocument(editor.document),
-                  prices,
-                }),
-              })
-              setPreview(null)
-            }}
-          />
-        )}
         {editor.modelEditing !== undefined && (
           <NativeModelFields
             document={editor.document}
@@ -1347,37 +1299,14 @@ function NativeRoutingWorkspace({
             </details>
           </details>
         ) : (
-          !editor.priceRoute && (
-            <details open={editor.modelEditing === undefined}>
-              <summary className='cursor-pointer py-2 text-sm font-medium'>
-                {t('Advanced Settings')}
-              </summary>
-              {editorConfigurationField}
-            </details>
-          )
+          <details open={editor.modelEditing === undefined}>
+            <summary className='cursor-pointer py-2 text-sm font-medium'>
+              {t('Advanced Settings')}
+            </summary>
+            {editorConfigurationField}
+          </details>
         )}
-        {preview && !editorStale && editor.priceRoute && (
-          <section
-            aria-label={t('Preview')}
-            className='grid gap-4 sm:grid-cols-2'
-          >
-            <div>
-              <h4>{t('Before')}</h4>
-              <NativeGroupPrices
-                route={editor.priceRoute}
-                prices={preview.before as NativePrices}
-              />
-            </div>
-            <div>
-              <h4>{t('After')}</h4>
-              <NativeGroupPrices
-                route={editor.priceRoute}
-                prices={preview.after as NativePrices}
-              />
-            </div>
-          </section>
-        )}
-        {preview && !editorStale && !editor.priceRoute && (
+        {preview && !editorStale && (
           <pre
             className='max-h-80 overflow-auto border p-3 text-xs'
             aria-label={t('Preview')}
