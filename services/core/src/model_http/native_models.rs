@@ -94,7 +94,7 @@ async fn view(
                 Err(IdentityError::Forbidden) => continue,
                 Err(error) => return Err(identity_error(error)),
             }
-            let Ok(mut plan) = gateway
+            let Ok(plan) = gateway
                 .bridge
                 .routing
                 .route_adapted(crate::routing::RouteRequest {
@@ -107,13 +107,13 @@ async fn view(
             else {
                 continue;
             };
-            let Ok(attempt) = plan.start() else {
-                continue;
-            };
-            let Ok((selected, _)) = gateway
-                .bridge
-                .route_for_attempt(Arc::new(attempt), &request)
-            else {
+            let Some(selected) = plan.candidate_attempts().into_iter().find_map(|attempt| {
+                gateway
+                    .bridge
+                    .route_for_attempt(Arc::new(attempt), &request)
+                    .ok()
+                    .map(|(selected, _)| selected)
+            }) else {
                 continue;
             };
             let output = gateway
