@@ -21,6 +21,11 @@ import axios, { type AxiosAdapter } from 'axios'
 import { t } from 'i18next'
 
 import {
+  getOAuthSessionStorage,
+  resolveOAuthCallbackMode,
+} from '@/features/auth/lib/oauth-callback-mode'
+
+import {
   AUTH_COOKIE_TIMEOUT_MS,
   AuthCookieBlockedError,
   getAuthCookieBlockedState,
@@ -1011,6 +1016,22 @@ function currentValidAuthBundle(): AuthBundle | null {
 }
 
 export async function bootstrapAuthentication(): Promise<RefreshOutcome> {
+  if (typeof window !== 'undefined' && window.location) {
+    const provider = /^\/oauth\/([^/]+)\/?$/.exec(window.location.pathname)?.[1]
+    const state = new URLSearchParams(window.location.search).get('state')
+    if (
+      provider &&
+      state &&
+      resolveOAuthCallbackMode(provider, state, {
+        opener: window.opener,
+        storage: getOAuthSessionStorage(window),
+      }) === 'bind'
+    ) {
+      // Refreshing in this popup rotates the opener's still-needed bearer.
+      return { kind: 'anonymous' }
+    }
+  }
+
   const bundle = currentValidAuthBundle()
   if (bundle) {
     useAuthStore.getState().auth.setBootstrapState('complete')

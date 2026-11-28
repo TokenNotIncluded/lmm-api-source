@@ -21,6 +21,7 @@ import { afterEach, describe, test } from 'node:test'
 
 import { QueryClient } from '@tanstack/react-query'
 
+import { markOAuthBindPopup } from '../features/auth/lib/oauth-callback-mode'
 import { useAuthStore, type AuthBundle } from '../stores/auth-store'
 import {
   applyAuthBundle,
@@ -109,6 +110,33 @@ describe('authentication session coordination', () => {
       kind: 'authenticated',
       bundle,
     })
+  })
+
+  test('passive bootstrap leaves the opener session alone in a marked OAuth popup', async () => {
+    const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+    const entries = new Map<string, string>()
+    const sessionStorage = {
+      getItem: (key: string) => entries.get(key) ?? null,
+      setItem: (key: string, value: string) => { entries.set(key, value) },
+    }
+    assert.equal(markOAuthBindPopup(sessionStorage, 'example', 'bind-state'), true)
+    const location = { pathname: '/oauth/example', search: '?state=bind-state' }
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: { location, opener: { closed: false }, sessionStorage },
+    })
+    try {
+      useAuthStore.getState().auth.setBundle(bundle)
+      assert.deepEqual(await bootstrapAuthentication(), { kind: 'anonymous' })
+      location.search = '?state=unmarked-login-state'
+      assert.equal((await bootstrapAuthentication()).kind, 'authenticated')
+    } finally {
+      if (previousWindow) {
+        Object.defineProperty(globalThis, 'window', previousWindow)
+      } else {
+        Reflect.deleteProperty(globalThis, 'window')
+      }
+    }
   })
 
   test('a session mismatch clears local state without accepting another cookie family', async () => {
