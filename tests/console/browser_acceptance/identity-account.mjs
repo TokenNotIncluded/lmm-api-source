@@ -48,7 +48,7 @@ async function verifyBrowserAccounts(browser, session, request, web, scenario) {
   const pathFor = phase => linkPath + '/' + providerKey + '/' + phase
   const owned = row => row.active === true && row.issuer === 'urn:lmm:federated:' + provider.id && row.subject === provider.subject
   let stage = 'username sign-in'
-  const navigation = { consent_status: null, callback_observed: false, finish_status: null }
+  const navigation = { consent_status: null, callback_observed: false, popup_refreshes: 0, finish_status: null }
   try {
     const username = await signedInOwner(browser, session, request, 'browserpayer', origin.origin)
     const owner = username.user
@@ -89,6 +89,12 @@ async function verifyBrowserAccounts(browser, session, request, web, scenario) {
     ])
     assert.equal(begin.status(), 200)
     await popup.waitForURL(url => url.origin === origin.origin)
+    popup.on('request', req => {
+      const url = new URL(req.url())
+      if (url.origin === web && url.pathname === '/api/user/auth/refresh' && req.method() === 'POST') {
+        navigation.popup_refreshes++
+      }
+    })
     const consent = popup.getByRole('button', { name: 'Allow account link', exact: true })
     await consent.waitFor()
 
@@ -132,7 +138,8 @@ async function verifyBrowserAccounts(browser, session, request, web, scenario) {
     return { email_login: loginEvidence, external_binding: {
       user_id: owner, provider_kind: 'federated', begin_status: 200,
       consent_observed: true, consent_redirect_status: navigation.consent_status,
-      callback_observed: navigation.callback_observed, finish_status: navigation.finish_status,
+      callback_observed: navigation.callback_observed, popup_session_refreshes: navigation.popup_refreshes,
+      finish_status: navigation.finish_status,
       readback_status: saved.status, fresh_session_readback: true, active_subject_matches: 1,
     } }
   } catch {
