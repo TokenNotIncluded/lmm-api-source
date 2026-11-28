@@ -21,20 +21,14 @@ pub(super) enum NativeOperation {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(super) struct MessagesCompatibility {
     version_ignored: bool,
-    beta_ignored: bool,
 }
 
 impl MessagesCompatibility {
     pub(super) fn log(&self, request_id: &str, channel_id: u64) {
-        for (reason, ignored) in [
-            ("anthropic_version_ignored", self.version_ignored),
-            ("anthropic_beta_ignored", self.beta_ignored),
-        ] {
-            if ignored {
-                eprintln!(
-                    "core_model_compatibility_warning request_id={request_id} channel_id={channel_id} reason={reason} action=used_channel_protocol"
-                );
-            }
+        if self.version_ignored {
+            eprintln!(
+                "core_model_compatibility_warning request_id={request_id} channel_id={channel_id} reason=anthropic_version_ignored action=used_channel_protocol"
+            );
         }
     }
 }
@@ -129,22 +123,17 @@ fn messages_headers(
             "unsupported Anthropic query parameter",
         ));
     }
-    let mut warnings = MessagesCompatibility {
+    let warnings = MessagesCompatibility {
         version_ignored: one_header(&headers, "anthropic-version")?
             .is_some_and(|version| version != "2023-06-01"),
-        ..Default::default()
     };
+    // SDKs advertise capabilities even on requests that do not use them.
+    // The validated body enables supported features; supplier-specific beta
+    // headers are selected by the channel settings.
     for header in headers.get_all("anthropic-beta").iter() {
-        for beta in header
+        header
             .to_str()
-            .map_err(|_| RelayError::Invalid("invalid anthropic-beta header"))?
-            .split(',')
-            .map(str::trim)
-        {
-            if !matches!(beta, "" | "claude-code-20250219") {
-                warnings.beta_ignored = true;
-            }
-        }
+            .map_err(|_| RelayError::Invalid("invalid anthropic-beta header"))?;
     }
     headers.remove("anthropic-version");
     headers.remove("anthropic-beta");
@@ -285,20 +274,20 @@ mod tests {
             assert!(!admitted.contains_key("anthropic-version"));
             assert_eq!(admitted[header::AUTHORIZATION], "Bearer synthetic-key");
         }
-        for (beta, expected) in [
-            ("claude-code-20250219", false),
-            ("claude-code-20250219, future-feature", true),
-            ("future-feature", true),
+        for beta in [
+            "claude-code-20250219",
+            "claude-code-20250219, future-feature",
+            "future-feature",
         ] {
             let mut tagged = headers.clone();
             tagged.append("anthropic-beta", HeaderValue::from_static(beta));
             tagged.insert("anthropic-version", HeaderValue::from_static("2099-01-01"));
-            let (_, warnings) = messages_headers(tagged, Some("beta=true")).unwrap();
+            let (admitted, warnings) = messages_headers(tagged, Some("beta=true")).unwrap();
+            assert!(!admitted.contains_key("anthropic-beta"));
             assert_eq!(
                 warnings,
                 MessagesCompatibility {
-                    version_ignored: true,
-                    beta_ignored: expected
+                    version_ignored: true
                 }
             );
         }

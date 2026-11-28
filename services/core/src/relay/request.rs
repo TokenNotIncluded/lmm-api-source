@@ -129,7 +129,7 @@ pub struct Request {
     pub(super) anthropic_output_effort: Option<&'static str>,
     pub(super) anthropic_controls: Map<String, Value>,
     pub(super) anthropic_ordered_messages: Option<Value>,
-    pub(super) anthropic_streaming_tools: Option<Value>,
+    pub(super) anthropic_native_tools: Option<Value>,
     pub(super) anthropic_control_betas: Option<String>,
     /// Validated native prompt sections with cache breakpoints. Keep original
     /// block/message boundaries: normalization can change the cached prefix.
@@ -810,7 +810,7 @@ impl Request {
             || self.anthropic_output_effort.is_some()
             || !self.anthropic_controls.is_empty()
             || self.anthropic_ordered_messages.is_some()
-            || self.anthropic_streaming_tools.is_some()
+            || self.anthropic_native_tools.is_some()
             || self.reasoning_effort.is_some()
             || self.responses_summary.is_some()
             || self.requests_encrypted_output
@@ -1550,7 +1550,7 @@ impl Request {
             anthropic_output_effort: None,
             anthropic_controls: Map::new(),
             anthropic_ordered_messages: None,
-            anthropic_streaming_tools: None,
+            anthropic_native_tools: None,
             anthropic_control_betas: None,
             anthropic_cached_prompt: None,
             image_config,
@@ -1965,7 +1965,7 @@ impl Request {
         if (self.anthropic_output_effort.is_some()
             || !self.anthropic_controls.is_empty()
             || self.anthropic_ordered_messages.is_some()
-            || self.anthropic_streaming_tools.is_some())
+            || self.anthropic_native_tools.is_some())
             && protocol != UpstreamProtocol::Anthropic
         {
             return Err(RelayError::Unsupported(
@@ -2195,7 +2195,7 @@ impl Request {
             if let Some(messages) = &self.anthropic_ordered_messages {
                 converted["messages"] = messages.clone();
             }
-            if let Some(tools) = &self.anthropic_streaming_tools {
+            if let Some(tools) = &self.anthropic_native_tools {
                 converted["tools"] = tools.clone();
             }
             if let Some(effort) = self.anthropic_output_effort {

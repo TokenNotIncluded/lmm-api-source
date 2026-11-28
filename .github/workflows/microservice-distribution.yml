@@ -153,6 +153,7 @@ jobs:
             relay::tests::anthropic_thinking_usage_preserves_the_terminal_receipt \
             relay::tests::opaque_reasoning_does_not_interrupt_responses_usage \
             relay::native_anthropic::tests::native_anthropic_preserves_eager_tool_streaming \
+            relay::native_anthropic::tests::native_anthropic_preserves_deferred_tool_loading \
             relay::native_anthropic::tests::native_anthropic_keeps_inline_system_messages_at_their_original_position \
             relay::native_anthropic::tests::native_anthropic_preserves_thinking_and_context_controls \
             relay::native_anthropic::tests::native_anthropic_negotiates_thinking_progress_updates \

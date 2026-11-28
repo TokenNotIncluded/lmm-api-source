@@ -356,14 +356,14 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
                     "description",
                     "input_schema",
                     "eager_input_streaming",
+                    "defer_loading",
                 ],
             )?;
-            if t.get("eager_input_streaming")
-                .is_some_and(|value| !value.is_boolean())
+            if ["eager_input_streaming", "defer_loading"]
+                .iter()
+                .any(|field| t.get(field).is_some_and(|value| !value.is_boolean()))
             {
-                return Err(RelayError::Invalid(
-                    "invalid Anthropic tool streaming control",
-                ));
+                return Err(RelayError::Invalid("invalid Anthropic tool control"));
             }
             if !t["input_schema"].is_object() {
                 return Err(RelayError::Invalid("tool schema must be object"));
@@ -493,11 +493,11 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
     request.anthropic_metadata = v.get_mut("metadata").map(Value::take);
     request.anthropic_output_effort = top_level_effort;
     if v["tools"].as_array().is_some_and(|tools| {
-        tools
-            .iter()
-            .any(|tool| tool.get("eager_input_streaming").is_some())
+        tools.iter().any(|tool| {
+            tool.get("eager_input_streaming").is_some() || tool.get("defer_loading").is_some()
+        })
     }) {
-        request.anthropic_streaming_tools = v.get_mut("tools").map(Value::take);
+        request.anthropic_native_tools = v.get_mut("tools").map(Value::take);
     }
     for name in ["thinking", "context_management"] {
         if let Some(value) = v.get_mut(name) {
@@ -1199,6 +1199,34 @@ mod tests {
                 .upstream_body_to(UpstreamProtocol::Responses, "selected")
                 .is_err()
         );
+    }
+
+    #[test]
+    fn native_anthropic_preserves_deferred_tool_loading() {
+        let tools = json!([
+            {"name":"lookup", "input_schema":{"type":"object"}, "defer_loading":true},
+            {"name":"ready", "input_schema":{"type":"object"}, "defer_loading":false}
+        ]);
+        let body = request(json!({"tools":tools}));
+        let parsed = parse(&body, &Limits::default()).unwrap();
+        let wire = parsed
+            .upstream_body_to(UpstreamProtocol::Anthropic, "selected")
+            .unwrap();
+        let wire: Value = serde_json::from_slice(&wire).unwrap();
+        assert_eq!(wire["tools"], tools);
+        assert!(
+            parsed
+                .upstream_body_to(UpstreamProtocol::Responses, "selected")
+                .is_err()
+        );
+
+        let invalid = request(json!({"tools":[
+            {"name":"lookup", "input_schema":{"type":"object"}, "defer_loading":"true"}
+        ]}));
+        assert!(matches!(
+            parse(&invalid, &Limits::default()),
+            Err(RelayError::Invalid("invalid Anthropic tool control"))
+        ));
     }
 
     #[test]
