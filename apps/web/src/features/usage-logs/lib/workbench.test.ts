@@ -97,7 +97,7 @@ test('invalid ranges are kept as a correctable draft instead of issuing a query'
   )
 })
 
-test('native millisecond timing distinguishes waiting, whole-request throughput and generation estimate', () => {
+test('native millisecond timing preserves time to first token and whole-request throughput', () => {
   const log = usageLogSchema.parse({
     id: 1,
     user_id: 7,
@@ -119,7 +119,6 @@ test('native millisecond timing distinguishes waiting, whole-request throughput 
   const timing = getLogTiming(log, { frt: 999 })
   assert.equal(timing.durationMs, 1500.25)
   assert.equal(timing.firstTokenMs, 500.25)
-  assert.equal(timing.generationSpeed, 100)
   assert.equal(timing.throughput, 100000 / 1500.25)
   assert.equal(formatDurationMs(0.25), '0.25 ms')
   assert.equal(log.price_version, 'price-v3')
@@ -143,7 +142,6 @@ test('missing native measurements never masquerade as zero latency or non-stream
     durationMs: null,
     firstTokenMs: null,
     throughput: null,
-    generationSpeed: null,
   })
   assert.equal(log.is_stream, null)
   assert.equal(formatDurationMs(null), '—')
@@ -153,12 +151,11 @@ test('missing native measurements never masquerade as zero latency or non-stream
         ...log,
         duration_ms: 5,
         first_token_ms: 5,
-        is_stream: true,
         completion_tokens: 10,
       },
       null
-    ).generationSpeed,
-    null
+    ).throughput,
+    2000
   )
 })
 
@@ -177,7 +174,6 @@ test('historical timing retains existing seconds when no native receipt is prese
     durationMs: 2000,
     firstTokenMs: 500,
     throughput: 50,
-    generationSpeed: 100000 / 1500,
   })
 })
 

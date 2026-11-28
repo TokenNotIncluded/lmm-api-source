@@ -9,7 +9,6 @@ export function getLogTiming(
     | 'duration_ms'
     | 'first_token_ms'
     | 'use_time'
-    | 'is_stream'
     | 'completion_tokens'
     | 'state'
   >,
@@ -32,19 +31,7 @@ export function getLogTiming(
     outputTokens >= 0
       ? (outputTokens * 1000) / durationMs
       : null
-  const generationDuration =
-    durationMs !== null && firstTokenMs !== null
-      ? durationMs - firstTokenMs
-      : null
-  const generationSpeed =
-    log.is_stream === true &&
-    generationDuration !== null &&
-    generationDuration > 0 &&
-    outputTokens !== null &&
-    outputTokens > 0
-      ? (outputTokens * 1000) / generationDuration
-      : null
-  return { durationMs, firstTokenMs, throughput, generationSpeed }
+  return { durationMs, firstTokenMs, throughput }
 }
 
 export function formatDurationMs(value: number | null | undefined): string {

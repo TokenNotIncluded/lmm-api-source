@@ -151,7 +151,6 @@ export function TimingMetricsCell(props: TimingMetricsCellProps) {
 interface StreamTpsCellProps {
   isStream: boolean | null
   tokensPerSecond?: number | null
-  generationSpeed?: number | null
   streamStatus?: LogOtherData['stream_status']
   className?: string
 }
@@ -215,16 +214,6 @@ export function StreamTpsCell(props: StreamTpsCellProps) {
         {props.tokensPerSecond != null && `${t('Request throughput')} · `}
         {tpsLabel}
       </span>
-      {props.generationSpeed != null && (
-        <span
-          className='text-muted-foreground px-0.5 tabular-nums'
-          title={t(
-            'Generation speed excludes the wait for the first output and is an estimate.'
-          )}
-        >
-          {t('Generation')}: {Number(props.generationSpeed.toFixed(1))} t/s
-        </span>
-      )}
     </div>
   )
 }

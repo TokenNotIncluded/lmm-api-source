@@ -964,23 +964,9 @@ function DetailsDialogContent(props: DetailsDialogProps) {
               }
               mono
             />
-            {timing.generationSpeed != null && (
-              <DetailRow
-                label={t('Generation speed (estimated)')}
-                value={`${Number(timing.generationSpeed.toFixed(1))} t/s`}
-                mono
-              />
-            )}
             <p className='text-muted-foreground pt-1 text-xs'>
               {t('Output tokens divided by total request duration.')}
             </p>
-            {timing.generationSpeed != null && (
-              <p className='text-muted-foreground text-xs'>
-                {t(
-                  'Generation speed excludes the wait for the first output and is an estimate.'
-                )}
-              </p>
-            )}
           </DetailSection>
         )}
 

@@ -732,7 +732,6 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           <StreamTpsCell
             isStream={log.is_stream}
             tokensPerSecond={timing.throughput}
-            generationSpeed={timing.generationSpeed}
             streamStatus={other?.stream_status}
           />
         )

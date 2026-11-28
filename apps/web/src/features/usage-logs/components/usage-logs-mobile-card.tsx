@@ -318,7 +318,6 @@ function MobileStreamTimingField({ log }: { log: UsageLog }) {
       <StreamTpsCell
         isStream={log.is_stream}
         tokensPerSecond={timing.throughput}
-        generationSpeed={timing.generationSpeed}
         streamStatus={other?.stream_status}
         className='shrink-0'
       />
