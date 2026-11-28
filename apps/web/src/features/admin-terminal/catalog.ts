@@ -10,6 +10,8 @@ import {
 
 import type { TerminalOperationContext } from './operations'
 
+export const catalogPageSize = 100
+
 type CatalogPlan = {
   channels: number[]
   models: Map<number, string[]>
@@ -97,16 +99,31 @@ export function catalogCoverage(
   }
 }
 export async function previewCatalog(
-  channels: number[],
+  selection: number[] | { all: true; after?: number },
   reason: CatalogPlan['reason'],
   context: CatalogContext
 ) {
   const config = await read(context)
+  const upstreamIds = new Set(
+    config.routing.upstreams.map((upstream) => upstream.id)
+  )
+  const candidates = Array.isArray(selection)
+    ? selection
+    : [...upstreamIds]
+        .filter((id) => id > (selection.after ?? 0))
+        .sort((a, b) => a - b)
+  const channels = Array.isArray(selection)
+    ? candidates
+    : candidates.slice(0, catalogPageSize)
+  const next =
+    candidates.length > channels.length
+      ? { all: true, after: channels[channels.length - 1], reason }
+      : null
   const models = new Map<number, string[]>()
   const rows = []
   for (const channel of channels) {
     context.signal?.throwIfAborted()
-    if (!config.routing.upstreams.some((u) => u.id === channel)) {
+    if (!upstreamIds.has(channel)) {
       rows.push({ channel, status: 'blocked', reason: 'channel_not_found' })
       continue
     }
@@ -146,6 +163,7 @@ export async function previewCatalog(
     status: 'preview',
     preview: models.size ? preview : null,
     expected_version: config.version,
+    ...(!Array.isArray(selection) && { next }),
     rows,
   }
 }

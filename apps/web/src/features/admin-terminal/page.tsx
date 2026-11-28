@@ -25,7 +25,7 @@ import {
 const examples = [
   'help',
   'logs.query {"http_status":400,"limit":5}',
-  'catalog.preview {"channels":[1]}',
+  'catalog.preview {"all":true}',
   'catalog.confirm {"preview":"<preview>","channels":[1]}',
   'prices.preview {"provider":"openai","models":["<model>"],"request_rate":0}',
   'protocols.preview {"from":"openai_chat","to":"openai_responses"}',

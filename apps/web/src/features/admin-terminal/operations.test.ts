@@ -7,6 +7,8 @@ import { readNativeRoutingScope } from '@/features/channels/native-api'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
+import type { CatalogContext, previewCatalog } from './catalog'
+import { executeCommand, parseScript } from './commands'
 import { executeTerminalOperation, type TerminalPreview } from './operations'
 
 const adapter = api.defaults.adapter
@@ -286,4 +288,85 @@ test('published model aliases use the exact upstream source and keep the public 
     'models.dev/p/m'
   )
   assert.match(draft.rows[1].reason!, /use_public_model_ids: public-m/)
+})
+
+test('all-channel previews use one configuration per page and require explicit ready IDs to confirm', async () => {
+  for (const selection of [
+    {},
+    { all: false },
+    { all: true, channels: [1] },
+    { channels: [1], after: 1 },
+    { all: true, after: -1 },
+  ]) {
+    assert.throws(() =>
+      parseScript('catalog.preview ' + JSON.stringify(selection))
+    )
+  }
+  assert.throws(() => parseScript('catalog.confirm {"all":true}'))
+  const f = fixture()
+  const context: CatalogContext = { ...f.context, catalogs: new Map() }
+  const paths: string[] = []
+  const configuration = '/core/v1/admin/routing/configuration'
+  const fetchModels = '/api/channel/fetch_models/'
+  const state = f.state()
+  const upstreams = Array.from({ length: 102 }, (_, i) => ({
+    ...state.routing.upstreams[0],
+    id: 102 - i,
+    enabled: i % 2 === 0,
+  }))
+  api.defaults.adapter = async (config) => {
+    assert.equal(config.method, 'get')
+    const path = config.url!
+    paths.push(path)
+    if (path === fetchModels + '2') throw new Error('upstream_unavailable')
+    const data =
+      path === configuration
+        ? { ...state, routing: { ...state.routing, upstreams } }
+        : ['model']
+    return {
+      status: 200,
+      statusText: 'OK',
+      config,
+      headers: {},
+      data: { success: true, data },
+    }
+  }
+  const preview = async (selection: object) =>
+    (await executeCommand(
+      parseScript('catalog.preview ' + JSON.stringify(selection))[0],
+      context
+    )) as Awaited<ReturnType<typeof previewCatalog>>
+  const first = await preview({ all: true })
+  assert.deepEqual(paths, [
+    configuration,
+    ...Array.from({ length: 100 }, (_, i) => fetchModels + (i + 1)),
+  ])
+  assert.equal(first.rows[1].status, 'blocked')
+  assert.ok(first.preview)
+  assert.deepEqual(first.next, {
+    all: true,
+    after: 100,
+    reason: 'catalog-refresh',
+  })
+  await assert.rejects(
+    executeCommand(
+      parseScript(
+        'catalog.confirm ' +
+          JSON.stringify({ preview: first.preview, channels: [2] })
+      )[0],
+      context
+    ),
+    /unapproved/
+  )
+  paths.length = 0
+  const second = await preview(first.next!)
+  assert.deepEqual(paths, [
+    configuration,
+    fetchModels + '101',
+    fetchModels + '102',
+  ])
+  assert.equal(second.next, null)
+  paths.length = 0
+  await preview({ channels: [2, 1] })
+  assert.deepEqual(paths, [configuration, fetchModels + '2', fetchModels + '1'])
 })

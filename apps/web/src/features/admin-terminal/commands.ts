@@ -4,7 +4,12 @@ import { z } from 'zod'
 import { nativeProtocols } from '@/features/channels/lib/native-routing-form'
 import { readLogsPage } from '@/features/usage-logs/api'
 
-import { confirmCatalog, previewCatalog, type CatalogContext } from './catalog'
+import {
+  catalogPageSize,
+  confirmCatalog,
+  previewCatalog,
+  type CatalogContext,
+} from './catalog'
 import { executeTerminalOperation } from './operations'
 
 const identifier = z
@@ -13,12 +18,16 @@ const identifier = z
   .max(200)
   .regex(/^[^\s\x00-\x1f\x7f]+$/u)
 const positive = z.number().int().positive().safe()
-const list = <T extends z.ZodType>(schema: T) =>
+const list = <T extends z.ZodType>(schema: T, limit = 100) =>
   z
     .array(schema)
     .min(1)
-    .max(100)
+    .max(limit)
     .refine((v) => new Set(v).size === v.length)
+const catalogReason = z
+  .enum(['catalog-refresh', 'operator-review'])
+  .default('catalog-refresh')
+const catalogChannels = list(positive, catalogPageSize)
 const reason = z.enum([
   'catalog-refresh',
   'missing-price',
@@ -38,15 +47,19 @@ const schemas = {
     page: positive.optional(),
     limit: positive.max(100).optional(),
   }),
-  'catalog.preview': z.strictObject({
-    channels: list(positive),
-    reason: z
-      .enum(['catalog-refresh', 'operator-review'])
-      .default('catalog-refresh'),
-  }),
+  'catalog.preview': z
+    .union([
+      z.strictObject({ channels: catalogChannels, reason: catalogReason }),
+      z.strictObject({
+        all: z.literal(true),
+        after: positive.optional(),
+        reason: catalogReason,
+      }),
+    ])
+    .meta({ type: 'object' }),
   'catalog.confirm': z.strictObject({
     preview: z.uuid(),
-    channels: list(positive),
+    channels: catalogChannels,
   }),
   'prices.preview': z.strictObject({
     provider: identifier,
@@ -122,7 +135,8 @@ export async function executeCommand(
       return help
     case 'catalog.preview': {
       const p = schemas[name].parse(args)
-      return previewCatalog(p.channels, p.reason, context)
+      const selection = 'channels' in p ? p.channels : p
+      return previewCatalog(selection, p.reason, context)
     }
     case 'catalog.confirm': {
       const p = schemas[name].parse(args)
