@@ -239,11 +239,6 @@ impl Encoder {
                         "reasoning summary requires Responses or Gemini",
                     ));
                 }
-                if matches!(kind, BlockKind::Thinking) && self.client == ClientProtocol::Gemini {
-                    return Err(RelayError::Unsupported(
-                        "raw thinking cannot become a Gemini summary",
-                    ));
-                }
                 if let BlockKind::Tool { id, name } = kind {
                     if id.is_empty()
                         || name.is_empty()
@@ -315,7 +310,13 @@ impl Encoder {
                 {
                     return Err(RelayError::Unsupported("foreign thinking signature"));
                 }
-                if self.client == ClientProtocol::Gemini && *provider != UpstreamProtocol::Gemini {
+                if self.client == ClientProtocol::Gemini
+                    && *provider != UpstreamProtocol::Gemini
+                    && !matches!(
+                        (*provider, &b.kind),
+                        (UpstreamProtocol::Anthropic, BlockKind::Thinking)
+                    )
+                {
                     return Err(RelayError::Unsupported("foreign Gemini signature"));
                 }
                 if self.stream
@@ -1022,6 +1023,57 @@ mod writer_contract_tests {
             }
         }
     }
+    #[test]
+    fn gemini_projects_visible_text_without_private_thinking_or_signature() {
+        for streaming in [false, true] {
+            let mut e = encoder(ClientProtocol::Gemini, streaming);
+            let mut bytes = Vec::new();
+            for event in [
+                Event::Start("up".into()),
+                Event::Block {
+                    index: 0,
+                    kind: BlockKind::Thinking,
+                },
+                Event::Delta {
+                    index: 0,
+                    text: "private-thought".into(),
+                },
+                Event::Signature {
+                    index: 0,
+                    provider: UpstreamProtocol::Anthropic,
+                    value: "private-signature".into(),
+                },
+                Event::EndBlock(0),
+                Event::Block {
+                    index: 1,
+                    kind: BlockKind::Text,
+                },
+                Event::Delta {
+                    index: 1,
+                    text: "visible-answer".into(),
+                },
+                Event::EndBlock(1),
+                Event::Usage(Usage {
+                    input_tokens: Some(20),
+                    output_tokens: Some(11),
+                    reasoning_output_tokens: Some(5),
+                    cached_input_tokens: Some(0),
+                    cache_creation_input_tokens: Some(0),
+                    ..Usage::default()
+                }),
+            ] {
+                bytes.extend(e.consume(event).unwrap().concat());
+            }
+            bytes.extend(finish(&mut e, FinishReason::Stop));
+            let wire = String::from_utf8(bytes).unwrap();
+            assert!(wire.contains("visible-answer"));
+            assert!(wire.contains(r#""thoughtsTokenCount":5"#));
+            assert!(!wire.contains("private-thought"));
+            assert!(!wire.contains("private-signature"));
+            assert_eq!(e.usage().output_tokens, Some(11));
+        }
+    }
+
     #[test]
     fn complete_images_grounding_continuation_and_stop_sequence_survive() {
         let mut e = encoder(ClientProtocol::Chat, false);

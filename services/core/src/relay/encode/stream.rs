@@ -281,6 +281,12 @@ impl Writer {
         let mut events = Vec::new();
         let mut payload = Vec::new();
         for (index, block) in encoder.blocks.iter().enumerate() {
+            // Gemini thought parts are summaries. Raw provider thinking is private
+            // to that protocol and still counts in the original usage receipt.
+            if encoder.client == ClientProtocol::Gemini && matches!(block.kind, BlockKind::Thinking)
+            {
+                continue;
+            }
             if encoder.client == ClientProtocol::Gemini && !matches!(block.kind, BlockKind::Text) {
                 if let BlockKind::Tool { id, name } = &block.kind {
                     let mut e = event(EventKind::ToolComplete);

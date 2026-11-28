@@ -252,6 +252,9 @@ impl Encoder {
             .array()
             .collect();
         for (index, b) in ordered {
+            if self.client == ClientProtocol::Gemini && matches!(b.kind, BlockKind::Thinking) {
+                continue;
+            }
             let parent = if self.client == ClientProtocol::Responses {
                 let at = records.len();
                 records.push(Record::EMPTY);
