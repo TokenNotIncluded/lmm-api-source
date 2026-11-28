@@ -186,7 +186,8 @@ async fn browser_onboarding_wallet(pool: PgPool) {
     let other_group = format!("pro-{nonce}");
     let model = format!("intake-{nonce}");
     let sibling = format!("sibling-{nonce}");
-    let mut scenario = json!({"model":model,"sibling":sibling,"group":group,"otherGroup":other_group});
+    let mut scenario =
+        json!({"model":model,"sibling":sibling,"group":group,"otherGroup":other_group});
     let login_email = format!("browser-{nonce}@example.test");
     let account_access = std::env::var("BROWSER_ACCOUNT_ACCESS").as_deref() == Ok("true");
     let (identity, binding_provider) = if account_access {
