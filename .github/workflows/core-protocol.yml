@@ -714,6 +714,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends protobuf-compiler libnss3-tools
       - name: Run the selected browser scenario against real services
+        id: browser_scenario
         working-directory: services/core
         env:
           PLAYWRIGHT_MODULE: ${{ runner.temp }}/onboarding-browser/node_modules/playwright/index.mjs
@@ -747,6 +748,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: success() || (failure() && inputs.browser_account_access && steps.browser_scenario.conclusion == 'failure')
         with:
           name: ${{ inputs.browser_account_access && 'browser-account-access' || 'browser-onboarding-wallet' }}-${{ github.sha }}-${{ github.run_id }}
           path: ${{ runner.temp }}/onboarding-evidence/

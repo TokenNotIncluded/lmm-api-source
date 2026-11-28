@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 
 const run = promisify(execFile)
@@ -48,6 +48,7 @@ async function verifyBrowserAccounts(browser, session, request, web, scenario) {
   const pathFor = phase => linkPath + '/' + providerKey + '/' + phase
   const owned = row => row.active === true && row.issuer === 'urn:lmm:federated:' + provider.id && row.subject === provider.subject
   let stage = 'username sign-in'
+  const navigation = { consent_status: null, callback_observed: false, finish_status: null }
   try {
     const username = await signedInOwner(browser, session, request, 'browserpayer', origin.origin)
     const owner = username.user
@@ -60,6 +61,8 @@ async function verifyBrowserAccounts(browser, session, request, web, scenario) {
     assert.equal(email.user, owner)
     assert.notEqual(email.identity.sid, usernameSession)
     const loginEvidence = { username_status: 200, email_status: 200, self_status: 200, user_id: owner, distinct_sessions: true }
+
+    await writeFile(join(dirname(process.env.BROWSER_RECEIPT), 'email-login.json'), JSON.stringify(loginEvidence, null, 2))
 
     stage = 'binding page and unbound provider'
     const { page } = email
@@ -92,13 +95,22 @@ async function verifyBrowserAccounts(browser, session, request, web, scenario) {
     stage = 'callback and durable binding confirmation'
     // Observe the production callback navigation in the popup. The account
     // page receives the result and issues its own authenticated finish call.
-    const callbackSeen = popup.waitForURL(url =>
-      url.origin === web && url.pathname === '/oauth/' + provider.slug,
-      { waitUntil: 'commit' })
-    const finished = page.waitForResponse(response => observed(response, pathFor('finish'), 'POST'))
-    await consent.click()
-    await callbackSeen
-    const finish = await finished
+    const [, , finish] = await Promise.all([
+      popup.waitForResponse(response => {
+        const url = new URL(response.url())
+        return url.origin === origin.origin && url.pathname === '/consent' && response.request().method() === 'POST'
+      }).then(response => {
+        navigation.consent_status = response.status()
+        assert.equal(response.status(), 303)
+      }),
+      popup.waitForURL(url => url.origin === web && url.pathname === '/oauth/' + provider.slug,
+        { waitUntil: 'commit' }).then(() => { navigation.callback_observed = true }),
+      page.waitForResponse(response => observed(response, pathFor('finish'), 'POST')).then(response => {
+        navigation.finish_status = response.status()
+        return response
+      }),
+      consent.click(),
+    ])
     assert.equal(finish.status(), 200)
     assert.equal((await finish.json()).success, true)
     await region.getByText(provider.subject, { exact: true }).waitFor()
@@ -119,11 +131,12 @@ async function verifyBrowserAccounts(browser, session, request, web, scenario) {
     await fresh.page.context().close()
     return { email_login: loginEvidence, external_binding: {
       user_id: owner, provider_kind: 'federated', begin_status: 200,
-      consent_observed: true, callback_observed: true, finish_status: 200,
+      consent_observed: true, consent_redirect_status: navigation.consent_status,
+      callback_observed: navigation.callback_observed, finish_status: navigation.finish_status,
       readback_status: saved.status, fresh_session_readback: true, active_subject_matches: 1,
     } }
   } catch {
     // Never export bearer values, signed redirect queries or Playwright traces.
-    throw new Error('Browser account acceptance failed during ' + stage)
+    throw new Error('Browser account acceptance failed during ' + stage + ' ' + JSON.stringify(navigation))
   }
 }
