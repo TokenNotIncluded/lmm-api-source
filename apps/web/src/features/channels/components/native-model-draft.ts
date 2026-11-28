@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { z } from 'zod'
 
+import { channelTargetDefaults } from '../lib/native-routing-form'
 import { newNativeTargetTimeoutMs } from '../lib/native-target-timeout'
 import { parseNativeDocument, type NativeConfiguration } from '../native-api'
 
@@ -197,8 +198,7 @@ export function newModelTarget(
     upstream_id: upstreamId,
     upstream_model: draft.route.model,
     enabled: true,
-    priority: 0,
-    weight: 1,
+    ...channelTargetDefaults(configuration, upstreamId),
     timeout_ms: newNativeTargetTimeoutMs(configuration),
     speeds: [...draft.route.speeds],
     payload: 'adapt',

@@ -7,6 +7,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 
+import { channelTargetDefaults } from '../lib/native-routing-form'
 import {
   stringifyNativeDocument,
   type NativeConfiguration,
@@ -97,6 +98,12 @@ export function NativeModelFields({
   const put = (next: NativeModelDraft) =>
     onChange(stringifyNativeDocument(next, 2))
   function patchTarget(index: number, patch: Partial<NativeTargetDraft>) {
+    if (patch.upstream_id !== undefined) {
+      patch = {
+        ...patch,
+        ...channelTargetDefaults(configuration, patch.upstream_id),
+      }
+    }
     const targets = current.route.targets.map((target, position) =>
       position === index ? { ...target, ...patch } : target
     )
@@ -319,11 +326,6 @@ export function NativeModelFields({
             {t('Add target')}
           </Button>
         </div>
-        <p className='text-muted-foreground text-sm'>
-          {t(
-            'Lower priority values run first. Weight distributes requests within the same priority.'
-          )}
-        </p>
         {draft.route.targets.map((target, index) => {
           const context =
             draft.contexts.find(
@@ -397,20 +399,6 @@ export function NativeModelFields({
                     }
                   />
                 </label>
-                <IntegerField
-                  label={t('Priority')}
-                  value={target.priority}
-                  max={65_535}
-                  disabled={disabled}
-                  onChange={(priority) => patchTarget(index, { priority })}
-                />
-                <IntegerField
-                  label={t('Weight')}
-                  value={target.weight}
-                  max={4_294_967_295}
-                  disabled={disabled}
-                  onChange={(weight) => patchTarget(index, { weight })}
-                />
                 <NativeTargetTimeoutField
                   value={target.timeout_ms}
                   configuration={configuration}

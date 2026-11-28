@@ -636,6 +636,16 @@ function NativeRoutingWorkspace({
           (context) => context.upstream_id === id
         ),
         attachments,
+        ...configuration.bindings.channel_target_defaults?.[id],
+        groups: configuration.bindings.channel_groups?.[id] ?? [
+          ...new Set(
+            configuration.routing.routes
+              .filter((route) =>
+                attachments.some((target) => target.route_id === route.id)
+              )
+              .map((route) => route.group)
+          ),
+        ],
       }),
     })
   }
@@ -791,6 +801,12 @@ function NativeRoutingWorkspace({
   function editorPayload(editor: Editor) {
     const body = parseNativeDocument(editor.document)
     if (!configuration) return body
+    if (
+      editor.channelId &&
+      (!Array.isArray(body.groups) || body.groups.length === 0)
+    ) {
+      throw new Error(t('Group is required'))
+    }
     assertNativeDraftTimeouts(body, configuration)
     if (editor.modelEditing === undefined) return body
 
@@ -801,7 +817,9 @@ function NativeRoutingWorkspace({
     const official = configuration.bindings.official_prices?.models ?? {}
     if (Object.hasOwn(official, name)) return { ...body, prices: [] }
 
-    const previous = configuration.routing.routes.find((route) => route.id === id)
+    const previous = configuration.routing.routes.find(
+      (route) => route.id === id
+    )
     if (!previous || previous.model !== name || previous.group !== group) {
       throw new Error(t('Publish the official base price first.'))
     }
@@ -2547,34 +2565,30 @@ function NativeRoutingWorkspace({
       )}
       {section === 'unpriced' && unpriced.length > 0 && (
         <ul className='divide-y'>
-          {unpriced
-            .slice(start, start + 25)
-            .map(({ channel, name, model }) => (
-              <li
-                key={JSON.stringify([channel.id, model])}
-                className='flex flex-wrap items-center justify-between gap-3 py-3'
+          {unpriced.slice(start, start + 25).map(({ channel, name, model }) => (
+            <li
+              key={JSON.stringify([channel.id, model])}
+              className='flex flex-wrap items-center justify-between gap-3 py-3'
+            >
+              <div className='min-w-0'>
+                <p className='font-medium [overflow-wrap:anywhere]'>{model}</p>
+                <p className='text-muted-foreground text-sm [overflow-wrap:anywhere]'>
+                  {name} #{channel.id}
+                </p>
+              </div>
+              <Button
+                type='button'
+                variant='outline'
+                disabled={writeDisabled}
+                onClick={() => {
+                  setOnboardingModel(model)
+                  setOnboardingId(channel.id)
+                }}
               >
-                <div className='min-w-0'>
-                  <p className='font-medium [overflow-wrap:anywhere]'>
-                    {model}
-                  </p>
-                  <p className='text-muted-foreground text-sm [overflow-wrap:anywhere]'>
-                    {name} #{channel.id}
-                  </p>
-                </div>
-                <Button
-                  type='button'
-                  variant='outline'
-                  disabled={writeDisabled}
-                  onClick={() => {
-                    setOnboardingModel(model)
-                    setOnboardingId(channel.id)
-                  }}
-                >
-                  {t('Model onboarding')}
-                </Button>
-              </li>
-            ))}
+                {t('Model onboarding')}
+              </Button>
+            </li>
+          ))}
         </ul>
       )}
       {section === 'prices' && (

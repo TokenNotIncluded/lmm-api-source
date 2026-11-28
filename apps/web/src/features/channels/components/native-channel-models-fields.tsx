@@ -16,6 +16,7 @@ import {
   toggleChannelAttachment,
   updateChannelAttachment,
   type NativeChannelDraft,
+  type NativeTargetFieldsValue,
 } from '../lib/native-routing-form'
 import type { NativeConfiguration } from '../native-api'
 import { NativeTargetTimeoutField } from './native-target-timeout-field'
@@ -84,7 +85,7 @@ export function NativeChannelModelsFields({
 }) {
   const { t } = useTranslation()
   const [modelSearch, setModelSearch] = useState('')
-  const [selected, setSelected] = useState<number[]>([])
+  const [selected, setSelected] = useState<string[]>([])
   const [collapsed, setCollapsed] = useState<number[]>(() => {
     const initial = readChannelDraft(document)
     return (
@@ -101,29 +102,40 @@ export function NativeChannelModelsFields({
   })
   const draft = readChannelDraft(document)
   if (!draft) return null
-  const removingLastModel = draft.enabled && draft.attachments.length === 1
   const current = draft
+  const routes = new Map(
+    configuration.routing.routes.map((route) => [route.id, route])
+  )
+  const configured = new Map<string, NativeChannelDraft['attachments']>()
+  for (const item of draft.attachments) {
+    const name = routes.get(item.route_id)?.model ?? item.upstream_model
+    const key = JSON.stringify([name, item.upstream_model])
+    const group = configured.get(key)
+    if (group) group.push(item)
+    else configured.set(key, [item])
+  }
+  const removingLastModel = draft.enabled && configured.size === 1
   const openAi =
     draft.protocol === 'openai_chat' || draft.protocol === 'openai_responses'
   const put = (next: NativeChannelDraft) =>
     onChange(JSON.stringify(next, null, 2))
   const available = configuration.routing.routes.filter(
-    (route) => !draft.attachments.some((item) => item.route_id === route.id)
-  )
-  const searchTerm = modelSearch.trim().toLowerCase()
-  const matches = available.filter(
     (route) =>
-      route.model.toLowerCase().includes(searchTerm) ||
-      route.group.toLowerCase().includes(searchTerm)
+      (draft.groups ?? []).includes(route.group) &&
+      !draft.attachments.some((item) => item.route_id === route.id)
+  )
+  const names = [...new Set(available.map((route) => route.model))]
+  const searchTerm = modelSearch.trim().toLowerCase()
+  const matches = names.filter((model) =>
+    model.toLowerCase().includes(searchTerm)
   )
   const selectedRoutes = available.filter((route) =>
-    selected.includes(route.id)
+    selected.includes(route.model)
   )
+  const selectedCount = new Set(selectedRoutes.map((route) => route.model)).size
   const allMatchesSelected =
-    matches.length > 0 && matches.every((route) => selected.includes(route.id))
-  const someMatchesSelected = matches.some((route) =>
-    selected.includes(route.id)
-  )
+    matches.length > 0 && matches.every((model) => selected.includes(model))
+  const someMatchesSelected = matches.some((model) => selected.includes(model))
   function addSelectedModels() {
     if (selectedRoutes.length === 0) return
     put(
@@ -133,7 +145,9 @@ export function NativeChannelModelsFields({
         current
       )
     )
-    setCollapsed((ids) => ids.filter((id) => !selected.includes(id)))
+    setCollapsed((ids) =>
+      ids.filter((id) => !selectedRoutes.some((route) => route.id === id))
+    )
     setSelected([])
   }
   const tool = ['deepseek_search', 'deepseek_fetch'].includes(draft.protocol)
@@ -160,9 +174,7 @@ export function NativeChannelModelsFields({
     put({
       ...current,
       contexts: contexts.map((context) =>
-        context.upstream_model === model
-          ? { ...context, ...patch }
-          : context
+        context.upstream_model === model ? { ...context, ...patch } : context
       ),
     })
   }
@@ -177,19 +189,19 @@ export function NativeChannelModelsFields({
           {configuredOnly ? t('Configured') : t('Models')}
         </span>
         <span className='text-muted-foreground min-w-0 flex-1 truncate text-sm'>
-          {draft.attachments
+          {[...configured.values()]
             .slice(0, 2)
             .map(
-              (attachment) =>
+              ([attachment]) =>
                 configuration.routing.routes.find(
                   (route) => route.id === attachment.route_id
                 )?.model ?? attachment.upstream_model
             )
             .join(' · ') || t('No models selected')}
         </span>
-        {draft.attachments.length > 0 && (
+        {configured.size > 0 && (
           <span className='text-muted-foreground shrink-0 text-xs tabular-nums'>
-            {t('{{count}} selected', { count: draft.attachments.length })}
+            {t('{{count}} selected', { count: configured.size })}
           </span>
         )}
         <ChevronDown
@@ -197,10 +209,23 @@ export function NativeChannelModelsFields({
           className='size-4 shrink-0 transition-transform group-open/models:rotate-180 motion-reduce:transition-none'
         />
       </summary>
-      {draft.attachments.map((attachment) => {
-        const route = configuration.routing.routes.find(
-          (item) => item.id === attachment.route_id
-        )
+      {[...configured.values()].map((attachments) => {
+        const [attachment] = attachments
+        const route = routes.get(attachment.route_id)
+        function patchModel(patch: Partial<NativeTargetFieldsValue>) {
+          put(
+            attachments.reduce(
+              (next, item) =>
+                updateChannelAttachment(
+                  next,
+                  item.route_id,
+                  patch,
+                  configuration.bindings.contexts
+                ),
+              current
+            )
+          )
+        }
         const enabledProtocols = attachment.client_protocols ?? []
         const policy = attachment.payload
         const flags =
@@ -255,19 +280,6 @@ export function NativeChannelModelsFields({
                     route?.model ||
                     attachment.upstream_model}
                 </span>
-                <span className='text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs'>
-                  {route && (
-                    <span>
-                      {t('Group')}: {route.group}
-                    </span>
-                  )}
-                  <span>
-                    {t('Priority')}: {attachment.priority}
-                  </span>
-                  <span>
-                    {t('Weight')}: {attachment.weight}
-                  </span>
-                </span>
               </span>
               <ChevronDown
                 className='text-muted-foreground size-4 shrink-0 transition-transform group-open/model:rotate-180 motion-reduce:transition-none'
@@ -296,14 +308,18 @@ export function NativeChannelModelsFields({
                   disabled={disabled || removingLastModel}
                   onClick={() =>
                     put(
-                      toggleChannelAttachment(
-                        draft,
-                        route ?? {
-                          id: attachment.route_id,
-                          model: attachment.upstream_model,
-                          speeds: attachment.speeds,
-                        },
-                        false
+                      attachments.reduce(
+                        (next, item) =>
+                          toggleChannelAttachment(
+                            next,
+                            {
+                              id: item.route_id,
+                              model: item.upstream_model,
+                              speeds: item.speeds,
+                            },
+                            false
+                          ),
+                        current
                       )
                     )
                   }
@@ -320,63 +336,17 @@ export function NativeChannelModelsFields({
                   required
                   disabled={disabled}
                   onChange={(event) =>
-                    put(
-                      updateChannelAttachment(
-                        draft,
-                        attachment.route_id,
-                        { upstream_model: event.target.value },
-                        configuration.bindings.contexts
-                      )
-                    )
+                    patchModel({ upstream_model: event.target.value })
                   }
                 />
               </label>
-              <p className='text-muted-foreground text-sm'>
-                {t(
-                  'Lower priority values run first. Weight distributes requests within the same priority.'
-                )}
-              </p>
-              <div className='grid min-w-0 gap-4 @min-[40rem]/routing:grid-cols-3'>
-                <IntegerField
-                  label={t('Priority')}
-                  value={attachment.priority}
-                  max={65_535}
-                  disabled={disabled}
-                  onChange={(priority) =>
-                    put(
-                      updateChannelAttachment(draft, attachment.route_id, {
-                        priority,
-                      })
-                    )
-                  }
-                />
-                <IntegerField
-                  label={t('Weight')}
-                  value={attachment.weight}
-                  max={4_294_967_295}
-                  disabled={disabled}
-                  onChange={(weight) =>
-                    put(
-                      updateChannelAttachment(draft, attachment.route_id, {
-                        weight,
-                      })
-                    )
-                  }
-                />
-                <NativeTargetTimeoutField
-                  value={attachment.timeout_ms}
-                  configuration={configuration}
-                  enabled={draft.enabled}
-                  disabled={disabled}
-                  onChange={(timeout_ms) =>
-                    put(
-                      updateChannelAttachment(draft, attachment.route_id, {
-                        timeout_ms,
-                      })
-                    )
-                  }
-                />
-              </div>
+              <NativeTargetTimeoutField
+                value={attachment.timeout_ms}
+                configuration={configuration}
+                enabled={draft.enabled}
+                disabled={disabled}
+                onChange={(timeout_ms) => patchModel({ timeout_ms })}
+              />
               <details open={!publishedContract}>
                 <summary className='cursor-pointer py-2 text-sm font-medium'>
                   {t('Supplier contract')}
@@ -433,7 +403,9 @@ export function NativeChannelModelsFields({
                         }}
                       >
                         <option value=''>{t('Unverified')}</option>
-                        <option value='true'>{t('Verified by operator')}</option>
+                        <option value='true'>
+                          {t('Verified by operator')}
+                        </option>
                         <option value='false'>{t('Ignores the limit')}</option>
                       </select>
                       <span className='text-muted-foreground block'>
@@ -474,14 +446,12 @@ export function NativeChannelModelsFields({
                     disabled={disabled}
                     onChange={(event) => {
                       const value = event.target.value
-                      put(
-                        updateChannelAttachment(draft, attachment.route_id, {
-                          payload:
-                            value === 'legacy_openai'
-                              ? { legacy_openai: {} }
-                              : value,
-                        })
-                      )
+                      patchModel({
+                        payload:
+                          value === 'legacy_openai'
+                            ? { legacy_openai: {} }
+                            : value,
+                      })
                     }}
                   >
                     {!policies.includes(policyValue) && (
@@ -509,15 +479,17 @@ export function NativeChannelModelsFields({
                   <Button
                     type='button'
                     size='sm'
-                    variant={attachment.client_protocols == null ? 'secondary' : 'outline'}
+                    variant={
+                      attachment.client_protocols == null
+                        ? 'secondary'
+                        : 'outline'
+                    }
                     aria-pressed={attachment.client_protocols == null}
                     disabled={disabled}
                     onClick={() =>
-                      put(
-                        updateChannelAttachment(draft, attachment.route_id, {
-                          client_protocols: null,
-                        })
-                      )
+                      patchModel({
+                        client_protocols: null,
+                      })
                     }
                   >
                     {t('Automatic')}
@@ -526,18 +498,24 @@ export function NativeChannelModelsFields({
                     {nativeProtocols.map((protocol) => {
                       const enabled = enabledProtocols.includes(protocol)
                       return (
-                        <label key={protocol} className='flex items-center gap-2 text-sm'>
+                        <label
+                          key={protocol}
+                          className='flex items-center gap-2 text-sm'
+                        >
                           <Checkbox
                             checked={enabled}
-                            disabled={disabled || (enabled && enabledProtocols.length === 1)}
+                            disabled={
+                              disabled ||
+                              (enabled && enabledProtocols.length === 1)
+                            }
                             onCheckedChange={(checked) =>
-                              put(
-                                updateChannelAttachment(draft, attachment.route_id, {
-                                  client_protocols: checked
-                                    ? [...enabledProtocols, protocol]
-                                    : enabledProtocols.filter((value) => value !== protocol),
-                                })
-                              )
+                              patchModel({
+                                client_protocols: checked
+                                  ? [...enabledProtocols, protocol]
+                                  : enabledProtocols.filter(
+                                      (value) => value !== protocol
+                                    ),
+                              })
                             }
                           />
                           {nativeProtocolLabel(protocol, t)}
@@ -567,20 +545,14 @@ export function NativeChannelModelsFields({
                             checked={flags[key] === true}
                             disabled={disabled}
                             onCheckedChange={(checked) =>
-                              put(
-                                updateChannelAttachment(
-                                  draft,
-                                  attachment.route_id,
-                                  {
-                                    payload: {
-                                      legacy_openai: {
-                                        ...flags,
-                                        [key]: checked,
-                                      },
-                                    },
-                                  }
-                                )
-                              )
+                              patchModel({
+                                payload: {
+                                  legacy_openai: {
+                                    ...flags,
+                                    [key]: checked,
+                                  },
+                                },
+                              })
                             }
                           />
                         </label>
@@ -600,15 +572,10 @@ export function NativeChannelModelsFields({
         >
           <div className='space-y-1'>
             <h5 className='text-sm font-medium'>{t('Available models')}</h5>
-            <p className='text-muted-foreground text-sm'>
-              {t(
-                'Choose models from the catalog. Search by model ID or group.'
-              )}
-            </p>
           </div>
           <Input
-            aria-label={t('Search models or groups')}
-            placeholder={t('Search models or groups')}
+            aria-label={t('Search models')}
+            placeholder={t('Search models')}
             className='min-h-11'
             value={modelSearch}
             disabled={disabled}
@@ -623,15 +590,8 @@ export function NativeChannelModelsFields({
                 onCheckedChange={(checked) =>
                   setSelected((ids) =>
                     checked
-                      ? [
-                          ...new Set([
-                            ...ids,
-                            ...matches.map((route) => route.id),
-                          ]),
-                        ]
-                      : ids.filter(
-                          (id) => !matches.some((route) => route.id === id)
-                        )
+                      ? [...new Set([...ids, ...matches])]
+                      : ids.filter((model) => !matches.includes(model))
                   )
                 }
               />
@@ -641,7 +601,7 @@ export function NativeChannelModelsFields({
               className='text-muted-foreground text-sm tabular-nums'
               role='status'
             >
-              {t('{{count}} selected', { count: selectedRoutes.length })}
+              {t('{{count}} selected', { count: selectedCount })}
             </span>
           </div>
           <div className='max-h-56 min-w-0 overflow-y-auto overscroll-contain'>
@@ -651,29 +611,26 @@ export function NativeChannelModelsFields({
               </p>
             ) : (
               <div className='grid min-w-0 gap-1 @min-[40rem]/routing:grid-cols-2'>
-                {matches.map((route) => (
+                {matches.map((model) => (
                   <label
-                    key={route.id}
+                    key={model}
                     className='hover:bg-muted/70 flex min-h-12 min-w-0 cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5'
                   >
                     <Checkbox
                       className='mt-0.5 shrink-0'
-                      checked={selected.includes(route.id)}
+                      checked={selected.includes(model)}
                       disabled={disabled}
                       onCheckedChange={(checked) =>
                         setSelected((ids) =>
                           checked
-                            ? [...ids, route.id]
-                            : ids.filter((id) => id !== route.id)
+                            ? [...ids, model]
+                            : ids.filter((id) => id !== model)
                         )
                       }
                     />
                     <span className='min-w-0 space-y-0.5'>
                       <span className='block font-mono text-sm [overflow-wrap:anywhere]'>
-                        {route.model}
-                      </span>
-                      <span className='text-muted-foreground block text-xs [overflow-wrap:anywhere]'>
-                        {route.group}
+                        {model}
                       </span>
                     </span>
                   </label>

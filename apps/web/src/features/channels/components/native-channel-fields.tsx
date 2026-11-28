@@ -30,6 +30,7 @@ import {
   resolveNativeProvider,
 } from '../lib/native-provider'
 import {
+  commonChannelTargetValue,
   nativeProtocolLabel,
   nativeProtocols,
   readChannelDraft,
@@ -108,7 +109,6 @@ function ChannelModelCatalog({
   const { t } = useTranslation()
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
-  const [group, setGroup] = useState('')
   const [mappingModel, setMappingModel] = useState('')
   const [mappingRouteId, setMappingRouteId] = useState('')
   const mappingId = useId()
@@ -148,17 +148,28 @@ function ChannelModelCatalog({
   const canMap =
     mappingRoute &&
     models.has(mappingModel) &&
-    attached.get(mappingRoute.id) !== mappingModel
-  const missing =
+    routes.some(
+      (route) =>
+        route.model === mappingRoute.model &&
+        attached.get(route.id) !== mappingModel
+    )
+  const missingAttachments =
     catalog.isSuccess && models.size > 0
       ? (draft?.attachments.filter(
           (item) => !models.has(item.upstream_model)
         ) ?? [])
       : []
+  const missing = new Map<string, NativeChannelDraft['attachments']>()
+  for (const item of missingAttachments) {
+    const matches = missing.get(item.upstream_model)
+    if (matches) matches.push(item)
+    else missing.set(item.upstream_model, [item])
+  }
   const configuredModels = new Set(attached.values())
   const removingLastModel =
-    draft?.enabled === true && missing.length === draft.attachments.length
-  const createGroup = group || (groups.length === 1 ? groups[0] : '')
+    draft?.enabled === true &&
+    missingAttachments.length === draft.attachments.length
+  const createGroup = groups[0] ?? ''
   const available = [...new Set([...models, ...routesByModel.keys()])].filter(
     (model) => {
       const matches = routesByModel.get(model) ?? []
@@ -168,20 +179,11 @@ function ChannelModelCatalog({
     }
   )
   const query = search.trim().toLowerCase()
-  const filtered = available.filter((model) => {
-    const matches = (routesByModel.get(model) ?? []).filter(
-      (route) => !attached.has(route.id) && (!group || route.group === group)
-    )
-    return (
-      (!group || matches.length > 0 || !routesByModel.has(model)) &&
-      (model.toLowerCase().includes(query) ||
-        matches.some((route) => route.group.toLowerCase().includes(query)))
-    )
-  })
+  const filtered = available.filter((model) =>
+    model.toLowerCase().includes(query)
+  )
   const matchingRoutes = filtered.flatMap((model) =>
-    (routesByModel.get(model) ?? []).filter(
-      (route) => !attached.has(route.id) && (!group || route.group === group)
-    )
+    (routesByModel.get(model) ?? []).filter((route) => !attached.has(route.id))
   )
   const pageCount = Math.max(1, Math.ceil(filtered.length / catalogPageSize))
   const currentPage = Math.min(page, pageCount)
@@ -223,27 +225,24 @@ function ChannelModelCatalog({
           {getServerErrorMessage(catalog.error) ?? t('Failed to load data')}
         </p>
       )}
-      {missing.length > 0 && (
+      {missing.size > 0 && (
         <details className='min-w-0 border-t'>
           <summary className='min-h-11 cursor-pointer py-3 text-sm font-medium'>
-            {t('Models missing from the upstream catalog')} ({missing.length})
+            {t('Models missing from the upstream catalog')} ({missing.size})
           </summary>
           <ul className='max-h-52 overflow-y-auto'>
-            {missing.map((item) => {
-              const group = routes.find(
-                (route) => route.id === item.route_id
-              )?.group
-              const labelId = `${mappingId}-missing-${item.route_id}`
+            {[...missing].map(([model, attachments]) => {
+              const labelId = `${mappingId}-missing-${attachments[0].route_id}`
               return (
                 <li
-                  key={item.route_id}
+                  key={model}
                   className='flex min-w-0 flex-wrap items-center justify-between gap-2 py-1'
                 >
                   <span
                     id={labelId}
                     className='min-w-0 text-sm [overflow-wrap:anywhere]'
                   >
-                    {item.upstream_model} · {group ?? `#${item.route_id}`}
+                    {model}
                   </span>
                   <Button
                     type='button'
@@ -254,9 +253,9 @@ function ChannelModelCatalog({
                     disabled={
                       disabled ||
                       (draft?.enabled === true &&
-                        draft.attachments.length === 1)
+                        draft.attachments.length === attachments.length)
                     }
-                    onClick={() => onRemove([item])}
+                    onClick={() => onRemove(attachments)}
                   >
                     {t('Remove')}
                   </Button>
@@ -271,15 +270,15 @@ function ChannelModelCatalog({
               )}
             </p>
           )}
-          {missing.length > 1 && (
+          {missing.size > 1 && (
             <Button
               type='button'
               variant='outline'
               className='my-2 min-h-11'
               disabled={disabled || removingLastModel}
-              onClick={() => onRemove(missing)}
+              onClick={() => onRemove(missingAttachments)}
             >
-              {t('Remove from draft')} ({missing.length})
+              {t('Remove from draft')} ({missing.size})
             </Button>
           )}
         </details>
@@ -301,37 +300,21 @@ function ChannelModelCatalog({
           aria-label={t('Available models')}
           className='min-w-0 space-y-3 pb-3'
         >
-          <div className='grid min-w-0 gap-2 sm:grid-cols-2'>
-            <Input
-              className='min-h-11'
-              aria-label={t('Search models or groups')}
-              placeholder={t('Search models or groups')}
-              value={search}
-              onChange={(event) => {
-                setSearch(event.target.value)
-                setPage(1)
-              }}
-            />
-            <select
-              aria-label={t('Group')}
-              value={group}
-              className='border-input bg-background min-h-11 min-w-0 rounded-md border px-3 text-sm'
-              onChange={(event) => {
-                setGroup(event.target.value)
-                setPage(1)
-              }}
-            >
-              <option value=''>{t('All groups')}</option>
-              {groups.map((value) => (
-                <option key={value}>{value}</option>
-              ))}
-            </select>
-          </div>
+          <Input
+            className='min-h-11'
+            aria-label={t('Search models')}
+            placeholder={t('Search models')}
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value)
+              setPage(1)
+            }}
+          />
           {onCreate &&
             !createGroup &&
             filtered.some((model) => !routesByModel.has(model)) && (
               <p className='text-muted-foreground text-xs'>
-                {t('Select a group for new models.')}
+                {t('Group is required')}
               </p>
             )}
           {matchingRoutes.length > 0 && (
@@ -381,9 +364,13 @@ function ChannelModelCatalog({
                   placeholder={t('Search models')}
                   emptyText={t('No models found')}
                   maxVisibleOptions={catalogPageSize}
-                  options={routes.map((route) => ({
+                  options={[
+                    ...new Map(
+                      routes.map((route) => [route.model, route])
+                    ).values(),
+                  ].map((route) => ({
                     value: String(route.id),
-                    label: `${route.model} · ${route.group}`,
+                    label: route.model,
                   }))}
                   value={mappingRouteId}
                   onValueChange={(id) => setMappingRouteId(id ?? '')}
@@ -411,8 +398,7 @@ function ChannelModelCatalog({
             >
               {visibleModels.map((model) => {
                 const matches = (routesByModel.get(model) ?? []).filter(
-                  (route) =>
-                    !attached.has(route.id) && (!group || route.group === group)
+                  (route) => !attached.has(route.id)
                 )
                 return (
                   <li
@@ -422,23 +408,18 @@ function ChannelModelCatalog({
                     <span className='min-w-0 font-mono text-sm [overflow-wrap:anywhere]'>
                       {model}
                     </span>
-                    {matches.map((route) => (
+                    {matches.length > 0 && (
                       <Button
-                        key={route.id}
                         type='button'
                         variant='outline'
                         size='sm'
-                        className='min-h-11 max-w-full [overflow-wrap:anywhere] whitespace-normal'
-                        aria-label={t('Add {{model}} to {{group}}', {
-                          model,
-                          group: route.group,
-                        })}
+                        className='min-h-11'
                         disabled={disabled}
-                        onClick={() => addBindings([route])}
+                        onClick={() => addBindings(matches)}
                       >
-                        {t('Add')} · {route.group}
+                        {t('Add')}
                       </Button>
-                    ))}
+                    )}
                     {onCreate && matches.length === 0 && (
                       <Button
                         type='button'
@@ -631,6 +612,79 @@ export function NativeChannelFields({
       {t('Enabled')}
     </label>
   )
+  const channel = readChannelDraft(document)
+  const groups = channel?.groups ?? []
+  const routes = configuration.routing.routes.filter((route) =>
+    groups.includes(route.group)
+  )
+  const changeRouting = (
+    field: 'priority' | 'weight',
+    input: HTMLInputElement
+  ) => {
+    if (input.value !== '' && !input.validity.valid) return
+    if (input.value === '') {
+      onChange(stringifyNativeDocument({ ...draft, [field]: '' }, 2))
+      return
+    }
+    onChange(
+      stringifyNativeDocument({ ...draft, [field]: input.valueAsNumber }, 2)
+    )
+  }
+  const routingFields = (
+    <fieldset className='min-w-0 space-y-3' disabled={disabled}>
+      <legend className='text-sm font-medium'>{t('Groups *')}</legend>
+      <div className='flex flex-wrap gap-x-5 gap-y-2'>
+        {configuration.routing.groups.map(({ name }) => (
+          <label key={name} className='flex min-h-9 items-center gap-2 text-sm'>
+            <Checkbox
+              checked={groups.includes(name)}
+              onCheckedChange={(checked) =>
+                onChange(
+                  stringifyNativeDocument(
+                    {
+                      ...draft,
+                      groups: checked
+                        ? [...groups, name]
+                        : groups.filter((group) => group !== name),
+                    },
+                    2
+                  )
+                )
+              }
+            />
+            {name}
+          </label>
+        ))}
+      </div>
+      <div className='grid min-w-0 grid-cols-2 gap-4'>
+        {(
+          [
+            ['priority', t('Priority'), 65_535],
+            ['weight', t('Weight'), 4_294_967_295],
+          ] as const
+        ).map(([field, label, max]) => (
+          <label key={field} className='block min-w-0 space-y-2 text-sm'>
+            <span>{label}</span>
+            <Input
+              className='min-h-11 tabular-nums'
+              type='number'
+              min={0}
+              max={max}
+              step={1}
+              placeholder={t('Mixed values')}
+              required={channel?.[field] === ''}
+              value={
+                channel?.[field] ??
+                commonChannelTargetValue(channel?.attachments ?? [], field) ??
+                ''
+              }
+              onChange={(event) => changeRouting(field, event.currentTarget)}
+            />
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  )
   const connectionFields = (
     <>
       <label className='block min-w-0 space-y-2'>
@@ -775,6 +829,7 @@ export function NativeChannelFields({
         {connectionFields}
         {enabledField}
       </div>
+      {routingFields}
       <section className='min-w-0 space-y-2' aria-label={t('Models')}>
         <h4 className='text-sm font-semibold'>{t('Models')}</h4>
         {!catalogMatchesDraft && (
@@ -789,30 +844,27 @@ export function NativeChannelFields({
             fetchModels={catalogMatchesDraft ? fetchModels : undefined}
             fetchCatalogOnOpen={!!catalogMatchesDraft && fetchCatalogOnOpen}
             savedModels={catalogMatchesDraft ? savedModels : undefined}
-            routes={configuration.routing.routes}
-            groups={configuration.routing.groups.map((group) => group.name)}
+            routes={routes}
+            groups={groups}
             draft={readChannelDraft(document)}
             onCreate={onCreateModel}
             onMap={(route, model) => {
               const current = readChannelDraft(document)
               if (!current) return
-              const attached = toggleChannelAttachment(
-                current,
-                route,
-                true,
-                configuration
+              const matches = routes.filter(
+                (item) => item.model === route.model
               )
-              onChange(
-                stringifyNativeDocument(
+              const next = matches.reduce(
+                (next, item) =>
                   updateChannelAttachment(
-                    attached,
-                    route.id,
+                    toggleChannelAttachment(next, item, true, configuration),
+                    item.id,
                     { upstream_model: model },
                     configuration.bindings.contexts
                   ),
-                  2
-                )
+                current
               )
+              onChange(stringifyNativeDocument(next, 2))
               editModelBindings()
             }}
             onRemove={(attachments) => {

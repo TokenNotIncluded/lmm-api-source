@@ -563,7 +563,7 @@ impl ManagedChannels {
         mut tx: Transaction<'_, Postgres>,
         principal: &identity::Principal,
         expected: Version,
-        document: ReleaseDocument,
+        mut document: ReleaseDocument,
         bindings: Bindings,
         incoming_keys: Vec<crate::model_http::UpstreamCredential>,
         change: PublicationChange,
@@ -577,6 +577,7 @@ impl ManagedChannels {
             .iter()
             .map(|c| (c.reference.id, c.reference.revision))
             .collect();
+        bindings.apply_channel_target_defaults(&mut document.routing);
         self.validate_bindings(&document, &bindings, &refs)?;
         let active: Option<Value> = sqlx::query_scalar("SELECT public.routing_control_read()")
             .fetch_one(&mut *tx)
@@ -904,6 +905,7 @@ pub(super) async fn remove(
     bindings.names.remove(&id);
     bindings.tags.remove(&id);
     bindings.channel_groups.remove(&id);
+    bindings.channel_target_defaults.remove(&id);
     bindings.channel_notes.remove(&id);
     bindings.channel_providers.remove(&id);
     bindings.key_pools.remove(&id);

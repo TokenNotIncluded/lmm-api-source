@@ -300,7 +300,10 @@ test('channel editing does not expose model and group prices', async () => {
   const form = required(
     container.querySelector('form[aria-label="Edit Channel"]')
   )
-  assert.doesNotMatch(form.textContent ?? '', /Group price rules|Edit group prices/)
+  assert.doesNotMatch(
+    form.textContent ?? '',
+    /Group price rules|Edit group prices/
+  )
 })
 
 test('prices require a reviewed preview and editing invalidates the exact confirmation before one CAS publication', async () => {
@@ -439,7 +442,9 @@ test('twenty exact tariff fractions survive price review, publication and subseq
     const wire = stringifyNativeDocument(options.data)
     if (options.url.endsWith('/models/preview')) {
       modelPreview = wire
-      return { data: { success: true, data: { confirmation_digest: 'c'.repeat(64) } } }
+      return {
+        data: { success: true, data: { confirmation_digest: 'c'.repeat(64) } },
+      }
     }
     for (const literal of literals) {
       assert.ok(wire.includes(`"numerator":${literal},`))
@@ -500,7 +505,10 @@ test('twenty exact tariff fractions survive price review, publication and subseq
   await until(() => modelPreview !== undefined)
   assert.ok(modelPreview?.includes(`"numerator":${literals[0]},`))
   assert.ok(modelPreview?.includes('Reviewed exact tariff'))
-  assert.equal(stringifyNativeDocument(config.prices).includes(literals[19]), true)
+  assert.equal(
+    stringifyNativeDocument(config.prices).includes(literals[19]),
+    true
+  )
 })
 
 test('native channel cards toggle status once with CAS and refresh the published state', async () => {
@@ -2302,6 +2310,7 @@ test('channel creation uses the permanent ID high water without publishing the r
         enabled: false,
         contexts: [],
         attachments: [],
+        groups: ['default'],
         secret: 'synthetic-create-key',
       })
       return {
@@ -2323,6 +2332,7 @@ test('channel creation uses the permanent ID high water without publishing the r
     assert.equal(draft.tag, '')
     draft.name = 'New provider'
     draft.tag = 'Launch'
+    draft.groups = ['default']
     draft.endpoint = 'https://new-provider.example/v1/'
     const textareaSetter = required(
       Object.getOwnPropertyDescriptor(
@@ -2806,7 +2816,8 @@ test('the Anthropic output limit setting saves to the selected supplier model', 
     [...form.querySelectorAll('label')]
       .find(
         (label) =>
-          label.firstElementChild?.textContent === 'Requested output token limit'
+          label.firstElementChild?.textContent ===
+          'Requested output token limit'
       )
       ?.querySelector('select')
   )
@@ -2848,6 +2859,17 @@ test('the Anthropic output limit setting saves to the selected supplier model', 
     },
   ])
 })
+
+async function toggleChannelGroup(form: Element, name: string) {
+  const label = required(
+    [...form.querySelectorAll('fieldset label')].find(
+      (item) => item.textContent?.trim() === name
+    )
+  )
+  await act(async () =>
+    required(label.querySelector<HTMLElement>('[role="checkbox"]')).click()
+  )
+}
 
 test('channel bindings add, map and remove models through one reviewed channel draft', async () => {
   const config: NativeConfiguration = fixture()
@@ -2917,6 +2939,7 @@ test('channel bindings add, map and remove models through one reviewed channel d
   )
   await act(async () => required(models.querySelector('summary')).click())
   assert.equal(models.open, true)
+  await toggleChannelGroup(form, 'team')
   const picker = required(
     form.querySelector('section[aria-label="Available models"]')
   )
@@ -2925,9 +2948,12 @@ test('channel bindings add, map and remove models through one reviewed channel d
     routeFields(1).textContent ?? '',
     /Disable the channel before removing its last configured model/
   )
-  await act(async () => button(picker, 'Add · team').click())
+  await act(async () => button(picker, 'Add').click())
   assert.ok(routeFields(2).textContent?.includes('model-b'))
-  assert.ok(routeFields(2).closest('details')?.textContent?.includes('team'))
+  assert.doesNotMatch(
+    routeFields(2).textContent ?? '',
+    /Priority|Weight|Group:/
+  )
   assert.equal(required(routeFields(2).closest('details')).open, true)
   assert.equal(required(routeFields(1).closest('details')).open, false)
   assert.equal(writes.length, 0)
@@ -2943,12 +2969,12 @@ test('channel bindings add, map and remove models through one reviewed channel d
   assert.equal(models.open, true)
   assert.equal(supplier.open, true)
   await changeInput(field(routeFields(2), 'Upstream model'), 'supplier-b')
-  await changeInput(field(routeFields(2), 'Priority'), '2')
-  await changeInput(field(routeFields(2), 'Weight'), '')
+  await changeInput(field(form, 'Priority'), '2')
+  await changeInput(field(form, 'Weight'), '')
   assert.ok(routeFields(2))
-  assert.equal(JSON.parse(textarea.value).attachments[1].weight, '')
+  assert.equal(JSON.parse(textarea.value).weight, '')
   await act(async () => assert.equal(form.checkValidity(), false))
-  await changeInput(field(routeFields(2), 'Weight'), '7')
+  await changeInput(field(form, 'Weight'), '7')
   await changeInput(field(routeFields(2), 'Timeout (ms)'), '15000')
   await changeInput(field(routeFields(2), 'Maximum input tokens'), '16384')
   await changeInput(field(routeFields(2), 'Maximum output tokens'), '2048')
@@ -2961,12 +2987,15 @@ test('channel bindings add, map and remove models through one reviewed channel d
   assert.equal(writes.length, 0)
   const draft = JSON.parse(textarea.value)
   assert.deepEqual(draft.expected_version, { routing: 1, pricing: 1 })
+  assert.deepEqual(draft.groups, ['default', 'team'])
+  assert.equal(draft.priority, 2)
+  assert.equal(draft.weight, 7)
   assert.deepEqual(draft.attachments, [
     {
       route_id: 2,
       upstream_model: 'supplier-b',
-      priority: 2,
-      weight: 7,
+      priority: 0,
+      weight: 1,
       speeds: ['standard'],
       timeout_ms: 15000,
       payload: 'adapt',
@@ -3035,19 +3064,18 @@ test('channel model multi-selection survives filtering and adds distinct binding
   const form = required(
     container.querySelector<HTMLFormElement>('form[aria-label="Edit Channel"]')
   )
+  await toggleChannelGroup(form, 'team')
   const picker = required(
     form.querySelector('section[aria-label="Available models"]')
   )
   const search = required(
-    picker.querySelector<HTMLInputElement>(
-      'input[aria-label="Search models or groups"]'
-    )
+    picker.querySelector<HTMLInputElement>('input[aria-label="Search models"]')
   )
   await changeInput(search, 'model-b')
   await act(async () => button(picker, 'Add matching bindings (2)').click())
   await changeInput(search, 'no matching model')
   assert.ok(picker.textContent?.includes('No models found'))
-  await changeInput(search, 'team')
+  await changeInput(search, 'model-c')
   await act(async () => button(picker, 'Add matching bindings (1)').click())
   const textarea = required(form.querySelector('textarea'))
   const draft = JSON.parse(textarea.value)
@@ -3069,7 +3097,8 @@ test('channel model multi-selection survives filtering and adds distinct binding
     false,
     'new supplier contracts still require explicit input'
   )
-  for (const id of [2, 3, 4]) {
+  assert.equal(form.querySelector('[data-route-id="3"]'), null)
+  for (const id of [2, 4]) {
     const fields = required(
       form.querySelector(`fieldset[data-route-id="${id}"]`)
     )
@@ -3098,10 +3127,10 @@ test('channel model multi-selection survives filtering and adds distinct binding
   const removed = JSON.parse(textarea.value)
   assert.deepEqual(
     removed.attachments.map((item: { route_id: number }) => item.route_id),
-    [1, 3, 4]
+    [1, 4]
   )
   assert.ok(
-    removed.contexts.some(
+    !removed.contexts.some(
       (item: { upstream_model: string }) => item.upstream_model === 'model-b'
     )
   )
@@ -3475,7 +3504,13 @@ test('adding a model uses its official price in any selected group', async () =>
       'new-model-2': {
         source: 'manual',
         source_unit: 'USD/1M tokens',
-        rates: { input: 100, output: 200, cache_read: 0, cache_write: 0, request: 0 },
+        rates: {
+          input: 100,
+          output: 200,
+          cache_read: 0,
+          cache_write: 0,
+          request: 0,
+        },
       },
     },
     group_multipliers_ppm: {},
@@ -4621,7 +4656,13 @@ test('fetching a channel catalog previews editable changes and only Save publish
       'catalog-last': {
         source: 'manual',
         source_unit: 'USD/1M tokens',
-        rates: { input: 100, output: 200, cache_read: 0, cache_write: 0, request: 0 },
+        rates: {
+          input: 100,
+          output: 200,
+          cache_read: 0,
+          cache_write: 0,
+          request: 0,
+        },
       },
     },
     group_multipliers_ppm: {},
@@ -4746,6 +4787,7 @@ test('fetching a channel catalog previews editable changes and only Save publish
     container.querySelector<HTMLFormElement>('form[aria-label="Edit Channel"]')
   )
   await until(() => form.textContent?.includes('unpublished-model') === true)
+  await toggleChannelGroup(form, 'review')
   const picker = required(
     form.querySelector('section[aria-label="Available models"]')
   )
@@ -4757,14 +4799,12 @@ test('fetching a channel catalog previews editable changes and only Save publish
   assert.equal(writes.length, 0)
   assert.doesNotMatch(form.textContent ?? '', /saved-only-model/)
   assert.equal(catalogReads, 1)
-  await act(async () => button(picker, 'Add · default').click())
+  await act(async () => button(picker, 'Add').click())
   const models = required(
     form.querySelector('details[aria-label="Models"] summary')
   )
   assert.match(models.textContent ?? '', /model-b/)
   assert.match(models.textContent ?? '', /2 selected/)
-  await act(async () => button(picker, 'Add · review').click())
-  assert.match(models.textContent ?? '', /3 selected/)
   const missingSection = () =>
     [...form.querySelectorAll('details')].find((item) =>
       item.firstElementChild?.textContent?.includes(
@@ -4785,26 +4825,12 @@ test('fetching a channel catalog previews editable changes and only Save publish
   returnedModels = ['model-a']
   await act(async () => button(form, 'Fetch Models').click())
   await until(() => !!missingSection())
-  assert.equal(
-    button(required(missingSection()), 'Remove from draft (2)').disabled,
-    false
-  )
-  await act(async () =>
-    button(missingRow('model-b · review'), 'Remove').click()
-  )
+  assert.equal(required(missingSection()).querySelectorAll('li').length, 1)
+  await act(async () => button(missingRow('model-b'), 'Remove').click())
   const remaining = JSON.parse(required(form.querySelector('textarea')).value)
   assert.deepEqual(
     remaining.attachments.map((item: { route_id: number }) => item.route_id),
-    [1, 2]
-  )
-  assert.ok(
-    remaining.contexts.some(
-      (item: { upstream_model: string }) => item.upstream_model === 'model-b'
-    )
-  )
-  assert.equal(required(missingSection()).querySelectorAll('li').length, 1)
-  await act(async () =>
-    button(missingRow('model-b · default'), 'Remove').click()
+    [1]
   )
   assert.doesNotMatch(models.textContent ?? '', /model-b/)
   assert.match(models.textContent ?? '', /1 selected/)
@@ -4813,7 +4839,7 @@ test('fetching a channel catalog previews editable changes and only Save publish
   returnedModels = ['unpublished-model']
   await act(async () => button(form, 'Fetch Models').click())
   await until(() => !!missingSection())
-  assert.equal(button(missingRow('model-a · default'), 'Remove').disabled, true)
+  assert.equal(button(missingRow('model-a'), 'Remove').disabled, true)
   assert.match(
     form.textContent ?? '',
     /Disable the channel before removing its last configured model/
@@ -4841,7 +4867,7 @@ test('fetching a channel catalog previews editable changes and only Save publish
     )
   }
   await pick('Upstream model', 'unpublished-model')
-  await pick('Model name', 'model-a · default')
+  await pick('Model name', 'model-a')
   await act(async () => button(mapping, 'Confirm').click())
   assert.equal(missingSection(), undefined)
   assert.match(models.textContent ?? '', /model-a/)
@@ -4866,12 +4892,10 @@ test('fetching a channel catalog previews editable changes and only Save publish
   assert.equal(picker.querySelectorAll('li > span').length, 1)
   await act(async () => button(form, 'Previous page').click())
   const search = required(
-    picker.querySelector<HTMLInputElement>(
-      'input[aria-label="Search models or groups"]'
-    )
+    picker.querySelector<HTMLInputElement>('input[aria-label="Search models"]')
   )
   await changeInput(search, 'model-b')
-  await act(async () => button(picker, 'Add · default').click())
+  await act(async () => button(picker, 'Add').click())
   await changeInput(search, 'catalog-last')
   assert.equal(picker.querySelectorAll('li > span').length, 1)
   await act(async () => button(form, 'Fetch Models').click())
@@ -4888,24 +4912,20 @@ test('fetching a channel catalog previews editable changes and only Save publish
     await changeInput(field('Maximum input tokens'), '16384')
     await changeInput(field('Maximum output tokens'), '2048')
     await changeInput(field('Contract revision'), 'reviewed-v2')
-    if (row.getAttribute('data-route-id') === '2') {
-      await changeInput(field('Weight'), '17')
-    }
   }
+  const weight = required(
+    [...form.querySelectorAll('label')]
+      .find((item) => item.querySelector('span')?.textContent === 'Weight')
+      ?.querySelector('input')
+  )
+  await changeInput(weight, '17')
   const nameField = required(
     [...form.querySelectorAll('label')]
       .find((item) => item.querySelector('span')?.textContent === 'Name')
       ?.querySelector('input')
   )
   await changeInput(nameField, 'Renamed channel')
-  assert.equal(button(form, 'Add Model').disabled, true)
-  const groupField = required(
-    picker.querySelector<HTMLSelectElement>('select[aria-label="Group"]')
-  )
-  await act(async () => {
-    groupField.value = 'review'
-    groupField.dispatchEvent(new Event('change', { bubbles: true }))
-  })
+  await toggleChannelGroup(form, 'default')
   await act(async () => button(form, 'Add Model').click())
   assert.ok(
     form.textContent?.includes(
@@ -4915,6 +4935,8 @@ test('fetching a channel catalog previews editable changes and only Save publish
   assert.equal(container.querySelector('form[aria-label="Add Model"]'), null)
   const draft = JSON.parse(required(form.querySelector('textarea')).value)
   assert.equal(draft.name, 'Renamed channel')
+  assert.deepEqual(draft.groups, ['review'])
+  assert.equal(draft.weight, 17)
   assert.deepEqual(draft.expected_version, { routing: 1, pricing: 1 })
   assert.deepEqual(
     draft.attachments.map(
@@ -4925,7 +4947,8 @@ test('fetching a channel catalog previews editable changes and only Save publish
     ),
     [
       ['unpublished-model', 1],
-      ['model-b', 17],
+      ['model-b', 1],
+      ['model-b', 1],
     ]
   )
   assert.equal(writes.length, 0)

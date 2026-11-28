@@ -99,6 +99,7 @@ pub(in crate::channel_http) async fn configure(
         if let Some(enabled) = patch.enabled {
             upstream.enabled = enabled;
         }
+        bindings.set_channel_target_defaults(*id, patch.priority, patch.weight);
         if let Some(groups) = &assigned_groups {
             bindings.channel_groups.insert(*id, groups.clone());
         }
@@ -121,12 +122,6 @@ pub(in crate::channel_http) async fn configure(
     {
         configured.insert(target.upstream_id);
         target_count += 1;
-        if let Some(priority) = patch.priority {
-            target.priority = priority;
-        }
-        if let Some(weight) = patch.weight {
-            target.weight = weight;
-        }
         if let Some(timeout_ms) = patch.timeout_ms {
             target.timeout_ms = timeout_ms;
         }

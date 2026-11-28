@@ -20,6 +20,15 @@ pub(in crate::channel_http) struct KeyPool {
     pub disabled: Vec<CredentialRef>,
 }
 
+#[derive(Clone, Copy, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(in crate::channel_http) struct ChannelTargetDefaults {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weight: Option<u32>,
+}
+
 #[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(in crate::channel_http) struct Bindings {
@@ -35,6 +44,8 @@ pub(in crate::channel_http) struct Bindings {
     pub tags: BTreeMap<u64, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub channel_groups: BTreeMap<u64, BTreeSet<String>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub channel_target_defaults: BTreeMap<u64, ChannelTargetDefaults>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub channel_providers: BTreeMap<u64, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -58,6 +69,32 @@ pub(in crate::channel_http) struct Bindings {
     pub legacy_balance: BTreeMap<u64, super::balance::legacy::LegacyBalance>,
 }
 impl Bindings {
+    pub(super) fn set_channel_target_defaults(
+        &mut self,
+        id: u64,
+        priority: Option<u16>,
+        weight: Option<u32>,
+    ) {
+        if priority.is_some() || weight.is_some() {
+            let defaults = self.channel_target_defaults.entry(id).or_default();
+            defaults.priority = priority.or(defaults.priority);
+            defaults.weight = weight.or(defaults.weight);
+        }
+    }
+
+    pub(super) fn apply_channel_target_defaults(&self, routing: &mut RoutingConfig) {
+        for target in routing
+            .routes
+            .iter_mut()
+            .flat_map(|route| &mut route.targets)
+        {
+            if let Some(defaults) = self.channel_target_defaults.get(&target.upstream_id) {
+                target.priority = defaults.priority.unwrap_or(target.priority);
+                target.weight = defaults.weight.unwrap_or(target.weight);
+            }
+        }
+    }
+
     pub(in crate::channel_http) fn validate(
         &self,
         _document: &ReleaseDocument,
@@ -84,6 +121,13 @@ impl Bindings {
             .iter()
             .map(|g| g.name.as_str())
             .collect();
+        if self
+            .channel_target_defaults
+            .keys()
+            .any(|id| !upstream_ids.contains(id))
+        {
+            return Err(ManagementError::Invalid);
+        }
         for (id, assigned) in &self.channel_groups {
             if !upstream_ids.contains(id)
                 || assigned.is_empty()
@@ -234,6 +278,14 @@ impl ConfigurationInput {
         self.bindings
             .channel_groups
             .retain(|id, _| upstream_ids.contains(id));
+        self.bindings
+            .channel_target_defaults
+            .clone_from(&previous.channel_target_defaults);
+        self.bindings
+            .channel_target_defaults
+            .retain(|id, _| upstream_ids.contains(id));
+        self.bindings
+            .apply_channel_target_defaults(&mut self.routing);
         if (self.bindings.assistant_group.is_some()
             && self.bindings.assistant_group != previous.assistant_group)
             || (self.bindings.assistant_model.is_some()
@@ -732,6 +784,28 @@ fn channel_52_ordinary_save_keeps_binding_target_order_and_price() {
         (edited.priority, edited.weight, edited.timeout_ms),
         (0, 25, 7500)
     );
+    let mut selected: ChannelInput = serde_json::from_value(json!({
+        "expected_version":{"routing":23,"pricing":7},"id":52,"name":"channel 52 renamed",
+        "endpoint":"https://supplier.example","protocol":"openai_chat","enabled":false,
+        "contexts":[],"attachments":[],"groups":["default","team"],"priority":6,"weight":19
+    }))
+    .unwrap();
+    document
+        .routing
+        .groups
+        .push(serde_json::from_value(json!({"name":"team","enabled":true})).unwrap());
+    edit_document(&mut document, &mut bindings, &mut selected).unwrap();
+    assert_eq!(
+        bindings.channel_groups[&52],
+        BTreeSet::from(["default".into(), "team".into()])
+    );
+    bindings.apply_channel_target_defaults(&mut document.routing);
+    let [first, edited, last] = document.routing.routes[0].targets.as_slice() else {
+        panic!("expected all three saved targets");
+    };
+    assert_eq!((edited.priority, edited.weight), (6, 19));
+    assert_eq!(first, &neighbors[0]);
+    assert_eq!(last, &neighbors[2]);
     assert_eq!(serde_json::to_vec(&document.pricing).unwrap(), prices);
 }
 
@@ -752,6 +826,12 @@ pub(in crate::channel_http) struct ChannelInput {
     enabled: bool,
     contexts: Vec<ExternalModelContext>,
     attachments: Vec<Attachment>,
+    #[serde(default)]
+    groups: Option<BTreeSet<String>>,
+    #[serde(default)]
+    priority: Option<u16>,
+    #[serde(default)]
+    weight: Option<u32>,
     #[serde(default)]
     secret: Option<String>,
 }
@@ -792,6 +872,21 @@ fn edit_document(
         .to_string()
         .try_into()
         .map_err(|_| ManagementError::Invalid)?;
+    if let Some(groups) = input.groups.take() {
+        if groups.is_empty()
+            || groups.iter().any(|name| {
+                !document
+                    .routing
+                    .groups
+                    .iter()
+                    .any(|group| group.name == *name)
+            })
+        {
+            return Err(ManagementError::Invalid);
+        }
+        bindings.channel_groups.insert(input.id, groups);
+    }
+    bindings.set_channel_target_defaults(input.id, input.priority, input.weight);
     bindings.names.insert(input.id, input.name.clone());
     if let Some(tag) = &input.tag {
         if tag.is_empty() {
@@ -888,6 +983,9 @@ pub(in crate::channel_http) async fn create(
         return Err(ManagementError::Conflict.into());
     }
     let mut bindings = management.current_bindings()?;
+    if input.groups.is_some() {
+        authorize_action(&mut tx, &principal, Action::ChannelWrite).await?;
+    }
     edit_document(&mut document, &mut bindings, &mut input)?;
     let key = store_secret(
         management,
@@ -935,7 +1033,7 @@ pub(in crate::channel_http) async fn update(
     super::super::admit(&state, &headers).await?;
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
     let _guard = management.publication.lock().await;
-    let (tx, principal) = management
+    let (mut tx, principal) = management
         .begin(
             bearer(&headers)?,
             Action::ChannelSensitiveWrite,
@@ -950,6 +1048,13 @@ pub(in crate::channel_http) async fn update(
         return Err(Failure::NotFound);
     }
     let mut bindings = management.current_bindings()?;
+    if input
+        .groups
+        .as_ref()
+        .is_some_and(|groups| bindings.channel_groups.get(&id) != Some(groups))
+    {
+        authorize_action(&mut tx, &principal, Action::ChannelWrite).await?;
+    }
     edit_document(&mut document, &mut bindings, &mut input)?;
     attach(&mut document, id, input.attachments)?;
     let version = management

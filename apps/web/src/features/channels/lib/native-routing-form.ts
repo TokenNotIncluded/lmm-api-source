@@ -83,6 +83,9 @@ export const channelDraftSchema = z
     endpoint: z.string(),
     protocol: z.string(),
     enabled: z.boolean(),
+    groups: z.array(z.string()).optional(),
+    priority: numberDraft.optional(),
+    weight: numberDraft.optional(),
     contexts: z.array(contextSchema),
     attachments: z.array(targetFieldsSchema.extend({ route_id: z.number() })),
   })
@@ -102,12 +105,12 @@ export function updateNativeContextDestination<
     NativeContext,
     'endpoint' | 'protocol' | 'enforces_output_token_limit'
   >,
->(
-  context: Context,
-  fields: Partial<Pick<Context, 'endpoint' | 'protocol'>>
-) {
+>(context: Context, fields: Partial<Pick<Context, 'endpoint' | 'protocol'>>) {
   const next = { ...context, ...fields }
-  if (next.endpoint !== context.endpoint || next.protocol !== context.protocol) {
+  if (
+    next.endpoint !== context.endpoint ||
+    next.protocol !== context.protocol
+  ) {
     delete next.enforces_output_token_limit
   }
   return next
@@ -178,6 +181,40 @@ export function updateChannelAttachment(
   return { ...draft, attachments, contexts }
 }
 
+const targetDefaults = { priority: 0, weight: 1 } as const
+
+export function commonChannelTargetValue(
+  targets: readonly Pick<NativeTargetFieldsValue, 'priority' | 'weight'>[],
+  field: keyof typeof targetDefaults
+): number | undefined {
+  if (targets.length === 0) return targetDefaults[field]
+  const value = targets[0][field]
+  return typeof value === 'number' &&
+    targets.every((target) => target[field] === value)
+    ? value
+    : undefined
+}
+
+export function channelTargetDefaults(
+  configuration: NativeConfiguration,
+  upstreamId: number
+) {
+  const targets = configuration.routing.routes.flatMap((route) =>
+    route.targets.filter((target) => target.upstream_id === upstreamId)
+  )
+  const defaults = configuration.bindings.channel_target_defaults?.[upstreamId]
+  return {
+    priority:
+      defaults?.priority ??
+      commonChannelTargetValue(targets, 'priority') ??
+      targetDefaults.priority,
+    weight:
+      defaults?.weight ??
+      commonChannelTargetValue(targets, 'weight') ??
+      targetDefaults.weight,
+  }
+}
+
 export function toggleChannelAttachment(
   draft: NativeChannelDraft,
   route: { id: number; model: string; speeds: string[] },
@@ -211,8 +248,14 @@ export function toggleChannelAttachment(
       {
         route_id: route.id,
         upstream_model: route.model,
-        priority: 0,
-        weight: 1,
+        priority:
+          (typeof draft.priority === 'number' ? draft.priority : undefined) ??
+          commonChannelTargetValue(draft.attachments, 'priority') ??
+          targetDefaults.priority,
+        weight:
+          (typeof draft.weight === 'number' ? draft.weight : undefined) ??
+          commonChannelTargetValue(draft.attachments, 'weight') ??
+          targetDefaults.weight,
         speeds: [...route.speeds],
         timeout_ms: newNativeTargetTimeoutMs(configuration),
         payload: 'adapt',

@@ -108,6 +108,10 @@ export type NativeConfiguration = {
     names: Record<string, string>
     tags?: Record<string, string>
     channel_groups?: Record<string, string[]>
+    channel_target_defaults?: Record<
+      string,
+      { priority?: number; weight?: number }
+    >
     channel_providers?: Record<string, string>
     channel_notes?: Record<string, string>
     contexts: NativeContext[]
@@ -602,6 +606,15 @@ const configurationSchema = z.object({
     names: z.record(z.string(), z.string()),
     tags: z.record(z.string(), z.string()).optional(),
     channel_groups: z.record(z.string(), z.array(z.string()).min(1)).optional(),
+    channel_target_defaults: z
+      .record(
+        z.string(),
+        z.object({
+          priority: z.number().int().optional(),
+          weight: z.number().int().optional(),
+        })
+      )
+      .optional(),
     channel_providers: z.record(z.string(), z.string()).optional(),
     channel_notes: z.record(z.string(), z.string()).optional(),
     contexts: z.array(
