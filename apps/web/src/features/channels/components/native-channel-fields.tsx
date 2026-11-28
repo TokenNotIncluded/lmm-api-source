@@ -635,8 +635,9 @@ export function NativeChannelFields({
       <legend className='text-sm font-medium'>{t('Groups *')}</legend>
       <div className='flex flex-wrap gap-x-5 gap-y-2'>
         {configuration.routing.groups.map(({ name }) => (
-          <label key={name} className='flex min-h-9 items-center gap-2 text-sm'>
+          <div key={name} className='flex min-h-9 items-center gap-2 text-sm'>
             <Checkbox
+              aria-label={name}
               checked={groups.includes(name)}
               onCheckedChange={(checked) =>
                 onChange(
@@ -652,8 +653,8 @@ export function NativeChannelFields({
                 )
               }
             />
-            {name}
-          </label>
+            <span>{name}</span>
+          </div>
         ))}
       </div>
       <div className='grid min-w-0 grid-cols-2 gap-4'>

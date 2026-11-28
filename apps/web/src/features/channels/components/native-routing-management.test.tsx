@@ -2861,14 +2861,14 @@ test('the Anthropic output limit setting saves to the selected supplier model', 
 })
 
 async function toggleChannelGroup(form: Element, name: string) {
-  const label = required(
-    [...form.querySelectorAll('fieldset label')].find(
-      (item) => item.textContent?.trim() === name
+  const checkbox = required(
+    [...form.querySelectorAll<HTMLElement>('fieldset [role="checkbox"]')].find(
+      (item) => item.getAttribute('aria-label') === name
     )
   )
-  await act(async () =>
-    required(label.querySelector<HTMLElement>('[role="checkbox"]')).click()
-  )
+  const checked = checkbox.getAttribute('aria-checked')
+  await act(async () => checkbox.click())
+  assert.equal(checkbox.getAttribute('aria-checked'), checked === 'true' ? 'false' : 'true')
 }
 
 test('channel bindings add, map and remove models through one reviewed channel draft', async () => {

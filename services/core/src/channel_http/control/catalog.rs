@@ -420,6 +420,7 @@ impl ModelInput {
             }
         }
         document.routing.routes.push(self.route.clone());
+        bindings.apply_channel_target_defaults(&mut document.routing);
         document.pricing.version = self
             .expected_version
             .pricing
