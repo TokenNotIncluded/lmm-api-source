@@ -1257,11 +1257,12 @@ fn complete_native_terminal_usage_can_correct_the_provisional_input() {
             }
             let bytes = encoder.terminal().unwrap().concat();
             let wire = String::from_utf8(bytes).unwrap();
-            let data = wire
+            let terminal = wire
                 .lines()
-                .find_map(|line| line.strip_prefix("data: "))
+                .filter_map(|line| line.strip_prefix("data: "))
+                .map(|data| serde_json::from_str::<Value>(data).unwrap())
+                .find(|event| event["type"] == "message_delta")
                 .unwrap();
-            let terminal: Value = serde_json::from_str(data).unwrap();
             assert_eq!(terminal["usage"]["input_tokens"], 15);
             assert_eq!(encoder.usage().input_tokens, Some(15));
             assert_eq!(encoder.usage().output_tokens, Some(6));
