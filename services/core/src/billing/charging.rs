@@ -10,7 +10,10 @@ mod types;
 pub(crate) use engine::operator_reconcile::{
     EVENT as OPERATOR_RECONCILE_EVENT, corrected_observation,
 };
-pub use engine::{Charging, operator_reconcile::OperatorReconcileRequest};
+pub use engine::{
+    Charging, operator_reconcile::OperatorReconcileRequest,
+    operator_writeoff::OperatorWriteoffRequest,
+};
 pub(crate) use limits::key_quota_breakdown;
 pub use limits::{external_budgets, key_quota_snapshot, key_quota_snapshot_for_issuer};
 pub use types::*;

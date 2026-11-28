@@ -9,6 +9,8 @@ mod image;
 mod model_unknown;
 #[path = "operator_reconcile.rs"]
 pub(super) mod operator_reconcile;
+#[path = "operator_writeoff.rs"]
+pub(super) mod operator_writeoff;
 #[path = "route_attempts.rs"]
 mod route_attempts;
 use super::{
@@ -1287,6 +1289,11 @@ impl Charging {
         Ok(charge)
     }
     async fn release_unstarted(&self, c: &mut PgConnection, charge: &Charge) -> Result<()> {
+        self.release_hold(c, charge, json!({"kind":"release_before_dispatch"}))
+            .await
+    }
+
+    async fn release_hold(&self, c: &mut PgConnection, charge: &Charge, receipt: Value) -> Result<()> {
         self.ledger
             .apply(c, command(charge, "release", Change::Release)?)
             .await?;
@@ -1296,13 +1303,7 @@ impl Charging {
         .bind(&charge.id)
         .execute(&mut *c)
         .await?;
-        event(
-            c,
-            &charge.id,
-            "release",
-            json!({"kind":"release_before_dispatch"}),
-        )
-        .await?;
+        event(c, &charge.id, "release", receipt).await?;
         let mut released = charge.clone();
         released.state = "released".into();
         record_channel_charge(c, &released).await

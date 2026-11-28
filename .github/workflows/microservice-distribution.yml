@@ -169,6 +169,7 @@ jobs:
           done
           require_test relay::tests::anthropic_stream_start_forwards_observed_usage --lib
           require_test relay::zconv_compatibility_tests::native_anthropic_stream_preserves_direct_tool_and_final_usage --lib
+          require_test billing::charging::tests::legacy_wallet_tests::operator_writeoff_releases_unknown_wallet_holds_once --lib
           require_test relay::tests::complete_native_terminal_usage_can_correct_the_provisional_input --lib
           require_test relay::encode::writer_contract_tests::gemini_projects_visible_text_without_private_thinking_or_signature --lib
           require_test routing::tests::route_edit_order_is_canonical_after_recovery --lib
