@@ -610,6 +610,41 @@ for (const switchSession of [false, true]) {
   )
 }
 
+for (const result of ['missing', 'read-failed'] as const) {
+  test(`a completed bind waits for the active issuer when readback is ${result}`, async () => {
+    const fixture = popupFixture()
+    const calls = adapter(fixture.selected)
+    const base = axios.getAdapter(api.defaults.adapter)
+    let applied = false
+    api.defaults.adapter = async (config) => {
+      const response = await base(config)
+      if (config.url?.endsWith('/finish')) applied = true
+      if (applied && config.method === 'get') {
+        if (result === 'read-failed') throw new Error('read unavailable')
+        response.data.data.links = []
+      }
+      return response
+    }
+    try {
+      await mountFlow(fixture.selected)
+      await act(async () => controls.begin(nativeDescriptor()))
+      const { OAUTH_BIND_CALLBACK_MESSAGE } =
+        await import('@/features/auth/constants')
+      await act(async () => {
+        dom.dispatchEvent(fixture.event(OAUTH_BIND_CALLBACK_MESSAGE))
+      })
+      assert.equal(calls.filter((path) => path.endsWith('/finish')).length, 1)
+      assert.equal(calls.filter((path) => path === '/api/user/account-links').length, 2)
+      assert.deepEqual(successToasts, [])
+      assert.deepEqual(fixture.messages.map((msg) => (msg as { success: boolean }).success), [false])
+      assert.equal(useAuthStore.getState().auth.accessToken, 'native-bound-token')
+      assert.equal(controls.busy, false)
+    } finally {
+      fixture.restore()
+    }
+  })
+}
+
 test('cancelled popup releases busy, closes only its window and never submits a binding finish', async () => {
   const fixture = popupFixture(),
     calls = adapter(fixture.selected)

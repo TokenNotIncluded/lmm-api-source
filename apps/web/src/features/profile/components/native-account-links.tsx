@@ -48,7 +48,7 @@ export function NativeAccountLinks({
     const scope = flow.state.viewScope
     if (!scope) throw new axios.CanceledError('Binding superseded')
     assertAccountLinkScope(scope)
-    const outcome = await flow.load()
+    const outcome = await flow.load(TELEGRAM)
     if (outcome === 'failed') throw new Error('Failed to load profile')
     if (outcome !== 'loaded') {
       throw new axios.CanceledError('Binding superseded')
@@ -95,6 +95,8 @@ export function NativeAccountLinks({
       }
     }
   }
+  const hasProvider =
+    rows.some((row) => row.canBind) || view?.links.some((link) => link.active)
   return (
     <section
       className='mb-4 space-y-3'
@@ -128,6 +130,11 @@ export function NativeAccountLinks({
       )}
       {!view && !failed && (
         <p className='text-muted-foreground text-sm'>{t('Loading...')}</p>
+      )}
+      {view && !hasProvider && (
+        <p className='text-muted-foreground text-sm'>
+          {t('No providers available')}
+        </p>
       )}
       <div className='grid gap-3 sm:grid-cols-2'>
         {rows.map((row) => {

@@ -63,13 +63,22 @@ export function AccountBindingsTab({
   profile: UserProfile | null
   onUpdate: () => void | Promise<void>
 }) {
+  const { t } = useTranslation()
   const { status, loading, capabilitiesReady } = useStatus()
-  if (!profile || !status || loading) return null
-  const native = status.native_account_bindings === true
+  if (!profile || loading) return null
   return (
     <>
-      {native && capabilitiesReady && (
+      {capabilitiesReady && status?.native_account_bindings === true ? (
         <NativeAccountLinks status={status} onUpdate={onUpdate} />
+      ) : (
+        <section aria-label={t('Linked sign-in accounts')} className='space-y-1'>
+          <h3 className='text-sm font-medium'>{t('Linked sign-in accounts')}</h3>
+          <p className='text-muted-foreground text-sm'>
+            {capabilitiesReady && status?.native_account_bindings === false
+              ? t('Disabled')
+              : t('Account bindings are unavailable')}
+          </p>
+        </section>
       )}
       <EmailAccountBinding profile={profile} onUpdate={onUpdate} />
     </>

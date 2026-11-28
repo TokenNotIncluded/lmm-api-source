@@ -187,7 +187,7 @@ export function useAccountBindingFlow(
       scopeCurrent(operation.scope)
     )
   }, [])
-  const load = useCallback(async (): Promise<
+  const load = useCallback(async (expectedIssuer?: string): Promise<
     'loaded' | 'failed' | 'superseded'
   > => {
     const generation = runtime.current.generation,
@@ -200,6 +200,10 @@ export function useAccountBindingFlow(
         read === runtime.current.read
       ) {
         dispatch({ type: 'loaded', view, scope })
+        if (
+          expectedIssuer &&
+          !view.links.some((link) => link.active && link.issuer === expectedIssuer)
+        ) return 'failed'
         return 'loaded'
       }
     } catch (error) {
@@ -358,6 +362,7 @@ export function useAccountBindingFlow(
         },
       })
       let success = false
+      let applied = false
       try {
         if (!input) throw new Error('Provider rejected binding')
         await finishAccountBinding(operation.scope, operation.provider, {
@@ -368,10 +373,17 @@ export function useAccountBindingFlow(
           throw new axios.CanceledError('Binding superseded')
         }
         assertAccountLinkScope(operation.scope)
+        applied = true
+        const outcome = await load(operation.descriptor.issuer)
+        if (!owns(resource) || outcome === 'superseded') {
+          throw new axios.CanceledError('Binding superseded')
+        }
+        if (outcome === 'failed') {
+          throw new Error(t('Account binding could not be confirmed. Refresh the list before trying again.'))
+        }
         success = true
         if (notify) toast.success(t('Binding successful!'))
-        await load()
-        if (owns(resource)) void onUpdate()
+        void onUpdate()
       } catch (error) {
         if (!owns(resource)) throw new axios.CanceledError('Binding superseded')
         if (!shouldSuppressAuthError(error)) {
@@ -384,7 +396,7 @@ export function useAccountBindingFlow(
               )
             )
           }
-          void load()
+          if (!applied) void load()
         }
         throw error
       } finally {
@@ -537,9 +549,9 @@ export function useAccountBindingFlow(
       state.phase.tag === 'awaitingCode' || state.phase.tag === 'finishing'
         ? state.phase.codeOperation
         : null,
-    load: () => {
+    load: (expectedIssuer?: string) => {
       dispatch({ type: 'loading' })
-      return load()
+      return load(expectedIssuer)
     },
     begin,
     cancel,

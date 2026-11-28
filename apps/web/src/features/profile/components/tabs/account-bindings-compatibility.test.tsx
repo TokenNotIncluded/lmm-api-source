@@ -202,7 +202,7 @@ after(() => domWindow.close())
 
 describe('native-only account binding entry', () => {
   test('hides binding actions whose required OAuth configuration is missing', async () => {
-    const status = misconfiguredOAuthStatus()
+    const status = { ...misconfiguredOAuthStatus(), native_account_bindings: false }
     api.get = (async (url) => {
       if (url === '/api/status') {
         return { data: { success: true, data: status } }
@@ -216,6 +216,8 @@ describe('native-only account binding entry', () => {
     queryClient.setQueryData(['status', 'anonymous'], status)
     const { root } = await renderBindings(queryClient)
 
+    const linked = document.querySelector('[aria-label="Linked sign-in accounts"]')
+    assert.ok(linked?.textContent?.includes('Disabled'))
     for (const provider of [
       'GitHub',
       'Discord',
