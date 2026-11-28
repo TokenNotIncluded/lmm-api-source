@@ -326,6 +326,11 @@ async fn browser_onboarding_wallet(pool: PgPool) {
         .unwrap()
         .unwrap()
         .unwrap();
+    if !output.status.success()
+        && let Some(provider) = &binding_provider
+    {
+        eprintln!("Browser provider progress {}", provider.progress(&pool).await);
+    }
     assert!(
         output.status.success(),
         "{}",

@@ -26,6 +26,14 @@ struct Startup {
     certificate_file: String,
 }
 
+#[derive(Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+struct ProviderCalls {
+    approved: u32,
+    token: u32,
+    userinfo: u32,
+}
+
 pub(crate) struct BrowserProvider {
     child: Child,
     id: i64,
@@ -129,6 +137,33 @@ impl BrowserProvider {
             "authorizationOrigin":self.data.authorization_origin,"certificateFile":self.data.certificate_file,"spki":self.data.spki})
     }
 
+    async fn calls(&self) -> Result<ProviderCalls, reqwest::Error> {
+        reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(3))
+            .build()?
+            .get(format!("{}/counts", self.data.api_origin))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await
+    }
+
+    pub(crate) async fn progress(&self, pool: &PgPool) -> Value {
+        let counts: Option<(i64, i64, i64)> = sqlx::query_as(
+            "SELECT count(*),count(consumed_at),
+             (SELECT count(*) FROM core_federated_auth.identities WHERE provider_id=$1 AND revoked_at IS NULL)
+             FROM core_federated_auth.flows WHERE provider_id=$1 AND purpose='bind'",
+        )
+        .bind(self.id)
+        .fetch_one(pool)
+        .await
+        .ok();
+        json!({"database":counts.map(|(started,consumed,active)| json!({
+            "started":started,"consumed":consumed,"active_bindings":active})), "provider_calls":self.calls().await.ok()})
+    }
+
     pub(crate) async fn verify(&self, pool: &PgPool, expected_user: i64) -> Value {
         let owners: Vec<(i64, String, i64, bool)> = sqlx::query_as("SELECT user_id,subject,revision,revoked_at IS NULL FROM core_federated_auth.identities WHERE provider_id=$1")
             .bind(self.id).fetch_all(pool).await.unwrap();
@@ -144,20 +179,7 @@ impl BrowserProvider {
         let audited: i64 = sqlx::query_scalar("SELECT count(*) FROM core_identity.audit WHERE actor_user_id=$1 AND action='account.federated_link' AND target->>'user_id'=$1::bigint::text AND target ? 'user_version'")
             .bind(expected_user).fetch_one(pool).await.unwrap();
         assert_eq!(audited, 1);
-        let calls: Value = reqwest::Client::builder()
-            .no_proxy()
-            .timeout(Duration::from_secs(3))
-            .build()
-            .unwrap()
-            .get(format!("{}/counts", self.data.api_origin))
-            .send()
-            .await
-            .unwrap()
-            .error_for_status()
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
+        let calls = json!(self.calls().await.unwrap());
         assert_eq!(calls, json!({"approved":1, "token":1, "userinfo":1}));
         json!({"provider_id":self.id,"owner_user_id":expected_user,"active_bindings":owners.len(),"revision":1,
             "provider_calls":calls,"new_core_users":users-self.users_before,"authority_rotation_audits":audited})
