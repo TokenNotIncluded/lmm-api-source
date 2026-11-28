@@ -445,6 +445,7 @@ pub(crate) fn upstream_request_id(
         "request-id",
         "x-goog-request-id",
         "x-amzn-requestid",
+        "x-oneapi-request-id",
     ]
     .into_iter()
     .find_map(|name| {
@@ -1370,6 +1371,15 @@ mod request_diagnostics_tests {
         assert_eq!(
             upstream_request_id(&headers, credential).as_deref(),
             Some("req_anthropic")
+        );
+        headers.remove("request-id");
+        headers.insert(
+            "x-oneapi-request-id",
+            HeaderValue::from_static("2026112812345678request"),
+        );
+        assert_eq!(
+            upstream_request_id(&headers, credential).as_deref(),
+            Some("2026112812345678request")
         );
     }
 }
