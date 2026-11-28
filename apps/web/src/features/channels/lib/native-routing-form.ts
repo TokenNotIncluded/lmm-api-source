@@ -56,6 +56,7 @@ const contextSchema = z
     endpoint: z.string(),
     max_input_tokens: numberDraft,
     max_output_tokens: numberDraft,
+    enforces_output_token_limit: z.boolean().optional(),
     contract_revision: z.string(),
   })
   .passthrough()
@@ -96,6 +97,22 @@ export function readChannelDraft(document: string): NativeChannelDraft | null {
   }
 }
 
+export function updateNativeContextDestination<
+  Context extends Pick<
+    NativeContext,
+    'endpoint' | 'protocol' | 'enforces_output_token_limit'
+  >,
+>(
+  context: Context,
+  fields: Partial<Pick<Context, 'endpoint' | 'protocol'>>
+) {
+  const next = { ...context, ...fields }
+  if (next.endpoint !== context.endpoint || next.protocol !== context.protocol) {
+    delete next.enforces_output_token_limit
+  }
+  return next
+}
+
 export function newNativeContext(
   upstream: { id: number; endpoint: string; protocol: string },
   model: string,
@@ -106,11 +123,10 @@ export function newNativeContext(
       context.upstream_id === upstream.id && context.upstream_model === model
   )
   if (published) {
-    return {
-      ...published,
+    return updateNativeContextDestination(published, {
       endpoint: upstream.endpoint,
       protocol: upstream.protocol,
-    }
+    })
   }
   return {
     upstream_id: upstream.id,

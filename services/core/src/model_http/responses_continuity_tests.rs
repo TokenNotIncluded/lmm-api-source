@@ -174,6 +174,7 @@ fn gateway(pool: &PgPool, c: &WorkerConfig) -> ModelGateway {
                 1000
             },
             max_output_tokens: if c.mode.starts_with("rev4") { 50 } else { 100 },
+            enforces_output_token_limit: None,
             contract_revision: "continuity-dev-v1".into(),
             missing_cached_tokens_is_zero: false,
             missing_cache_creation_tokens_is_zero: false,

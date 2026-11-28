@@ -161,7 +161,7 @@ pub struct ModelGroup {
     pub enabled: bool,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum PayloadPolicy {
     /// Same wire protocol AND exact model name. Do not alter the request body.

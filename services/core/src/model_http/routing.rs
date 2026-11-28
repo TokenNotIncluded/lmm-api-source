@@ -386,6 +386,11 @@ impl Bridge {
         request: &Request,
     ) -> Result<(Selected, Route), RelayError> {
         let protocol = client_protocol(request.client);
+        if !attempt.is_available() {
+            return Err(RelayError::RouteUnavailable);
+        }
+        self.provider_policy
+            .require_output_limit_support(&attempt)?;
         // Capture the server's current, fixed ledger conversion once. The
         // persisted legacy Price is still required until A03 accepts the
         // complete quote; unsupported dimensions must keep failing closed.
@@ -431,11 +436,10 @@ impl Bridge {
         }
         let model_policy = attempt.model_policy.as_deref();
         let passthrough = attempt.raw_http_model(protocol) == Some(request.model.as_str());
-        if !attempt.is_available()
-            || (!passthrough
-                && !attempt
-                    .payload_policy()
-                    .adapts(protocol, attempt.protocol()))
+        if (!passthrough
+            && !attempt
+                .payload_policy()
+                .adapts(protocol, attempt.protocol()))
             || u128::from(attempt.timeout_ms()) < self.total_timeout.as_millis()
         {
             return Err(RelayError::RouteUnavailable);

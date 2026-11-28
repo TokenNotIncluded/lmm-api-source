@@ -75,7 +75,11 @@ impl Upstream {
             !entries.contains_key(&key) && !entries.values().any(|channel| *channel)
         })
     }
-    fn select_key(&self, affinity: Option<&[u8; 32]>) -> Option<CredentialRef> {
+    fn select_key(
+        &self,
+        affinity: Option<&[u8; 32]>,
+        model_allows: impl Fn(CredentialRef) -> bool,
+    ) -> Option<CredentialRef> {
         let keys = &self.credentials.references;
         let disabled = self.disabled_keys.read().ok()?;
         if disabled.values().any(|close_channel| *close_channel) {
@@ -98,13 +102,17 @@ impl Upstream {
             .iter()
             .chain(&keys[..first])
             .copied()
-            .find(|key| !disabled.contains_key(key))
+            .find(|key| !disabled.contains_key(key) && model_allows(*key))
     }
 }
+
+type OutputLimitHealth = Arc<RwLock<HashSet<CredentialRef>>>;
+type ModelOutputLimitKey = (u64, String, PayloadPolicy);
 
 struct Target {
     config: RouteTarget,
     upstream: Arc<Upstream>,
+    output_limit_health: Option<OutputLimitHealth>,
     // Only mixed official flat prices need per-target specialization. Existing
     // prices (including time-selected calendar tariffs) stay on the pinned plan.
     official_prices: BTreeMap<Speed, PriceQuote>,
@@ -113,6 +121,16 @@ struct Target {
 impl Target {
     fn quote(&self, speed: Speed, template: &PriceQuote) -> PriceQuote {
         *self.official_prices.get(&speed).unwrap_or(template)
+    }
+
+    fn model_allows(&self, key: CredentialRef) -> bool {
+        self.output_limit_health
+            .as_ref()
+            .is_none_or(|health| health.read().is_ok_and(|blocked| !blocked.contains(&key)))
+    }
+
+    fn key_available(&self, key: CredentialRef) -> bool {
+        self.upstream.key_available(key) && self.model_allows(key)
     }
 
     fn available(&self) -> bool {
@@ -125,7 +143,7 @@ impl Target {
                 .credentials
                 .references
                 .iter()
-                .any(|&key| self.upstream.key_available(key))
+                .any(|&key| self.key_available(key))
     }
 }
 
@@ -214,6 +232,7 @@ pub(crate) struct Snapshot {
     version: ReleaseVersion,
     prices: Arc<PriceSnapshot>,
     upstreams: HashMap<u64, Arc<Upstream>>,
+    output_limit_health: HashMap<ModelOutputLimitKey, OutputLimitHealth>,
     groups: HashMap<String, Group>,
 }
 
@@ -343,6 +362,7 @@ impl Snapshot {
         {
             return Err(RoutingError::InvalidConfig("credential pool upstream"));
         }
+        let mut output_limit_health = HashMap::new();
         let mut route_ids = HashSet::new();
         let mut target_ids = HashSet::new();
         for route in config.routes {
@@ -432,10 +452,38 @@ impl Snapshot {
                         );
                     }
                 }
+                let target_health =
+                    (upstream.config.protocol == Protocol::AnthropicMessages).then(|| {
+                        let key = (
+                            target.upstream_id,
+                            target.upstream_model.clone(),
+                            target.payload,
+                        );
+                        output_limit_health
+                            .entry(key.clone())
+                            .or_insert_with(|| {
+                                previous
+                                    .and_then(|previous| {
+                                        let old = previous.upstreams.get(&target.upstream_id)?;
+                                        if !old.config.same_destination(&upstream.config)
+                                            || old.credentials.references
+                                                != upstream.credentials.references
+                                            || previous.channel_overrides.get(&target.upstream_id)
+                                                != config.channel_overrides.get(&target.upstream_id)
+                                        {
+                                            return None;
+                                        }
+                                        previous.output_limit_health.get(&key).cloned()
+                                    })
+                                    .unwrap_or_default()
+                            })
+                            .clone()
+                    });
                 targets.push(Arc::new(Target {
                     official_prices,
                     config: target.clone(),
                     upstream: Arc::clone(upstream),
+                    output_limit_health: target_health,
                 }));
             }
             targets.sort_by_key(|target| target.config.priority);
@@ -472,6 +520,7 @@ impl Snapshot {
             },
             prices,
             upstreams,
+            output_limit_health,
             groups,
         })
     }
@@ -1007,19 +1056,31 @@ impl Router {
                 | RouteTransport::ResponsesWebSocket {
                     pinned_target: Some(pinned_target),
                 } => pinned_target.1,
-                _ => match credentials.selected.get(&target.upstream.config.id) {
-                    Some(&key) => key,
+                _ => match credentials
+                    .selected
+                    .get(&target.upstream.config.id)
+                    .copied()
+                    .filter(|&key| target.key_available(key))
+                {
+                    Some(key) => key,
                     None => {
-                        let Some(key) = target.upstream.select_key(credentials.affinity.as_ref())
+                        let Some(key) = target
+                            .upstream
+                            .select_key(credentials.affinity.as_ref(), |key| {
+                                target.model_allows(key)
+                            })
                         else {
                             continue;
                         };
-                        credentials.selected.insert(target.upstream.config.id, key);
+                        credentials
+                            .selected
+                            .entry(target.upstream.config.id)
+                            .or_insert(key);
                         key
                     }
                 },
             };
-            if target.upstream.key_available(credential) {
+            if target.key_available(credential) {
                 candidates.push(Candidate {
                     target,
                     credential,
@@ -1040,7 +1101,7 @@ impl Router {
                     break;
                 }
                 for &key in &candidate.target.upstream.credentials.references {
-                    if key != candidate.credential && candidate.target.upstream.key_available(key) {
+                    if key != candidate.credential && candidate.target.key_available(key) {
                         extras.push(Candidate {
                             target: candidate.target.clone(),
                             credential: key,
@@ -1571,10 +1632,7 @@ impl RoutePlan {
             let candidate = &self.candidates[index];
             // This can REMOVE a candidate. It can never add or re-resolve a route.
             if !candidate.target.available()
-                || !candidate
-                    .target
-                    .upstream
-                    .key_available(candidate.credential)
+                || !candidate.target.key_available(candidate.credential)
             {
                 continue;
             }
@@ -1730,7 +1788,16 @@ impl Attempt {
 
     /// Check again immediately before send; no API can revoke bytes already sent.
     pub fn is_available(&self) -> bool {
-        self.target.available() && self.target.upstream.key_available(self.credential)
+        self.target.available() && self.target.key_available(self.credential)
+    }
+
+    /// Verified generation evidence applies only to this model, mapping and credential.
+    pub(crate) fn mark_output_limit_violated(&self) {
+        if let Some(health) = &self.target.output_limit_health
+            && let Ok(mut blocked) = health.write()
+        {
+            blocked.insert(self.credential);
+        }
     }
 
     pub(crate) fn reliability(&self) -> Option<&super::RoutingReliability> {

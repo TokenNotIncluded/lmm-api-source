@@ -173,6 +173,9 @@ jobs:
           require_test relay::tests::complete_native_terminal_usage_can_correct_the_provisional_input --lib
           require_test relay::encode::writer_contract_tests::gemini_projects_visible_text_without_private_thinking_or_signature --lib
           require_test routing::tests::route_edit_order_is_canonical_after_recovery --lib
+          require_test routing::tests::observed_output_limit_violation_is_scoped_and_rechecks_pinned_plans --lib
+          require_test model_http::provider_policy::tests::output_limit_contract_only_blocks_the_exact_anthropic_destination --lib
+          require_test model_http::selected_bound_tests::verified_anthropic_output_limit_violation_blocks_future_dispatch_only_for_that_model --lib
           require_test portable_matrix::public_four_by_four_text_json_and_sse --test native_model_http
           require_test portable_matrix::unsupported_gemini_operations_fields_and_grounding_do_not_dispatch --test native_model_http
           require_test model_http::selected_bound_tests::openrouter_converts_portable_native_requests_and_settles_once --lib

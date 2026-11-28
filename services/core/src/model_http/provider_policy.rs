@@ -63,6 +63,9 @@ pub struct ExternalModelContext {
     /// in an embedding batch or rerank candidate list. Per-call tools use zero.
     pub max_input_tokens: u32,
     pub max_output_tokens: u32,
+    /// An explicit negative contract excludes Anthropic generation on this supplier model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enforces_output_token_limit: Option<bool>,
     /// Supplier/model documentation or deployment contract revision, required.
     pub contract_revision: String,
     /// Missing cache reads are unknown unless the reviewed supplier contract
@@ -275,6 +278,20 @@ impl ProviderPolicy {
             .ok_or(RelayError::Unsupported(
                 "native Responses compaction contract is not configured",
             ))?;
+        Ok(())
+    }
+
+    pub(super) fn require_output_limit_support(&self, attempt: &Attempt) -> Result<(), RelayError> {
+        if attempt.protocol() != Protocol::AnthropicMessages {
+            return Ok(());
+        }
+        if let Some(context) = self.context_for_attempt(attempt)?
+            && context.enforces_output_token_limit == Some(false)
+            && context.protocol == attempt.protocol()
+            && context.endpoint == validate_base_url(attempt.endpoint(), true)?.as_str()
+        {
+            return Err(RelayError::RouteUnavailable);
+        }
         Ok(())
     }
 
@@ -738,6 +755,53 @@ mod tests {
     }
 
     #[test]
+    fn output_limit_contract_only_blocks_the_exact_anthropic_destination() {
+        let mut configured = context();
+        configured.protocol = Protocol::AnthropicMessages;
+        configured.endpoint = "https://api.example".into();
+        let selected = attempt(
+            Protocol::AnthropicMessages,
+            "bounded-model",
+            "https://api.example",
+        );
+
+        assert!(
+            serde_json::to_value(&configured)
+                .unwrap()
+                .get("enforces_output_token_limit")
+                .is_none()
+        );
+        let backwards_compatible = ProviderPolicy::new(vec![configured.clone()], 300_000).unwrap();
+        assert!(
+            backwards_compatible
+                .require_output_limit_support(&selected)
+                .is_ok()
+        );
+
+        configured.enforces_output_token_limit = Some(false);
+        let policy = ProviderPolicy::new(vec![configured], 300_000).unwrap();
+        assert_eq!(
+            policy.require_output_limit_support(&selected),
+            Err(RelayError::RouteUnavailable)
+        );
+        for other in [
+            attempt(
+                Protocol::AnthropicMessages,
+                "another-model",
+                "https://api.example",
+            ),
+            attempt(
+                Protocol::AnthropicMessages,
+                "bounded-model",
+                "https://new.api.example",
+            ),
+            attempt(Protocol::OpenAiChat, "bounded-model", "https://api.example"),
+        ] {
+            assert!(policy.require_output_limit_support(&other).is_ok());
+        }
+    }
+
+    #[test]
     fn native_input_contract_uses_whole_batch_limit_and_zero_output() {
         for protocol in [Protocol::OpenAiEmbeddings, Protocol::JinaRerank] {
             let mut native = context();
@@ -903,6 +967,7 @@ mod tests {
             endpoint: "https://api.example/v1".into(),
             max_input_tokens: 128_000,
             max_output_tokens: 4096,
+            enforces_output_token_limit: None,
             contract_revision: "synthetic-contract-v1".into(),
             missing_cached_tokens_is_zero: false,
         }

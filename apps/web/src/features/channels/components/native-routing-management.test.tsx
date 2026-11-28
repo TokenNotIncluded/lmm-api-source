@@ -2760,6 +2760,95 @@ test('channel editing exposes common fields and preserves bindings, context meta
   ])
 })
 
+test('the Anthropic output limit setting saves to the selected supplier model', async () => {
+  const config: NativeConfiguration = fixture()
+  const upstream = config.routing.upstreams[0]
+  upstream.protocol = 'anthropic_messages'
+  config.bindings.contexts = [
+    {
+      upstream_id: upstream.id,
+      upstream_model: 'model-a',
+      protocol: upstream.protocol,
+      endpoint: upstream.endpoint,
+      max_input_tokens: 8192,
+      max_output_tokens: 4096,
+      contract_revision: 'supplier-a',
+      enforces_output_token_limit: true,
+    },
+  ]
+  const writes: Record<string, unknown>[] = []
+  api.request = (async (options: {
+    method: string
+    url: string
+    data?: Record<string, unknown>
+  }) => {
+    if (options.method === 'GET') {
+      return { data: { success: true, data: config } }
+    }
+    assert.equal(options.method, 'PUT')
+    assert.equal(options.url, '/core/v1/admin/routing/channels/1')
+    writes.push(required(options.data))
+    return {
+      data: { success: true, data: { version: { routing: 2, pricing: 1 } } },
+    }
+  }) as typeof api.request
+  const container = await mount('channels')
+  await until(() =>
+    [...container.querySelectorAll('button')].some(
+      (item) => item.textContent === 'Edit'
+    )
+  )
+  await act(async () => button(container, 'Edit').click())
+  const form = required(
+    container.querySelector('form[aria-label="Edit Channel"]')
+  )
+  const select = required(
+    [...form.querySelectorAll('label')]
+      .find(
+        (label) =>
+          label.firstElementChild?.textContent === 'Requested output token limit'
+      )
+      ?.querySelector('select')
+  )
+  const contextDraft = () =>
+    JSON.parse(required(form.querySelector('textarea')).value).contexts[0]
+  assert.equal(select.value, 'true')
+  await act(async () => {
+    select.value = ''
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  assert.equal(
+    Object.hasOwn(contextDraft(), 'enforces_output_token_limit'),
+    false
+  )
+  await act(async () => {
+    select.value = 'true'
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  const endpoint = 'https://next-provider.example/v1/'
+  const baseUrl = required(
+    [...form.querySelectorAll('label')]
+      .find((label) => label.firstElementChild?.textContent === 'Base URL')
+      ?.querySelector('input')
+  )
+  await changeInput(baseUrl, endpoint)
+  assert.equal(contextDraft().endpoint, endpoint)
+  assert.equal(select.value, '')
+  await act(async () => {
+    select.value = 'false'
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await act(async () => button(form, 'Save').click())
+  await until(() => writes.length === 1)
+  assert.deepEqual(writes[0].contexts, [
+    {
+      ...config.bindings.contexts[0],
+      endpoint,
+      enforces_output_token_limit: false,
+    },
+  ])
+})
+
 test('channel bindings add, map and remove models through one reviewed channel draft', async () => {
   const config: NativeConfiguration = fixture()
   config.routing.groups.push({ name: 'team', enabled: true })

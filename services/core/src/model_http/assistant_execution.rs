@@ -660,6 +660,7 @@ mod usage_tests {
                 endpoint: "https://provider.example/v1".into(),
                 max_input_tokens: 100,
                 max_output_tokens: 5,
+                enforces_output_token_limit: None,
                 contract_revision: "synthetic-assistant-cache-v2".into(),
                 missing_cached_tokens_is_zero: false,
                 reservation: Default::default(),

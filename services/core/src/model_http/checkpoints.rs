@@ -574,6 +574,17 @@ impl Bridge {
         if frozen.price != selected.price {
             return Err(RelayError::SettlementPending);
         }
+        if checkpoint.terminal_observed
+            && matches!(evidence, TerminalEvidence::Ordinary)
+            && selected.attempt.protocol() == crate::routing::Protocol::AnthropicMessages
+            && checkpoint.usage.validate().is_ok()
+            && checkpoint
+                .usage
+                .output_tokens
+                .is_some_and(|tokens| tokens > contract.bounds().1)
+        {
+            selected.attempt.mark_output_limit_violated();
+        }
         validate_cache_write_dimensions(&checkpoint.usage, &frozen.price)?;
         super::billing::validate_frozen_observation(&contract, &frozen, &checkpoint.usage)?;
         let normalized = if checkpoint.terminal_observed {
@@ -1022,6 +1033,7 @@ mod a07_recovery_tests {
                 endpoint: "https://provider.example/v1".into(),
                 max_input_tokens: 64,
                 max_output_tokens: 8,
+                enforces_output_token_limit: None,
                 contract_revision: "synthetic-v1".into(),
                 missing_cached_tokens_is_zero: false,
             }],

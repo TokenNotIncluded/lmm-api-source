@@ -787,6 +787,7 @@ fn contexts(small_input: i64) -> Vec<ExternalModelContext> {
         endpoint: EXTERNAL_BASE.into(),
         max_input_tokens: u32::try_from(input).unwrap(),
         max_output_tokens: output,
+        enforces_output_token_limit: None,
         contract_revision: "synthetic-selected-bound-v1".into(),
         missing_cached_tokens_is_zero: false,
     })
@@ -1746,6 +1747,73 @@ async fn selected_bound_external_contract_must_match_every_binding_field(pool: P
         assert_eq!(requests(&f.pool).await, 0);
         assert_balance(&f, 70_000, 0).await;
     }
+}
+
+#[sqlx::test(migrations = false)]
+async fn verified_anthropic_output_limit_violation_blocks_future_dispatch_only_for_that_model(
+    pool: PgPool,
+) {
+    let f = fixture(pool, 300_000).await;
+    let mut provider_contexts = contexts(SMALL_INPUT);
+    let g = gateway(&f, EXTERNAL_BASE, provider_contexts.clone());
+    let mut document = g.bridge.routing.catalog_document().unwrap();
+    document.routing.version += 1;
+    document.routing.upstreams[0].protocol = Protocol::AnthropicMessages;
+    for context in &mut provider_contexts {
+        context.protocol = Protocol::AnthropicMessages;
+    }
+    g.bridge
+        .provider_policy
+        .publish_contexts(document.routing.version, provider_contexts, GLOBAL_INPUT)
+        .unwrap();
+    g.bridge
+        .routing
+        .publish(
+            g.bridge.routing.version().unwrap(),
+            document.routing,
+            Arc::new(PriceSnapshot::compile(document.pricing).unwrap()),
+        )
+        .unwrap();
+
+    let (context, request) = admit(&g, &f, "violating-output-limit", "small-model", 1).await;
+    let route = g.bridge.select(&context, &request).await.unwrap();
+    let reservation = g.bridge.reserve(&context, &route, &request).await.unwrap();
+    let raw_usage = relay::Usage {
+        output_tokens: Some(2),
+        ..usage(2)
+    };
+    let checkpoint = OutputCheckpoint {
+        sequence: 1,
+        packet_sha256: [3; 32],
+        packet_bytes: 128,
+        usage: raw_usage.clone(),
+        terminal_observed: true,
+    };
+    assert_eq!(
+        g.bridge.persist_output(&reservation, &checkpoint).await,
+        Err(RelayError::SettlementPending)
+    );
+    let observed: serde_json::Value = sqlx::query_scalar(
+        "SELECT detail FROM core_charging.usage_events WHERE request_id=$1 AND event_id='provider-observation:terminal'",
+    )
+    .bind(&reservation.id)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        observed["raw_usage"],
+        serde_json::to_value(raw_usage).unwrap()
+    );
+    assert_eq!(receipt(&g, &reservation.id).await.settled, 0);
+
+    let (next, request) = admit(&g, &f, "repeat-output-limit", "small-model", 1).await;
+    assert!(matches!(
+        g.bridge.select(&next, &request).await,
+        Err(RelayError::RouteUnavailable)
+    ));
+    let (other, request) = admit(&g, &f, "other-output-limit", "large-model", 1).await;
+    assert!(g.bridge.select(&other, &request).await.is_ok());
+    assert_eq!(requests(&f.pool).await, 1);
 }
 
 #[sqlx::test(migrations = false)]

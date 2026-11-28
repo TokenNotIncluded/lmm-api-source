@@ -52,6 +52,7 @@ pub(super) fn gateway(
             endpoint: "https://synthetic.invalid/v1".into(),
             max_input_tokens: 2000,
             max_output_tokens: 1000,
+            enforces_output_token_limit: None,
             contract_revision: "synthetic-reviewed-preacceptance-v1".into(),
             missing_cached_tokens_is_zero: true,
             missing_cache_creation_tokens_is_zero: true,

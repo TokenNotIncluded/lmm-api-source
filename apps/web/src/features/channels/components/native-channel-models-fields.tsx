@@ -142,8 +142,15 @@ export function NativeChannelModelsFields({
   )
   function patchContext(
     model: string,
-    key: 'max_input_tokens' | 'max_output_tokens' | 'contract_revision',
-    value: number | string
+    patch: Partial<
+      Pick<
+        NativeChannelDraft['contexts'][number],
+        | 'max_input_tokens'
+        | 'max_output_tokens'
+        | 'contract_revision'
+        | 'enforces_output_token_limit'
+      >
+    >
   ) {
     const contexts = current.contexts.some(
       (context) => context.upstream_model === model
@@ -154,7 +161,7 @@ export function NativeChannelModelsFields({
       ...current,
       contexts: contexts.map((context) =>
         context.upstream_model === model
-          ? { ...context, [key]: value }
+          ? { ...context, ...patch }
           : context
       ),
     })
@@ -216,6 +223,7 @@ export function NativeChannelModelsFields({
         const context = draft.contexts.find(
           (item) => item.upstream_model === attachment.upstream_model
         )
+        const enforcesOutputLimit = context?.enforces_output_token_limit
         const publishedContract = configuration.bindings.contexts.some(
           (item) =>
             item.upstream_id === draft.id &&
@@ -386,11 +394,9 @@ export function NativeChannelModelsFields({
                     max={tool ? 0 : 4_294_967_295}
                     disabled={disabled}
                     onChange={(value) =>
-                      patchContext(
-                        attachment.upstream_model,
-                        'max_input_tokens',
-                        value
-                      )
+                      patchContext(attachment.upstream_model, {
+                        max_input_tokens: value,
+                      })
                     }
                   />
                   <IntegerField
@@ -400,13 +406,43 @@ export function NativeChannelModelsFields({
                     max={tool || inputOnly ? 0 : 4_294_967_295}
                     disabled={disabled}
                     onChange={(value) =>
-                      patchContext(
-                        attachment.upstream_model,
-                        'max_output_tokens',
-                        value
-                      )
+                      patchContext(attachment.upstream_model, {
+                        max_output_tokens: value,
+                      })
                     }
                   />
+                  {draft.protocol === 'anthropic_messages' && (
+                    <label
+                      className={`${fieldClass} @min-[40rem]/routing:col-span-2`}
+                    >
+                      <span>{t('Requested output token limit')}</span>
+                      <select
+                        className='bg-muted/65 min-h-11 w-full rounded-lg px-3 text-sm'
+                        value={
+                          enforcesOutputLimit === undefined
+                            ? ''
+                            : String(enforcesOutputLimit)
+                        }
+                        disabled={disabled}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          patchContext(attachment.upstream_model, {
+                            enforces_output_token_limit:
+                              value === '' ? undefined : value === 'true',
+                          })
+                        }}
+                      >
+                        <option value=''>{t('Unverified')}</option>
+                        <option value='true'>{t('Verified by operator')}</option>
+                        <option value='false'>{t('Ignores the limit')}</option>
+                      </select>
+                      <span className='text-muted-foreground block'>
+                        {t(
+                          'Routing skips this supplier model when it ignores the requested output limit.'
+                        )}
+                      </span>
+                    </label>
+                  )}
                   <label
                     className={`${fieldClass} @min-[40rem]/routing:col-span-2`}
                   >
@@ -418,11 +454,9 @@ export function NativeChannelModelsFields({
                       required
                       disabled={disabled}
                       onChange={(event) =>
-                        patchContext(
-                          attachment.upstream_model,
-                          'contract_revision',
-                          event.target.value
-                        )
+                        patchContext(attachment.upstream_model, {
+                          contract_revision: event.target.value,
+                        })
                       }
                     />
                   </label>

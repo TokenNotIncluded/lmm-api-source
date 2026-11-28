@@ -903,6 +903,7 @@ pub(crate) mod tests {
                     endpoint: doc.routing.upstreams[0].endpoint.as_str().into(),
                     max_input_tokens: 65536,
                     max_output_tokens: 1000,
+                    enforces_output_token_limit: None,
                     contract_revision: "synthetic-context-without-supplier-budget".into(),
                     missing_cached_tokens_is_zero: true,
                     reservation: Default::default(),
@@ -1505,6 +1506,7 @@ pub(crate) mod tests {
                     endpoint: upstream.endpoint.as_str().into(),
                     max_input_tokens: 65536,
                     max_output_tokens: 1000,
+                    enforces_output_token_limit: None,
                     contract_revision: "synthetic-only".into(),
                     missing_cached_tokens_is_zero: true,
                 }

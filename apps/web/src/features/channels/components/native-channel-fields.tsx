@@ -35,6 +35,7 @@ import {
   readChannelDraft,
   toggleChannelAttachment,
   updateChannelAttachment,
+  updateNativeContextDestination,
   type NativeChannelDraft,
 } from '../lib/native-routing-form'
 import {
@@ -546,10 +547,9 @@ export function NativeChannelFields({
       (key === 'endpoint' || key === 'protocol') &&
       Array.isArray(draft.contexts)
     ) {
-      next.contexts = draft.contexts.map((context) => ({
-        ...context,
-        ...updates,
-      }))
+      next.contexts = draft.contexts.map((context) =>
+        updateNativeContextDestination(context, updates)
+      )
     }
     onChange(stringifyNativeDocument(next, 2))
   }
@@ -589,7 +589,9 @@ export function NativeChannelFields({
       endpoint: detection.endpoint,
     }
     const contexts = Array.isArray(draft.contexts)
-      ? draft.contexts.map((context) => ({ ...context, ...fields }))
+      ? draft.contexts.map((context) =>
+          updateNativeContextDestination(context, fields)
+        )
       : draft.contexts
     onChange(stringifyNativeDocument({ ...draft, ...fields, contexts }, 2))
   }
@@ -612,10 +614,9 @@ export function NativeChannelFields({
       }
       Object.assign(next, defaults)
       if (Array.isArray(draft.contexts)) {
-        next.contexts = draft.contexts.map((context) => ({
-          ...context,
-          ...defaults,
-        }))
+        next.contexts = draft.contexts.map((context) =>
+          updateNativeContextDestination(context, defaults)
+        )
       }
     }
     onChange(stringifyNativeDocument(next, 2))

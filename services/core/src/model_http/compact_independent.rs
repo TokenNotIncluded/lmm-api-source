@@ -178,6 +178,7 @@ fn gateway(pool: &PgPool, base: &str, exact: bool, official: bool) -> ModelGatew
         endpoint: "https://api.openai.com/v1".into(),
         max_input_tokens: 800,
         max_output_tokens: 50,
+        enforces_output_token_limit: None,
         contract_revision: "independent-official-profile-syntax-only-not-supplier-acceptance"
             .into(),
         missing_cached_tokens_is_zero: false,

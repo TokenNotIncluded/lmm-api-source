@@ -231,6 +231,7 @@ fn gateway_with_reservation(
                 },
                 max_input_tokens: 1000,
                 max_output_tokens: 100,
+                enforces_output_token_limit: None,
                 contract_revision: "synthetic-compaction-context-v1".into(),
                 missing_cached_tokens_is_zero: false,
                 missing_cache_creation_tokens_is_zero: false,

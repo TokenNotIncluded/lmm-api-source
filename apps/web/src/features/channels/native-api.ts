@@ -23,6 +23,7 @@ export type NativeContext = {
   endpoint: string
   max_input_tokens: number
   max_output_tokens: number
+  enforces_output_token_limit?: boolean
   contract_revision: string
   [key: string]: unknown
 }
@@ -612,6 +613,7 @@ const configurationSchema = z.object({
           endpoint: z.string(),
           max_input_tokens: z.number(),
           max_output_tokens: z.number(),
+          enforces_output_token_limit: z.boolean().optional(),
           contract_revision: z.string(),
         })
         .passthrough()

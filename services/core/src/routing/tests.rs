@@ -107,6 +107,101 @@ fn build(config: RoutingConfig, prices: PriceConfig) -> Router {
 }
 
 #[test]
+fn observed_output_limit_violation_is_scoped_and_rechecks_pinned_plans() {
+    let (mut config, mut prices) = fixture(1);
+    for upstream in &mut config.upstreams {
+        upstream.protocol = Protocol::AnthropicMessages;
+    }
+    config.routes[0].targets[1].priority = 1;
+    let mut other = config.routes[0].clone();
+    other.id = 2;
+    other.model = "other-model".into();
+    for (index, target) in other.targets.iter_mut().enumerate() {
+        target.id = index as u64 + 3;
+        target.upstream_model.clone_from(&other.model);
+    }
+    for mut rule in prices.rules.clone() {
+        rule.id += 3;
+        rule.model.clone_from(&other.model);
+        prices.rules.push(rule);
+    }
+    config.routes.push(other);
+    let router = build(config.clone(), prices.clone());
+    let request = |model| RouteRequest {
+        model,
+        group: "default",
+        speed: None,
+        protocol: Protocol::AnthropicMessages,
+        replay: ReplayPermission::Denied,
+    };
+    let mut pending = router.route(request("model-a")).unwrap();
+    let first = router.route(request("model-a")).unwrap().start().unwrap();
+    assert_eq!(first.upstream_id(), 1);
+    first.mark_output_limit_violated();
+    assert!(!first.is_available());
+
+    router
+        .set_health(router.version().unwrap(), 1, HealthStatus::Healthy)
+        .unwrap();
+    assert_eq!(pending.start().unwrap().upstream_id(), 2);
+    assert_eq!(
+        router
+            .route(request("model-a"))
+            .unwrap()
+            .start()
+            .unwrap()
+            .upstream_id(),
+        2
+    );
+    assert_eq!(
+        router
+            .route(request("other-model"))
+            .unwrap()
+            .start()
+            .unwrap()
+            .upstream_id(),
+        1
+    );
+
+    config.version += 1;
+    router
+        .publish(
+            router.version().unwrap(),
+            config.clone(),
+            Arc::new(PriceSnapshot::compile(prices.clone()).unwrap()),
+        )
+        .unwrap();
+    assert_eq!(
+        router
+            .route(request("model-a"))
+            .unwrap()
+            .start()
+            .unwrap()
+            .upstream_id(),
+        2
+    );
+
+    config.version += 1;
+    config.upstreams[0].credential.revision += 1;
+    router
+        .publish(
+            router.version().unwrap(),
+            config,
+            Arc::new(PriceSnapshot::compile(prices).unwrap()),
+        )
+        .unwrap();
+    assert_eq!(
+        router
+            .route(request("model-a"))
+            .unwrap()
+            .start()
+            .unwrap()
+            .upstream_id(),
+        1
+    );
+}
+
+#[test]
 fn group_price_multiplier_requires_agreement_and_preserves_zero() {
     let (config, mut prices) = fixture(1);
     for rule in &mut prices.rules {
