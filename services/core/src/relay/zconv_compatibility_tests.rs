@@ -299,7 +299,7 @@ fn unsupported_reasoning_kind_fails_before_a_successful_terminal() {
         for (client, kind) in [
             (ClientProtocol::Chat, BlockKind::ReasoningSummary),
             (ClientProtocol::Anthropic, BlockKind::ReasoningSummary),
-            (ClientProtocol::Gemini, BlockKind::Thinking),
+            (ClientProtocol::Gemini, BlockKind::Refusal),
         ] {
             let mut encoder = encoder(client, stream);
             encoder.consume(Event::Start("up".into())).unwrap();

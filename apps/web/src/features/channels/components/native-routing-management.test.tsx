@@ -410,6 +410,7 @@ test('twenty exact tariff fractions survive price review, publication and subseq
     ).prices as NativeConfiguration['prices'],
   }
   let published = false
+  let modelPreview: string | undefined
   api.request = (async (options: {
     url: string
     method: string
@@ -420,6 +421,10 @@ test('twenty exact tariff fractions survive price review, publication and subseq
     }
     assert.ok(options.data)
     const wire = stringifyNativeDocument(options.data)
+    if (options.url.endsWith('/models/preview')) {
+      modelPreview = wire
+      return { data: { success: true, data: { confirmation_digest: 'c'.repeat(64) } } }
+    }
     for (const literal of literals) {
       assert.ok(wire.includes(`"numerator":${literal},`))
     }
@@ -473,11 +478,13 @@ test('twenty exact tariff fractions survive price review, publication and subseq
       .find((label) => label.textContent?.includes('Configuration'))
       ?.querySelector('textarea')
   )
-  assert.ok(edited.value.includes(literals[0]))
-  assert.equal(edited.value.includes('isLosslessNumber'), false)
-  const modelDraft = stringifyNativeDocument(parseNativeDocument(edited.value))
-  assert.ok(modelDraft.includes(`"numerator":${literals[0]},`))
-  assert.ok(modelDraft.includes('Reviewed exact tariff'))
+  assert.deepEqual(parseNativeDocument(edited.value).prices, [])
+  assert.ok(edited.value.includes('Reviewed exact tariff'))
+  await act(async () => button(container, 'Preview').click())
+  await until(() => modelPreview !== undefined)
+  assert.ok(modelPreview?.includes(`"numerator":${literals[0]},`))
+  assert.ok(modelPreview?.includes('Reviewed exact tariff'))
+  assert.equal(stringifyNativeDocument(config.prices).includes(literals[19]), true)
 })
 
 test('native channel cards toggle status once with CAS and refresh the published state', async () => {
@@ -3345,8 +3352,9 @@ test('model fields preserve the legacy tariff and require a fresh preview after 
   const prices = writes[0].prices as typeof config.prices.rules
   assert.deepEqual(prices, config.prices.rules)
   assert.deepEqual(writes[0].metadata, {
-    ...config.bindings.models[1],
     display_name: 'Final public name',
+    description: '',
+    vendor_id: null,
   })
   assert.deepEqual(writes[0].contexts, config.bindings.contexts)
   assert.deepEqual(
@@ -4503,6 +4511,17 @@ test('channel override preview preserves other channels and prices and confirms 
 
 test('fetching a channel catalog previews editable changes and only Save publishes the final draft', async () => {
   const config: NativeConfiguration = fixture()
+  config.bindings.official_prices = {
+    models: {
+      'catalog-last': {
+        source: 'manual',
+        source_unit: 'USD/1M tokens',
+        rates: { input: 100, output: 200, cache_read: 0, cache_write: 0, request: 0 },
+      },
+    },
+    group_multipliers_ppm: {},
+    speed_multipliers_ppm: { fast: 1_000_000, ultrafast: 1_000_000 },
+  }
   config.routing.groups.push({ name: 'review', enabled: true })
   config.prices.rules.push({
     ...config.prices.rules[0],

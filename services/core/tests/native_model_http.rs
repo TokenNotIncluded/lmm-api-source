@@ -451,7 +451,7 @@ async fn native_anthropic_and_gemini_settle_real_funds_and_stream_checkpoints(po
                 body["error"]["message"]
                     .as_str()
                     .unwrap()
-                    .contains("request.context_management")
+                    .contains("invalid Anthropic thinking or context management")
             );
         }
         assert_eq!(server.hits.load(Ordering::SeqCst), 2);
