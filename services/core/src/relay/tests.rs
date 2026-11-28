@@ -1182,8 +1182,43 @@ fn annotated_responses_fail_instead_of_losing_citations() {
     ));
 }
 #[test]
-fn encrypted_reasoning_is_rejected_at_added_done_and_terminal_events() {
-    let item = json!({"type":"reasoning","id":"rs_1","summary":[],"encrypted_content":"opaque"});
+fn opaque_reasoning_does_not_interrupt_responses_usage() {
+    let mut decoder = Decoder::new(UpstreamProtocol::Responses, &Limits::default());
+    let reasoning = json!({
+        "type":"reasoning", "id":"rs_1", "summary":[], "encrypted_content":"opaque"
+    });
+    frame(
+        &mut decoder,
+        json!({"type":"response.created","response":{"id":"r_1","status":"in_progress"}}),
+    )
+    .unwrap();
+    for kind in ["response.output_item.added", "response.output_item.done"] {
+        frame(
+            &mut decoder,
+            json!({"type":kind,"output_index":0,"item":reasoning.clone()}),
+        )
+        .unwrap();
+    }
+    let events = frame(
+        &mut decoder,
+        json!({"type":"response.completed","response":{
+            "id":"r_1","status":"completed","output":[reasoning],
+            "usage":{"input_tokens":12,"output_tokens":4,"total_tokens":16}
+        }}),
+    )
+    .unwrap();
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::Usage(usage)
+        if usage.input_tokens == Some(12) && usage.output_tokens == Some(4)))
+    );
+    assert!(decoder.eof().is_ok());
+}
+
+#[test]
+fn encrypted_content_on_non_reasoning_items_is_rejected() {
+    let item = json!({"type":"message","id":"msg_1","content":[],"encrypted_content":"opaque"});
     for kind in [
         "response.output_item.added",
         "response.output_item.done",

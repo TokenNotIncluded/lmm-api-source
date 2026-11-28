@@ -127,6 +127,8 @@ pub struct Request {
     prompt_cache_key: Option<String>,
     pub(super) anthropic_metadata: Option<Value>,
     pub(super) anthropic_output_effort: Option<&'static str>,
+    pub(super) anthropic_controls: Map<String, Value>,
+    pub(super) anthropic_control_betas: Option<&'static str>,
     /// Validated native prompt sections with cache breakpoints. Keep original
     /// block/message boundaries: normalization can change the cached prefix.
     pub(super) anthropic_cached_prompt: Option<Map<String, Value>>,
@@ -804,6 +806,7 @@ impl Request {
             || self.prompt_cache_options.is_some()
             || self.anthropic_cached_prompt.is_some()
             || self.anthropic_output_effort.is_some()
+            || !self.anthropic_controls.is_empty()
             || self.reasoning_effort.is_some()
             || self.responses_summary.is_some()
             || self.requests_encrypted_output
@@ -1541,6 +1544,8 @@ impl Request {
             responses_client_metadata,
             anthropic_metadata: None,
             anthropic_output_effort: None,
+            anthropic_controls: Map::new(),
+            anthropic_control_betas: None,
             anthropic_cached_prompt: None,
             image_config,
             openrouter: if client == ClientProtocol::Chat {
@@ -1951,9 +1956,11 @@ impl Request {
         protocol: UpstreamProtocol,
         model: &str,
     ) -> Result<Value, RelayError> {
-        if self.anthropic_output_effort.is_some() && protocol != UpstreamProtocol::Anthropic {
+        if (self.anthropic_output_effort.is_some() || !self.anthropic_controls.is_empty())
+            && protocol != UpstreamProtocol::Anthropic
+        {
             return Err(RelayError::Unsupported(
-                "Anthropic output_config requires an Anthropic route",
+                "Anthropic controls require an Anthropic route",
             ));
         }
         if self.anthropic_cached_prompt.is_some() && protocol != UpstreamProtocol::Anthropic {
@@ -2170,6 +2177,9 @@ impl Request {
             }
         }
         if protocol == UpstreamProtocol::Anthropic {
+            for (name, value) in &self.anthropic_controls {
+                converted[name] = value.clone();
+            }
             if let Some(effort) = self.anthropic_output_effort {
                 converted["output_config"] = json!({"effort":effort});
             }

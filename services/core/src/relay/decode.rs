@@ -345,6 +345,30 @@ fn plain_response_part(part: &Value) -> Result<(), RelayError> {
     }
     Ok(())
 }
+// The standard stream carries visible reasoning and usage. Opaque reasoning
+// replay belongs to the native Responses path and cannot be translated.
+fn remove_responses_reasoning_ciphertext(value: &mut Value) -> bool {
+    fn remove(item: &mut Value) -> bool {
+        if item["type"] != "reasoning" || !item["encrypted_content"].is_string() {
+            return false;
+        }
+        item.as_object_mut()
+            .and_then(|item| item.remove("encrypted_content"))
+            .is_some()
+    }
+
+    let mut changed = value.get_mut("item").is_some_and(remove);
+    if let Some(items) = value
+        .get_mut("response")
+        .and_then(|response| response.get_mut("output"))
+        .and_then(Value::as_array_mut)
+    {
+        for item in items {
+            changed |= remove(item);
+        }
+    }
+    changed
+}
 fn plain_response_item(item: &Value) -> Result<(), RelayError> {
     if item.get("encrypted_content").is_some_and(|v| !v.is_null()) {
         return Err(RelayError::Protocol(
@@ -778,7 +802,7 @@ impl Decoder {
         }
         Ok(())
     }
-    pub fn frame(&mut self, frame: Frame) -> Result<Vec<Event>, RelayError> {
+    pub fn frame(&mut self, mut frame: Frame) -> Result<Vec<Event>, RelayError> {
         if self.done {
             return Err(RelayError::Protocol("event after terminal event"));
         }
@@ -790,7 +814,7 @@ impl Decoder {
             self.decode_frame(&frame, &Value::Null, &mut out)?;
             return Ok(out);
         }
-        let value: Value = serde_json::from_str(&frame.data)
+        let mut value: Value = serde_json::from_str(&frame.data)
             .map_err(|_| RelayError::Protocol("invalid SSE JSON"))?;
         if !value.is_object() || value.get("error").is_some_and(|e| !e.is_null()) {
             return Err(RelayError::Protocol("invalid upstream event"));
@@ -822,6 +846,12 @@ impl Decoder {
                 return Err(RelayError::Protocol("content before response start"));
             }
             _ => {}
+        }
+        if self.protocol == UpstreamProtocol::Responses
+            && remove_responses_reasoning_ciphertext(&mut value)
+        {
+            frame.data = serde_json::to_string(&value)
+                .map_err(|_| RelayError::Protocol("invalid upstream event"))?;
         }
         self.admit(&value, false)?;
         self.decode_frame(&frame, &value, &mut out)?;

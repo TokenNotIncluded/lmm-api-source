@@ -305,6 +305,14 @@ impl Route {
         &self,
         request: reqwest::RequestBuilder,
     ) -> Result<reqwest::RequestBuilder, RelayError> {
+        self.anthropic_auth_with_betas(request, None)
+    }
+
+    pub(super) fn anthropic_auth_with_betas(
+        &self,
+        request: reqwest::RequestBuilder,
+        controls: Option<&str>,
+    ) -> Result<reqwest::RequestBuilder, RelayError> {
         let request = if self.endpoint.origin().ascii_serialization() == "https://api.stepfun.com"
             && self.endpoint.path() == "/v1/messages"
         {
@@ -327,26 +335,33 @@ impl Route {
             "anthropic-version",
             configured("anthropic-version").unwrap_or("2023-06-01"),
         );
-        let beta = configured("anthropic-beta");
         let fast_beta = "fast-mode-2026-02-01";
-        // Claude's preview models require the beta opt-in even with an explicit
-        // speed field. GA models use the ordinary Messages endpoint.
-        let needs_beta = matches!(self.model.as_str(), "claude-opus-5" | "claude-opus-4-8");
-        if needs_beta
+        // Claude preview models require this beta even with an explicit speed field.
+        let fast = matches!(self.model.as_str(), "claude-opus-5" | "claude-opus-4-8")
             && self
                 .model_attempt
                 .as_ref()
-                .is_some_and(|attempt| attempt.speed() == crate::routing::Speed::Fast)
-            && !beta.is_some_and(|value| value.split(',').any(|b| b.trim() == fast_beta))
+                .is_some_and(|attempt| attempt.speed() == crate::routing::Speed::Fast);
+        let mut betas = Vec::new();
+        for beta in [
+            configured("anthropic-beta"),
+            controls,
+            fast.then_some(fast_beta),
+        ]
+        .into_iter()
+        .flatten()
+        .flat_map(|values| values.split(','))
+        .map(str::trim)
+        .filter(|beta| !beta.is_empty())
         {
-            return Ok(match beta {
-                Some(value) => request.header("anthropic-beta", format!("{value},{fast_beta}")),
-                None => request.header("anthropic-beta", fast_beta),
-            });
+            if !betas.contains(&beta) {
+                betas.push(beta);
+            }
         }
-        Ok(match beta {
-            Some(value) => request.header("anthropic-beta", value),
-            None => request,
+        Ok(if betas.is_empty() {
+            request
+        } else {
+            request.header("anthropic-beta", betas.join(","))
         })
     }
 

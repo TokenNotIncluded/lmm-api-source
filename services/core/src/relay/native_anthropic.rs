@@ -295,6 +295,8 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
             "tool_choice",
             "stop_sequences",
             "metadata",
+            "thinking",
+            "context_management",
             "output_config",
         ],
     )?;
@@ -448,6 +450,23 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
     request.anthropic_cached_prompt = cached_prompt;
     request.anthropic_metadata = v.get_mut("metadata").map(Value::take);
     request.anthropic_output_effort = output_effort;
+    for name in ["thinking", "context_management"] {
+        if let Some(value) = v.get_mut(name) {
+            request.anthropic_controls.insert(name.into(), value.take());
+        }
+    }
+    if !request.anthropic_controls.is_empty() {
+        let payload = serde_json::to_vec(&request.anthropic_controls)
+            .map_err(|_| RelayError::Invalid("invalid Anthropic controls"))?;
+        let mut tokens = [zconv::json::Token::EMPTY; 64];
+        let controls = zconv::json::parse(&payload, &mut tokens, zconv::json::Limits::default())
+            .map_err(|_| RelayError::Invalid("invalid Anthropic controls"))?;
+        request.anthropic_control_betas = zconv::protocol::anthropic::messages_control_betas(
+            controls.root(),
+            u64::from(request.max_output_tokens),
+        )
+        .map_err(|_| RelayError::Invalid("invalid Anthropic thinking or context management"))?;
+    }
     Ok(request)
 }
 
@@ -1102,6 +1121,26 @@ mod tests {
     }
 
     #[test]
+    fn native_anthropic_preserves_thinking_and_context_controls() {
+        let thinking = json!({"type":"adaptive","display":"omitted"});
+        let context = json!({"edits":[{"type":"clear_thinking_20251015","keep":"all"}]});
+        let body = request(json!({"thinking":thinking,"context_management":context}));
+        let parsed = parse(&body, &Limits::default()).unwrap();
+        assert!(parsed.anthropic_control_betas.is_some());
+        let wire = parsed
+            .upstream_body_to(UpstreamProtocol::Anthropic, "selected")
+            .unwrap();
+        let wire: Value = serde_json::from_slice(&wire).unwrap();
+        assert_eq!(wire["thinking"], thinking);
+        assert_eq!(wire["context_management"], context);
+        assert!(
+            parsed
+                .upstream_body_to(UpstreamProtocol::Chat, "selected")
+                .is_err()
+        );
+    }
+
+    #[test]
     fn native_anthropic_output_effort_rejects_lossy_protocol_conversion() {
         let body = request(json!({"output_config":{"effort":"high"}}));
         let parsed = parse(&body, &Limits::default()).unwrap();
@@ -1159,10 +1198,6 @@ mod tests {
                 .is_err()
             );
         }
-        let extra = json!({"thinking":{"type":"enabled","budget_tokens":1024}});
-        let error = parse(&request(extra), &Limits::default()).unwrap_err();
-        assert_eq!(error.code(), "unsupported_feature");
-        assert!(error.to_string().contains("request.thinking"));
         assert!(parse(&request(json!({"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"orphan","content":"x"}]}]})),&Limits::default()).is_err());
     }
     #[test]
