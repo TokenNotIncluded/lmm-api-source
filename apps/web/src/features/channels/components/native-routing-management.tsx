@@ -1007,6 +1007,7 @@ function NativeRoutingWorkspace({
       String(price.speed)
     )
   )
+  const priceModels = [...new Set(prices.map((rule) => String(rule.model)))]
   const unpriced =
     section === 'unpriced'
       ? configuration.routing.upstreams
@@ -1037,13 +1038,14 @@ function NativeRoutingWorkspace({
           ? vendors.length
           : section === 'unpriced'
             ? unpriced.length
-            : prices.length
+            : priceModels.length
   const paginationKnown = !serverChannels || Boolean(verifiedChannelPage)
   const lastPage = Math.max(1, Math.ceil(total / 25))
   // Local lists can shrink while open; server channel pages are validated by digest.
   const shownPage =
     section === 'channels' && serverChannels ? page : Math.min(page, lastPage)
   const start = (shownPage - 1) * 25
+  const visiblePriceModels = new Set(priceModels.slice(start, start + 25))
   const visibleChannels = serverChannels
     ? upstreams
     : upstreams.slice(start, start + 25)
@@ -2654,7 +2656,9 @@ function NativeRoutingWorkspace({
           <NativePriceRuleList
             prices={{
               ...configuration.prices,
-              rules: prices.slice(start, start + 25),
+              rules: prices.filter((rule) =>
+                visiblePriceModels.has(String(rule.model))
+              ),
             }}
           />
           <details className='min-w-0'>

@@ -488,6 +488,41 @@ async function validatePublication(
     ),
   }
 }
+export async function previewOfficialGroupMultiplier(
+  scope: NativeRoutingScope,
+  configuration: NativeConfiguration,
+  group: string,
+  multiplier: number
+) {
+  const raw = await nativeRequest<NativeConfiguration>(scope, 'GET', configPath)
+  if (!samePriceRule(raw.version, configuration.version)) return null
+  const catalog = catalogOf(raw)
+  if (!catalog || !Object.hasOwn(catalog.group_multipliers_ppm, group)) {
+    return null
+  }
+  const body: Publication = {
+    expected_version: raw.version,
+    routing: { ...raw.routing, version: raw.version.routing + 1 },
+    prices: {
+      version: raw.version.pricing + 1,
+      rules: raw.prices.rules.map((rule) =>
+        rule.group === group ? { ...rule, group_multiplier_ppm: multiplier } : rule
+      ),
+    },
+    bindings: {
+      ...raw.bindings,
+      official_prices: {
+        ...catalog,
+        group_multipliers_ppm: {
+          ...catalog.group_multipliers_ppm,
+          [group]: multiplier,
+        },
+      },
+    },
+  }
+  return validatePublication(scope, raw, body, false)
+}
+
 export async function publishOfficialPrice(
   scope: NativeRoutingScope,
   preview: OfficialPricePreview

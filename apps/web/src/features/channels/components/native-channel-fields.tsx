@@ -771,42 +771,11 @@ export function NativeChannelFields({
             onChange={(event) => change('name', event.target.value)}
           />
         </label>
-        {savedChannel ? (
-          <>
-            {enabledField}
-            <details className='min-w-0 border-t @min-[40rem]/routing:col-span-2'>
-              <summary className='flex min-h-11 cursor-pointer items-center justify-between gap-3 text-sm font-medium'>
-                {t('Connection settings')}
-                <span className='text-muted-foreground min-w-0 truncate text-xs font-normal'>
-                  {provider?.label ||
-                    nativeProtocolLabel(
-                      typeof draft.protocol === 'string' ? draft.protocol : '',
-                      t
-                    )}
-                </span>
-              </summary>
-              <div className='grid min-w-0 gap-x-5 gap-y-3 py-2 @min-[40rem]/routing:grid-cols-2'>
-                {connectionFields}
-              </div>
-            </details>
-          </>
-        ) : (
-          <>
-            {connectionFields}
-            {enabledField}
-          </>
-        )}
+        {connectionFields}
+        {enabledField}
       </div>
       <section className='min-w-0 space-y-2' aria-label={t('Models')}>
         <h4 className='text-sm font-semibold'>{t('Models')}</h4>
-        <NativeChannelModelsFields
-          ref={modelFields}
-          configuredOnly={!!savedChannel}
-          document={document}
-          configuration={configuration}
-          disabled={disabled}
-          onChange={onChange}
-        />
         {savedChannel && (
           <ChannelModelCatalog
             key={JSON.stringify([draft.id, draft.protocol, draft.endpoint])}
@@ -880,6 +849,14 @@ export function NativeChannelFields({
             }}
           />
         )}
+        <NativeChannelModelsFields
+          ref={modelFields}
+          configuredOnly={!!savedChannel}
+          document={document}
+          configuration={configuration}
+          disabled={disabled}
+          onChange={onChange}
+        />
       </section>
     </div>
   )

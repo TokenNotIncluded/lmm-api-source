@@ -66,6 +66,7 @@ import {
 import { NativeRouterPrices } from './native-router-prices'
 import { GroupPriceRows, NativeRulePrices } from './native-rule-prices'
 import { OfficialBatchPriceReview } from './official-batch-price-review'
+import { previewOfficialGroupMultiplier } from './official-price-api'
 import { OfficialPriceEditor } from './official-price-editor'
 import {
   originalGroupDescriptions,
@@ -509,7 +510,7 @@ function PricingWorkspace({
     URL.revokeObjectURL(url)
   }
   function applyGroupMultiplier() {
-    if (!prices) return
+    if (!prices || !configuration) return
     const multiplier = usdToMicros(batchMultiplier)
     if (
       multiplier === null ||
@@ -525,6 +526,30 @@ function PricingWorkspace({
           'Enter a valid multiplier from 0 to 1000. Upstream-cost rules require a value above zero.'
         )
       )
+      return
+    }
+    const officialMultipliers =
+      configuration.bindings.official_prices?.group_multipliers_ppm
+    if (officialMultipliers && Object.hasOwn(officialMultipliers, group)) {
+      void run(async () => {
+        const result = await previewOfficialGroupMultiplier(
+          scope,
+          configuration,
+          group,
+          multiplier
+        )
+        if (!result?.prepared) {
+          throw new Error(t('The routing snapshot changed. Reload before continuing.'))
+        }
+        setPreview({
+          path: `${NATIVE_ROOT}/configuration`,
+          method: 'PUT',
+          body: result.body,
+          digest: result.digest,
+          before: configuration.prices,
+          after: result.prepared.prices,
+        })
+      })
       return
     }
     updatePrices({
@@ -575,8 +600,13 @@ function PricingWorkspace({
         <TableBody>
           {groups.map((name) => {
             const values = groupedMultipliers.get(name)
-            const uniform =
-              values?.size === 1 ? values.values().next().value : undefined
+            const published = configuration.bindings.official_prices?.group_multipliers_ppm
+            const official = published && Object.hasOwn(published, name)
+            const uniform = official
+              ? published?.[name]
+              : values?.size === 1
+                ? values.values().next().value
+                : undefined
             return (
               <TableRow key={name}>
                 <TableCell className='font-medium'>{name}</TableCell>
@@ -600,7 +630,11 @@ function PricingWorkspace({
                   <Button
                     type='button'
                     variant='ghost'
-                    disabled={busy || stale || query.isError || !values?.size}
+                    disabled={
+                      busy || stale || query.isError ||
+                      (!official && !values?.size) ||
+                      (official && !!draft)
+                    }
                     onClick={() => {
                       setGroup(name)
                       setBatchMultiplier(

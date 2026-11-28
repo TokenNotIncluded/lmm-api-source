@@ -22,6 +22,14 @@ export function NativePriceRuleList({ prices }: { prices: NativePrices }) {
     request: t('Request fee (USD / request)'),
   }
 
+  const byModel = new Map<string, NativePrices['rules']>()
+  for (const raw of prices.rules) {
+    const model = typeof raw.model === 'string' ? raw.model : t('Unknown')
+    const rules = byModel.get(model)
+    if (rules) rules.push(raw)
+    else byModel.set(model, [raw])
+  }
+
   return (
     <section
       className='min-w-0 space-y-5'
@@ -42,71 +50,71 @@ export function NativePriceRuleList({ prices }: { prices: NativePrices }) {
         </p>
       </div>
       <div className='divide-border divide-y'>
-        {prices.rules.map((raw, index) => {
-          const parsed = nativePriceRuleSchema.safeParse(raw)
-          const rule = parsed.success ? parsed.data : undefined
-          const model = typeof raw.model === 'string' ? raw.model : t('Unknown')
-          const mode = !rule
-            ? t('Unknown')
-            : rule.billing_mode === 'official_flat'
-              ? t('Official base price')
-              : rule.billing_mode === 'tiered_decimal'
-                ? t('Tiered pricing')
-                : rule.billing_mode === 'upstream_cost'
-                  ? t('Upstream cost')
-                  : t('Token pricing')
-          return (
-            <article
-              key={String(raw.id ?? index)}
-              aria-label={model}
-              className='grid min-w-0 gap-5 py-6 first:pt-0 @min-[52rem]/routing:grid-cols-[minmax(14rem,1fr)_minmax(0,2fr)]'
-            >
-              <div className='min-w-0 space-y-2'>
-                <h3 className='font-medium [overflow-wrap:anywhere]'>
-                  {model}
-                </h3>
-                <div className='text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs [overflow-wrap:anywhere]'>
-                  <span>
-                    {t('Group')}: {rule?.group ?? t('Unknown')}
-                  </span>
-                  <span>
-                    {t('Speed')}: {rule?.speed ?? t('Unknown')}
-                  </span>
-                </div>
-                <p className='text-muted-foreground text-xs'>{mode}</p>
-              </div>
-              <dl className='grid min-w-0 grid-cols-2 gap-x-5 gap-y-4 @min-[52rem]/routing:grid-cols-3'>
-                {(Object.keys(rateLabels) as PriceRateKey[]).map((key) => {
-                  const value = rule ? priceRateText(rule, key) : null
-                  const notApplicable =
-                    rule?.billing_mode === 'upstream_cost' ||
-                    (hasDecimalPriceRates(rule?.billing_mode) &&
-                      key === 'request')
-                  return (
-                    <div key={key} className='min-w-0 space-y-1'>
+        {[...byModel].map(([model, rules]) => (
+          <section key={model} aria-label={model} className='space-y-3 py-4'>
+            <h3 className='font-medium [overflow-wrap:anywhere]'>{model}</h3>
+            {rules.map((raw, index) => {
+              const parsed = nativePriceRuleSchema.safeParse(raw)
+              const rule = parsed.success ? parsed.data : undefined
+              const mode = !rule
+                ? t('Unknown')
+                : rule.billing_mode === 'official_flat'
+                  ? t('Official base price')
+                  : rule.billing_mode === 'tiered_decimal'
+                    ? t('Tiered pricing')
+                    : rule.billing_mode === 'upstream_cost'
+                      ? t('Upstream cost')
+                      : t('Token pricing')
+              return (
+                <article
+                  key={String(raw.id ?? index)}
+                  className='grid min-w-0 gap-5 py-6 first:pt-0 @min-[52rem]/routing:grid-cols-[minmax(14rem,1fr)_minmax(0,2fr)]'
+                >
+                  <div className='min-w-0 space-y-2'>
+                    <div className='text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs [overflow-wrap:anywhere]'>
+                      <span>
+                        {t('Group')}: {rule?.group ?? t('Unknown')}
+                      </span>
+                      <span>
+                        {t('Speed')}: {rule?.speed ?? t('Unknown')}
+                      </span>
+                    </div>
+                    <p className='text-muted-foreground text-xs'>{mode}</p>
+                  </div>
+                  <dl className='grid min-w-0 grid-cols-2 gap-x-5 gap-y-4 @min-[52rem]/routing:grid-cols-3'>
+                    {(Object.keys(rateLabels) as PriceRateKey[]).map((key) => {
+                      const value = rule ? priceRateText(rule, key) : null
+                      const notApplicable =
+                        rule?.billing_mode === 'upstream_cost' ||
+                        (hasDecimalPriceRates(rule?.billing_mode) &&
+                          key === 'request')
+                      return (
+                        <div key={key} className='min-w-0 space-y-1'>
+                          <dt className='text-muted-foreground text-xs leading-5'>
+                            {rateLabels[key]}
+                          </dt>
+                          <dd className='font-medium [overflow-wrap:anywhere] tabular-nums'>
+                            {value ?? (notApplicable ? '—' : t('Unknown'))}
+                          </dd>
+                        </div>
+                      )
+                    })}
+                    <div className='min-w-0 space-y-1'>
                       <dt className='text-muted-foreground text-xs leading-5'>
-                        {rateLabels[key]}
+                        {t('Group multiplier')} × {t('Speed multiplier')}
                       </dt>
                       <dd className='font-medium [overflow-wrap:anywhere] tabular-nums'>
-                        {value ?? (notApplicable ? '—' : t('Unknown'))}
+                        {rule
+                          ? `${microsToUsd(rule.group_multiplier_ppm)} × ${microsToUsd(rule.speed_multiplier_ppm)}`
+                          : t('Unknown')}
                       </dd>
                     </div>
-                  )
-                })}
-                <div className='min-w-0 space-y-1'>
-                  <dt className='text-muted-foreground text-xs leading-5'>
-                    {t('Group multiplier')} × {t('Speed multiplier')}
-                  </dt>
-                  <dd className='font-medium [overflow-wrap:anywhere] tabular-nums'>
-                    {rule
-                      ? `${microsToUsd(rule.group_multiplier_ppm)} × ${microsToUsd(rule.speed_multiplier_ppm)}`
-                      : t('Unknown')}
-                  </dd>
-                </div>
-              </dl>
-            </article>
-          )
-        })}
+                  </dl>
+                </article>
+              )
+            })}
+          </section>
+        ))}
       </div>
       {prices.rules.length > 0 && (
         <p className='text-muted-foreground max-w-3xl text-xs leading-5'>
