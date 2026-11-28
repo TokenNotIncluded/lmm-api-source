@@ -407,7 +407,6 @@ impl Decoder {
                 ["attribution", "linapi_cache_billing"]
                     .iter()
                     .any(|key| usage.get(key).is_some_and(Value::is_object))
-                    || usage.get("x_details").is_some_and(Value::is_array)
             });
         let legacy_receipt = self.legacy_openrouter_usage && value.get("usage").is_some();
         let cost_details = matches!(
@@ -446,13 +445,8 @@ impl Decoder {
                     .and_then(Value::as_object_mut)
                     .unwrap()
                     .retain(|key, value| {
-                        match key.as_str() {
-                            "attribution" | "linapi_cache_billing" => !value.is_object(),
-                            // A provider audit breakdown repeats counters from the
-                            // authoritative top-level receipt. Core bills that receipt.
-                            "x_details" => !value.is_array(),
-                            _ => true,
-                        }
+                        !matches!(key.as_str(), "attribution" | "linapi_cache_billing")
+                            || !value.is_object()
                     });
             }
             if gemini_grade {

@@ -4877,8 +4877,9 @@ source = "git+https://github.com/LIghtJUNction/zclap.git#6bc825d3bbba8570462d2bd
 
 [[package]]
 name = "zconv"
-version = "0.4.1"
-source = "git+https://github.com/LIghtJUNction/zconv.git#d135ea8497edef9f82a9a3589f8548d26a2d4841"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c61e2bc77cc75af121879c7423c53932383b816c829983e0c5129cfc8a30fbe2"
 
 [[package]]
 name = "zerocopy"
