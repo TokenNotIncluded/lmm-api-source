@@ -427,20 +427,11 @@ impl Decoder {
             let mut content = value.clone();
             // admit() checked these provider fields. receipt() still reads the original.
             if anthropic_usage {
-                let usage = content
-                    .pointer_mut(usage_path)
-                    .and_then(Value::as_object_mut)
-                    .unwrap();
-                if self.expected_speed.is_some() {
-                    usage.remove("speed");
+                // Core owns validation and settlement for the untouched receipt.
+                // The content converter must not interpret provider billing metadata.
+                if let Some(usage) = content.pointer_mut(usage_path) {
+                    *usage = Value::Null;
                 }
-                usage.remove("service_tier");
-                usage.remove("inference_geo");
-                usage.remove("iterations");
-                usage.remove("server_tool_use");
-                // The authoritative receipt reads this subset as Anthropic
-                // thinking usage. It does not belong to the content converter.
-                usage.remove("output_tokens_details");
             }
             if inactive_stop_details {
                 content[stop_details_parent]

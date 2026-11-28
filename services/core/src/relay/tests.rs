@@ -1224,7 +1224,8 @@ fn anthropic_thinking_usage_preserves_the_terminal_receipt() {
     let events = frame(
         &mut decoder,
         json!({"type":"message_delta","delta":{"stop_reason":"end_turn","stop_details":null},
-            "usage":{"output_tokens":30,"output_tokens_details":{"thinking_tokens":28}}}),
+            "usage":{"output_tokens":30,"output_tokens_details":{"thinking_tokens":28},
+                "credit_unit":"credit","credit_unit_plural":"credits","credit_usage":0.01145}}),
     )
     .unwrap();
     assert!(
