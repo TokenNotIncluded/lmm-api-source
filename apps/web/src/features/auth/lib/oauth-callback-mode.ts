@@ -117,3 +117,18 @@ export function resolveOAuthCallbackMode(
 
   return markedState === state ? 'bind' : 'login'
 }
+
+export function isOAuthBindPopupLocation(
+  pathname: string,
+  search: string,
+  popup: (OAuthSessionStorageOwner & { opener: OAuthModeOpener | null }) | null =
+    typeof window === 'undefined' ? null : window
+): boolean {
+  const match = /^\/oauth\/([^/]+)\/?$/.exec(pathname)
+  if (!match || !popup?.opener) return false
+  const state = new URLSearchParams(search).get('state') ?? ''
+  return resolveOAuthCallbackMode(match[1], state, {
+    opener: popup.opener,
+    storage: getOAuthSessionStorage(popup),
+  }) === 'bind'
+}

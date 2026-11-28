@@ -21,6 +21,7 @@ import { describe, test } from 'node:test'
 
 import {
   getOAuthSessionStorage,
+  isOAuthBindPopupLocation,
   markOAuthBindPopup,
   resolveOAuthCallbackMode,
   type OAuthModeStorage,
@@ -145,6 +146,18 @@ describe('resolveOAuthCallbackMode', () => {
       'login'
     )
   })
+})
+
+test('only the marked callback location leaves session refresh to its opener', () => {
+  const sessionStorage = fakeStorage()
+  const popup = { opener: openOpener, sessionStorage }
+  markOAuthBindPopup(sessionStorage, 'oidc', bindState)
+  const search = '?state=' + bindState
+  assert.equal(isOAuthBindPopupLocation('/oauth/oidc', search, popup), true)
+  assert.equal(isOAuthBindPopupLocation('/oauth/github', search, popup), false)
+  assert.equal(isOAuthBindPopupLocation('/oauth/oidc', '?state=old', popup), false)
+  assert.equal(isOAuthBindPopupLocation('/oauth/oidc', search, null), false)
+  assert.equal(isOAuthBindPopupLocation('/sign-in', search, popup), false)
 })
 
 describe('OAuth bind popup storage', () => {

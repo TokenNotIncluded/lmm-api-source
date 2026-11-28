@@ -57,6 +57,7 @@ import { NavigationProgress } from '@/components/navigation-progress'
 import { Toaster } from '@/components/ui/sonner'
 import { ThemeCustomizationProvider } from '@/context/theme-customization-provider'
 import { SourceConsent } from '@/features/acquisition/consent'
+import { isOAuthBindPopupLocation } from '@/features/auth/lib/oauth-callback-mode'
 import { saveAffiliateCode } from '@/features/auth/lib/storage'
 import { GeneralError } from '@/features/errors/general-error'
 import { NotFoundError } from '@/features/errors/not-found-error'
@@ -116,6 +117,10 @@ function RootComponent() {
       },
     })
     const unsubscribe = subscribeAuthSessionEvents((event) => {
+      // The opener receives the rotated session and tells the popup when to close.
+      if (isOAuthBindPopupLocation(window.location.pathname, window.location.search)) {
+        return
+      }
       void reconciler.handle(event)
     })
     return () => {
@@ -276,10 +281,9 @@ export const Route = createRootRouteWithContext<{
         location.href,
         abortController.signal
       )
-    } else {
-      // Public pages should paint even while an unavailable API is recovering.
-      // The store will update the header and CTA when a session eventually
-      // resolves, without holding the router's first render hostage.
+    } else if (!isOAuthBindPopupLocation(pathname, location.searchStr)) {
+      // Public pages can refresh in the background. A binding popup must leave
+      // the opener's credential valid until the opener finishes the request.
       void bootstrapAuthentication().catch(() => undefined)
     }
 

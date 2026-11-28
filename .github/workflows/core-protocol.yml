@@ -693,6 +693,7 @@ jobs:
               src/features/native-users/access-editor.test.tsx \
               src/features/native-users/adjustments-api.test.ts \
               src/features/native-users/page.test.tsx \
+              src/features/auth/lib/__tests__/oauth-callback-mode.test.ts \
               src/features/auth/sign-in/components/user-auth-form.test.tsx \
               src/features/auth/forgot-password/components/forgot-password-form.test.tsx \
               src/features/auth/reset-password-confirm/index.test.tsx \

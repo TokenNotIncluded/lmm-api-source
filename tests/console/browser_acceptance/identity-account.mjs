@@ -118,6 +118,7 @@ async function verifyBrowserAccounts(browser, session, request, web, scenario) {
       consent.click(),
     ])
     assert.equal(finish.status(), 200)
+    assert.equal(navigation.popup_refreshes, 0)
     assert.equal((await finish.json()).success, true)
     await region.getByText(provider.subject, { exact: true }).waitFor()
     await region.getByRole('button', { name: 'Unbind', exact: true }).waitFor()
