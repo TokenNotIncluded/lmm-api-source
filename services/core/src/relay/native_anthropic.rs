@@ -404,6 +404,8 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
             content: blocks(s, Role::System, limits)?,
         });
     }
+    let mut has_inline_system = false;
+    let mut previous_role = None;
     for m in v["messages"]
         .as_array()
         .ok_or(RelayError::Invalid("messages required"))?
@@ -412,8 +414,13 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
         let role = match m["role"].as_str() {
             Some("user") => Role::User,
             Some("assistant") => Role::Assistant,
+            Some("system") if matches!(previous_role, Some(Role::User | Role::System)) => {
+                has_inline_system = true;
+                Role::System
+            }
             _ => return Err(RelayError::Invalid("invalid message role")),
         };
+        previous_role = Some(role);
         messages.push(Message {
             responses_input_id: None,
             role,
@@ -448,6 +455,9 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
     }
     request.messages = messages;
     request.anthropic_cached_prompt = cached_prompt;
+    if has_inline_system {
+        request.anthropic_ordered_messages = v.get_mut("messages").map(Value::take);
+    }
     request.anthropic_metadata = v.get_mut("metadata").map(Value::take);
     request.anthropic_output_effort = output_effort;
     for name in ["thinking", "context_management"] {
@@ -1118,6 +1128,28 @@ mod tests {
             parse(&body, &Limits::default()),
             Err(RelayError::UnsupportedField(field)) if field == "output_config.format"
         ));
+    }
+
+    #[test]
+    fn native_anthropic_keeps_inline_system_messages_at_their_original_position() {
+        let messages = json!([
+            {"role":"user","content":"hello"},
+            {"role":"system","content":[{"type":"text","text":"new instruction"}]},
+            {"role":"assistant","content":"answer"},
+            {"role":"user","content":"follow up"}
+        ]);
+        let body = request(json!({"system":"prefix","messages":messages}));
+        let parsed = parse(&body, &Limits::default()).unwrap();
+        let wire = parsed
+            .upstream_body_to(UpstreamProtocol::Anthropic, "selected")
+            .unwrap();
+        let wire: Value = serde_json::from_slice(&wire).unwrap();
+        assert_eq!(wire["messages"], messages);
+        assert!(
+            parsed
+                .upstream_body_to(UpstreamProtocol::Chat, "selected")
+                .is_err()
+        );
     }
 
     #[test]

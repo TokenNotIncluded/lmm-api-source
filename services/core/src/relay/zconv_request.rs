@@ -151,9 +151,20 @@ pub(super) fn encode(
     let mut tokens = vec![Token::EMPTY; size.saturating_add(64).min(MAX_TOKENS)];
     let mut records = Vec::with_capacity(count);
     let mut ordinal = 0;
+    let mut follows_conversation = false;
     for m in &request.messages {
-        if m.role == Role::System && m.content.is_empty() {
-            continue;
+        if m.role == Role::System {
+            if follows_conversation && request.anthropic_ordered_messages.is_some() {
+                // The native ordered prompt is restored after zconv encodes
+                // the rest of the envelope. These text blocks still count.
+                ordinal += m.content.len();
+                continue;
+            }
+            if m.content.is_empty() {
+                continue;
+            }
+        } else {
+            follows_conversation = true;
         }
         let role = match m.role {
             Role::System => zconv::ir::Role::System,
