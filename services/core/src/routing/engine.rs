@@ -547,16 +547,12 @@ impl Router {
                     }),
             );
         }
-        let mut upstreams: Vec<_> = active
+        let upstreams: Vec<_> = active
             .upstreams
             .values()
             .map(|upstream| upstream.config.clone())
             .collect();
-        groups.sort_by(|a, b| a.name.cmp(&b.name));
-        routes.sort_by_key(|route| route.id);
-        aliases.sort_by(|a, b| (&a.group, &a.alias).cmp(&(&b.group, &b.alias)));
-        upstreams.sort_by_key(|upstream| upstream.id);
-        Ok(super::store::ReleaseDocument {
+        let mut document = super::store::ReleaseDocument {
             contract_version: super::CONTRACT_VERSION,
             routing: RoutingConfig {
                 channel_overrides: active.channel_overrides.clone(),
@@ -573,7 +569,9 @@ impl Router {
                 aliases,
             },
             pricing: active.prices.config().clone(),
-        })
+        };
+        document.routing.sort_document_order();
+        Ok(document)
     }
 
     pub(crate) fn affinity_config(&self) -> Result<Option<super::affinity::Config>, RoutingError> {

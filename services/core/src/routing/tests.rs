@@ -1601,6 +1601,25 @@ fn routing_benchmark() {
 }
 
 #[test]
+fn route_edit_order_is_canonical_after_recovery() {
+    let (mut config, prices) = fixture(1);
+    let mut disabled = config.routes[0].clone();
+    disabled.id = 2;
+    disabled.model = "disabled".into();
+    disabled.enabled = false;
+    disabled.targets.clear();
+    config.routes.push(disabled);
+    // A targeted edit removes its old entry and appends the replacement.
+    config.routes.rotate_left(1);
+    let router = build(config.clone(), prices);
+    let published = router.catalog_document().unwrap();
+    assert_ne!(published.routing, config);
+    config.sort_document_order();
+    assert_eq!(published.routing, config);
+    assert_eq!(router.catalog_document().unwrap().routing, config);
+}
+
+#[test]
 fn catalog_document_keeps_exact_routing_price_snapshot_across_publication() {
     let (config, prices) = fixture(1);
     let router = build(config.clone(), prices.clone());

@@ -421,6 +421,18 @@ pub struct RoutingConfig {
     pub aliases: Vec<ModelAlias>,
 }
 
+impl RoutingConfig {
+    /// Canonicalize unordered release collections for snapshot comparison.
+    /// Target, speed, and failover order belong to each route and stay intact.
+    pub(crate) fn sort_document_order(&mut self) {
+        self.groups.sort_by(|a, b| a.name.cmp(&b.name));
+        self.routes.sort_by_key(|route| route.id);
+        self.aliases
+            .sort_by(|a, b| (&a.group, &a.alias).cmp(&(&b.group, &b.alias)));
+        self.upstreams.sort_by_key(|upstream| upstream.id);
+    }
+}
+
 pub(super) fn valid_id(value: u64) -> bool {
     value > 0 && value <= i64::MAX as u64
 }

@@ -377,7 +377,10 @@ impl ManagedChannels {
         Ok(())
     }
 
-    async fn install(&self, document: ReleaseDocument) -> Result<(), ManagementError> {
+    async fn install(&self, mut document: ReleaseDocument) -> Result<(), ManagementError> {
+        // Editing a route can append it to an already-published document.
+        // Compare the same ordering as the serving snapshot, even on reload.
+        document.routing.sort_document_order();
         let raw: Option<Value> = sqlx::query_scalar("SELECT public.routing_control_bindings($1)")
             .bind(document.routing.version as i64)
             .fetch_one(&self.pool)
