@@ -638,6 +638,7 @@ impl Worker {
         // frame can contain content followed by authoritative usage; losing the
         // client during its first packet must not discard the already decoded
         // usage or protocol terminal boundary.
+        self.encoder.prepare_frame(&events)?;
         for event in events {
             packets.extend(self.encoder.consume(event)?);
         }

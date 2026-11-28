@@ -166,6 +166,7 @@ jobs:
             routing::tiered::tests::frozen_tariff_keeps_exact_rates_and_rejects_unknown_fields; do
             require_test "$name" --lib
           done
+          require_test anthropic_stream_start_forwards_observed_usage --lib
           require_test portable_matrix::public_four_by_four_text_json_and_sse --test native_model_http
           require_test portable_matrix::unsupported_gemini_operations_fields_and_grounding_do_not_dispatch --test native_model_http
           require_test model_http::selected_bound_tests::openrouter_converts_portable_native_requests_and_settles_once --lib

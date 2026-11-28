@@ -134,6 +134,28 @@ impl Encoder {
             .saturating_mul(8)
             .saturating_add(self.limits.max_blocks.saturating_mul(4096))
     }
+    pub fn prepare_frame(&mut self, events: &[Event]) -> Result<(), RelayError> {
+        if self.stream
+            && self.client == ClientProtocol::Anthropic
+            && !self.started
+            && let [
+                Event::Start(_),
+                Event::AnthropicInputTokens(input),
+                Event::Usage(usage),
+            ] = events
+        {
+            self.writer = Some(stream::Writer::with_initial_usage(
+                self,
+                zconv::stream::Usage {
+                    uncached_input: Some(*input),
+                    output: usage.output_tokens,
+                    ..Default::default()
+                },
+            )?);
+        }
+        Ok(())
+    }
+
     pub fn consume(&mut self, event: Event) -> Result<Vec<Vec<u8>>, RelayError> {
         if self.done {
             return Err(RelayError::Protocol("event after done"));

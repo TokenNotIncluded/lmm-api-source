@@ -1182,6 +1182,37 @@ fn annotated_responses_fail_instead_of_losing_citations() {
     ));
 }
 #[test]
+fn anthropic_stream_start_forwards_observed_usage() {
+    let limits = Limits::default();
+    let mut decoder = Decoder::new(UpstreamProtocol::Anthropic, &limits);
+    let events = frame(
+        &mut decoder,
+        json!({"type":"message_start","message":{"id":"claude_test","content":[],
+            "usage":{"input_tokens":12,"output_tokens":0}}}),
+    )
+    .unwrap();
+    let request = Request::parse(
+        ClientProtocol::Anthropic,
+        &serde_json::to_vec(&json!({"model":"test","stream":true,"max_tokens":100,
+            "messages":[{"role":"user","content":"hello"}]}))
+        .unwrap(),
+        &limits,
+    )
+    .unwrap();
+    let mut encoder = super::encode::Encoder::new(&request, "early_usage", &limits);
+    encoder.prepare_frame(&events).unwrap();
+    let packets = encoder.consume(events.into_iter().next().unwrap()).unwrap();
+    let wire = String::from_utf8(packets.concat()).unwrap();
+    let data = wire
+        .lines()
+        .find_map(|line| line.strip_prefix("data: "))
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_str(data).unwrap();
+    assert_eq!(value["message"]["usage"]["input_tokens"], 12);
+    assert_eq!(value["message"]["usage"]["output_tokens"], 0);
+}
+
+#[test]
 fn anthropic_thinking_usage_preserves_the_terminal_receipt() {
     let mut decoder = Decoder::new(UpstreamProtocol::Anthropic, &Limits::default());
     frame(

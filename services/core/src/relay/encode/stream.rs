@@ -69,11 +69,19 @@ pub(super) fn grow<T: Clone>(
 }
 impl Writer {
     pub(super) fn new(encoder: &Encoder) -> Result<Self, RelayError> {
+        Self::with_initial_usage(encoder, ir::Usage::default())
+    }
+
+    pub(super) fn with_initial_usage(
+        encoder: &Encoder,
+        usage: ir::Usage,
+    ) -> Result<Self, RelayError> {
         let target = format(encoder.client);
         let mut config = StreamConfig::new(target.protocol, target.protocol);
         config.source = target;
         config.target = target;
         config.allow_partial_usage = true;
+        config.context.initial_usage = usage;
         config.gemini_chat_history = encoder.client == ClientProtocol::Gemini;
         config.json_limits.max_input = encoder.wire_limit();
         Ok(Self {
