@@ -785,7 +785,99 @@ async fn verified_email_login_accepts_original_case_without_guessing_an_owner(po
     // A distinct exact username and the verified mailbox now name two owners.
     register(&app, input).await;
     assert_denied(attempt(input, "abc12345").await);
+    // An exact username remains another owner's identifier even if that account
+    // signs in only through an external identity and has no local verifier.
+    sqlx::query("DELETE FROM core_identity.password_logins WHERE user_id=(SELECT user_id FROM core_identity.user_profiles WHERE username=$1)")
+        .bind(input).execute(&pool).await.unwrap();
+    assert_denied(attempt(input, "abc12345").await);
     assert_eq!(login(&app, "case-owner").await.1["user"]["id"], owner);
+}
+
+#[sqlx::test(migrations = false)]
+async fn email_login_resolves_imported_aliases_and_current_verified_owners(pool: PgPool) {
+    let (_, app) = setup(pool.clone()).await;
+    register(&app, "mail-owner").await;
+    let owner = login(&app, "mail-owner").await.1["user"]["id"]
+        .as_i64()
+        .unwrap();
+    let original = "Old+Alias@Example.TEST";
+    let key = "old+alias@example.test";
+    let denied = |name: &str| {
+        call(
+            &app,
+            "POST",
+            "/api/user/login",
+            Some(json!({"username":name, "password":"abc12345"})),
+            &[],
+        )
+    };
+    let check_denied = |(status, headers, body): (StatusCode, HeaderMap, Value)| {
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(body["code"], "AUTH_UNAUTHORIZED");
+        assert!(headers.get("set-cookie").is_none());
+    };
+
+    // legacy_cutover_import preserves the profile bytes and records the trimmed,
+    // lowercase mailbox for an unambiguous legacy owner, without verifying mail.
+    sqlx::query(
+        "UPDATE core_identity.user_profiles SET email=$2,email_login_allowed=TRUE WHERE user_id=$1",
+    )
+    .bind(owner)
+    .bind(format!(" {original} "))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO core_identity.email_addresses(email_key,user_id,state,email_version)
+        VALUES ($1,$2,'legacy_unverified',0)",
+    )
+    .bind(key)
+    .bind(owner)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(login(&app, original).await.1["user"]["id"], owner);
+    check_denied(denied(key).await);
+
+    // An authority row must still match the opted-in profile and its generation.
+    sqlx::query("UPDATE core_identity.email_addresses SET state='verified',email_version=1,verified_at=clock_timestamp() WHERE email_key=$1")
+        .bind(key).execute(&pool).await.unwrap();
+    check_denied(denied(original).await);
+    sqlx::query("UPDATE core_identity.user_profiles SET email_version=1 WHERE user_id=$1")
+        .bind(owner)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(login(&app, key).await.1["user"]["id"], owner);
+    assert_eq!(login(&app, original).await.1["user"]["id"], owner);
+    sqlx::query(
+        "UPDATE core_identity.user_profiles SET email='other@example.test' WHERE user_id=$1",
+    )
+    .bind(owner)
+    .execute(&pool)
+    .await
+    .unwrap();
+    check_denied(denied(key).await);
+    check_denied(denied("other@example.test").await);
+    sqlx::query("UPDATE core_identity.user_profiles SET email=$2,email_login_allowed=FALSE WHERE user_id=$1")
+        .bind(owner).bind(key).execute(&pool).await.unwrap();
+    check_denied(denied(key).await);
+
+    // Exact text cannot override a stale generation, a conflict or another owner.
+    sqlx::query("UPDATE core_identity.user_profiles SET email_login_allowed=TRUE,email_version=2 WHERE user_id=$1")
+        .bind(owner).execute(&pool).await.unwrap();
+    check_denied(denied(key).await);
+    sqlx::query("UPDATE core_identity.email_addresses SET user_id=NULL,state='conflict',verified_at=NULL WHERE email_key=$1")
+        .bind(key).execute(&pool).await.unwrap();
+    check_denied(denied(key).await);
+    register(&app, "another-owner").await;
+    let other = login(&app, "another-owner").await.1["user"]["id"]
+        .as_i64()
+        .unwrap();
+    sqlx::query("UPDATE core_identity.email_addresses SET user_id=$2,state='verified',verified_at=clock_timestamp() WHERE email_key=$1")
+        .bind(key).bind(other).execute(&pool).await.unwrap();
+    check_denied(denied(key).await);
+    assert_eq!(login(&app, "mail-owner").await.1["user"]["id"], owner);
 }
 
 #[sqlx::test(migrations = false)]

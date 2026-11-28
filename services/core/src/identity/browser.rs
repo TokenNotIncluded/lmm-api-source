@@ -228,30 +228,42 @@ impl BrowserAuth {
             return Err(IdentityError::Unauthorized);
         }
         let email = email::EmailAddress::parse(username).ok();
-        // Keep legacy aliases exact. Only a current, verified binding can add
-        // another spelling, and an exact username from another owner still conflicts.
-        let names: Vec<String> = sqlx::query_scalar(
-            "SELECT p.login_name FROM core_identity.password_logins p
-             JOIN core_identity.user_profiles pr ON pr.user_id=p.user_id
-             WHERE pr.username=$1 OR (pr.email_login_allowed AND pr.email<>'' AND (
-                 pr.email=$1 OR (pr.email=$2 AND EXISTS (
-                     SELECT 1 FROM core_identity.email_addresses e
-                     WHERE e.email_key=pr.email AND e.user_id=pr.user_id
-                       AND e.state='verified' AND e.email_version=pr.email_version))))
-             LIMIT 2",
+        // A legacy profile without a mailbox record retains its explicitly allowed
+        // exact spelling. Once a mailbox has an owner, consult that binding.
+        // Resolve distinct users before checking passwords, including any user whose
+        // exact username collides with an alias but has no password method.
+        let name: Option<String> = sqlx::query_scalar(
+            r#"WITH candidates AS (
+                SELECT user_id FROM core_identity.user_profiles WHERE username=$1
+                UNION
+                SELECT pr.user_id FROM core_identity.user_profiles pr
+                WHERE pr.email_login_allowed AND pr.email<>'' AND pr.email=$1
+                  AND NOT EXISTS (SELECT 1 FROM core_identity.email_addresses e
+                      WHERE e.user_id=pr.user_id OR e.email_key=lower(btrim(pr.email) COLLATE "C"))
+                UNION
+                SELECT pr.user_id FROM core_identity.email_addresses e
+                JOIN core_identity.user_profiles pr ON pr.user_id=e.user_id
+                WHERE e.email_key=$2 AND pr.email_login_allowed AND e.email_version=pr.email_version
+                  AND ((e.state='verified' AND lower(btrim(pr.email) COLLATE "C")=e.email_key)
+                    OR (e.state='legacy_unverified' AND btrim(pr.email)=$1))
+            ), unique_owner AS (
+                SELECT min(user_id) AS user_id FROM candidates HAVING count(*)=1
+            )
+            SELECT p.login_name FROM unique_owner o
+            JOIN core_identity.password_logins p ON p.user_id=o.user_id"#,
         )
         .bind(identifier)
         .bind(email.as_ref().map(email::EmailAddress::as_str))
-        .fetch_all(&self.store.pool)
+        .fetch_optional(&self.store.pool)
         .await?;
         // Still perform a bounded dummy hash for unknown and ambiguous identities.
-        let canonical = if names.len() == 1 {
-            names[0].clone()
-        } else {
-            format!("missing_{}", &new_secret("")?[..32])
+        let missing = name.is_none();
+        let canonical = match name {
+            Some(name) => name,
+            None => format!("missing_{}", &new_secret("")?[..32]),
         };
         let verified = self.store.verified_password(&canonical, password).await?;
-        if names.len() != 1 {
+        if missing {
             return Err(IdentityError::Unauthorized);
         }
         Ok((canonical, verified))
