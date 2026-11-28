@@ -1101,7 +1101,8 @@ mod tests {
                         "input_tokens": 30, "output_tokens": 5, "total_tokens": 35,
                         "input_tokens_details": {"cached_tokens": 20, "cache_write_tokens": 0},
                         "attribution": {"items": {}},
-                        "linapi_cache_billing": {"billed_cached_tokens": 20}
+                        "linapi_cache_billing": {"billed_cached_tokens": 20},
+                        "x_details": [{"input_tokens": 30, "output_tokens": 5}]
                     }
                 }
             })))
